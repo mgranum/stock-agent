@@ -14,17 +14,13 @@ from src.backtest_config import (
 from src.walk_forward import rolling_walk_forward
 from src.walk_forward_report import summarize_rolling_walk_forward
 from src.portfolio_allocation import build_portfolio_allocation
+from src.orders import analyze_pending_orders
+from src.user_data import PORTFOLIO, PENDING_ORDERS
 
 try:
     from src.watchlists import WATCHLIST_OBX
 except ImportError:
     WATCHLIST_OBX = []
-
-
-PORTFOLIO = [
-    {"ticker": "AAPL", "shares": 8, "buy_price": 185.00},
-    {"ticker": "NVDA", "shares": 5, "buy_price": 120.00},
-]
 
 
 WATCHLISTS = {
@@ -64,12 +60,10 @@ def get_active_backtest_config():
     return SIGNAL_BACKTEST_BASELINE
 
 
-selected_symbols = get_active_watchlist()
-
 if "context" not in st.session_state:
     with st.spinner("Analyserer watchlist og portefølje..."):
         st.session_state.context = build_agent_context(
-            selected_symbols,
+            get_active_watchlist(),
             PORTFOLIO,
             pause_seconds=1,
         )
@@ -150,11 +144,12 @@ watchlist_report = st.session_state.context["watchlist_report"]
 portfolio_report = st.session_state.context["portfolio_report"]
 ranked = rank_report(watchlist_report)
 
-tab_ranking, tab_screening, tab_allocation, tab_portfolio, tab_snapshots, tab_backtest, tab_walk_forward, tab_chat = st.tabs(
+tab_ranking, tab_screening, tab_allocation, tab_orders, tab_portfolio, tab_snapshots, tab_backtest, tab_walk_forward, tab_chat = st.tabs(
     [
         "Rangering",
         "Screening",
         "Allocation",
+        "Ordre",
         "Portefølje",
         "Snapshots",
         "Backtest",
@@ -228,6 +223,16 @@ with tab_allocation:
 
     st.markdown("### Ikke kjøp / vurder salg")
     show_dataframe(allocation["avoid_list"])
+
+with tab_orders:
+    st.subheader("Pending ordre")
+
+    pending_orders = analyze_pending_orders(
+        PENDING_ORDERS,
+        watchlist_report,
+    )
+
+    show_dataframe(pending_orders)
 
 with tab_portfolio:
     st.subheader("Portefølje")
