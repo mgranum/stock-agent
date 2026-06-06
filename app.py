@@ -15,7 +15,21 @@ from src.walk_forward import rolling_walk_forward
 from src.walk_forward_report import summarize_rolling_walk_forward
 from src.portfolio_allocation import build_portfolio_allocation
 from src.orders import analyze_pending_orders
-from src.user_data import PORTFOLIO, PENDING_ORDERS
+from src.environment import (
+    environment_label,
+    is_prod,
+)
+
+if is_prod():
+    from src.user_data_prod import (
+        PORTFOLIO,
+        PENDING_ORDERS,
+    )
+else:
+    from src.user_data import (
+        PORTFOLIO,
+        PENDING_ORDERS,
+    )
 
 try:
     from src.watchlists import WATCHLIST_OBX
@@ -39,6 +53,11 @@ st.set_page_config(
 
 st.title("📈 Aksjeagent")
 st.caption("Beslutningsstøtte for aksjer – ikke automatisk handel.")
+
+if is_prod():
+    st.error(environment_label())
+else:
+    st.info(environment_label())
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -111,6 +130,7 @@ def show_dataframe(df):
 
 with st.sidebar:
     st.header("Kontrollpanel")
+    st.caption(environment_label())
 
     selected = st.selectbox(
         "Watchlist",
