@@ -25,6 +25,7 @@ from src.order_editor import (
 )
 from src.portfolio import summarize_portfolio
 from src.config import load_watchlists, load_backtest_config
+from src.dashboard import build_dashboard
 
 
 WATCHLISTS = load_watchlists()
@@ -179,9 +180,16 @@ watchlist_report = st.session_state.context["watchlist_report"]
 portfolio_report = st.session_state.context["portfolio_report"]
 ranked = rank_report(watchlist_report)
 
+dashboard = build_dashboard(
+    watchlist_report=watchlist_report,
+    portfolio_report=portfolio_report,
+    pending_orders=load_pending_orders([]),
+)
 
-tab_ranking, tab_screening, tab_allocation, tab_orders, tab_portfolio, tab_history, tab_snapshots, tab_backtest, tab_walk_forward, tab_chat = st.tabs(
+
+tab_dashboard, tab_ranking, tab_screening, tab_allocation, tab_orders, tab_portfolio, tab_history, tab_snapshots, tab_backtest, tab_walk_forward, tab_chat = st.tabs(
     [
+        "Dashboard",
         "Rangering",
         "Screening",
         "Allocation",
@@ -194,6 +202,68 @@ tab_ranking, tab_screening, tab_allocation, tab_orders, tab_portfolio, tab_histo
         "Chat",
     ]
 )
+
+
+with tab_dashboard:
+    st.subheader("Dagens situasjon")
+
+    market = dashboard["market_summary"]
+    portfolio_summary = dashboard["portfolio_summary"]
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric(
+        "Kjøpskandidater",
+        market["buy_count"],
+    )
+
+    col2.metric(
+        "Hold / observer",
+        market["hold_count"],
+    )
+
+    col3.metric(
+        "Unngå / selg",
+        market["avoid_count"],
+    )
+
+    col4.metric(
+        "Aksjer analysert",
+        market["total_symbols"],
+    )
+
+    st.markdown("### Portefølje")
+
+    p1, p2, p3, p4 = st.columns(4)
+
+    p1.metric(
+        "Kostverdi",
+        portfolio_summary["total_cost_value"],
+    )
+
+    p2.metric(
+        "Markedsverdi",
+        portfolio_summary["total_market_value"],
+    )
+
+    p3.metric(
+        "Urealisert gevinst/tap",
+        portfolio_summary["total_unrealized_profit_loss"],
+    )
+
+    p4.metric(
+        "Urealisert %",
+        f"{portfolio_summary['total_unrealized_gain_pct']}%",
+    )
+
+    st.markdown("### Topp kjøpskandidater")
+    show_dataframe(dashboard["top_buy_candidates"])
+
+    st.markdown("### Viktigste varsler")
+    show_dataframe(dashboard["risk_alerts"])
+
+    st.markdown("### Pending ordre")
+    show_dataframe(dashboard["pending_orders"])
 
 
 with tab_ranking:
