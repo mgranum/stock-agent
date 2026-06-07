@@ -11,6 +11,9 @@ def build_dashboard(
 ):
     return {
         "portfolio_summary": summarize_portfolio(portfolio_report),
+        "portfolio_risk": _portfolio_risk(portfolio_report),
+        "weakening_positions": _weakening_positions(portfolio_report),
+        "strong_winners": _strong_winners(portfolio_report),
         "top_buy_candidates": _top_buy_candidates(watchlist_report),
         "risk_alerts": _risk_alerts(watchlist_report, portfolio_report),
         "pending_orders": analyze_pending_orders(
@@ -109,3 +112,103 @@ def _market_summary(watchlist_report):
             (watchlist_report["anbefaling"] == "UNNGÅ / SELG").sum()
         ),
     }
+
+
+# Portfolio risk and concentration analysis
+def _portfolio_risk(portfolio_report):
+    if portfolio_report is None or portfolio_report.empty:
+        return {
+            "positions": 0,
+            "total_market_value": 0,
+            "top_position_pct": 0,
+            "top3_concentration_pct": 0,
+            "top_positions": pd.DataFrame(),
+            "allocations": pd.DataFrame(),
+        }
+
+    df = portfolio_report.copy()
+
+    if "error" in df.columns:
+        df = df[df["error"].isna()]
+
+    if df.empty:
+        return {
+            "positions": 0,
+            "total_market_value": 0,
+            "top_position_pct": 0,
+            "top3_concentration_pct": 0,
+            "top_positions": pd.DataFrame(),
+            "allocations": pd.DataFrame(),
+        }
+
+    total_market = df["market_value"].sum()
+    alloc = df[["ticker", "market_value"]].copy()
+    alloc = alloc.groupby("ticker", as_index=False).sum()
+    alloc["allocation_pct"] = alloc["market_value"] / total_market * 100
+    alloc = alloc.sort_values(by="allocation_pct", ascending=False).reset_index(drop=True)
+
+    top_positions = alloc.head(5).copy()
+
+    top_position_pct = round(float(top_positions.iloc[0]["allocation_pct"]) if not top_positions.empty else 0, 2)
+    top3_conc = round(float(top_positions.head(3)["allocation_pct"].sum()) if not top_positions.empty else 0, 2)
+
+    # Return both metrics and DataFrames
+    return {
+        "positions": len(alloc),
+        "total_market_value": round(total_market, 2),
+        "top_position_pct": top_position_pct,
+        "top3_concentration_pct": top3_conc,
+        "top_positions": top_positions,
+        "allocations": alloc,
+    }
+
+
+def _weakening_positions(portfolio_report):
+    if portfolio_report is None or portfolio_report.empty:
+        return pd.DataFrame()
+
+    df = portfolio_report.copy()
+    if "error" in df.columns:
+        df = df[df["error"].isna()]
+
+    if df.empty:
+        return pd.DataFrame()
+
+    filt = (
+        (df.get("trend_regime") == "SVAK / NEGATIV TREND")
+        | (df.get("relative_strength_20d", 0) < 0)
+    )
+
+    res = df[filt].copy()
+    if res.empty:
+        return pd.DataFrame()
+
+    cols = ["ticker", "market_value", "unrealized_gain_pct", "trend_regime", "relative_strength_20d"]
+    present_cols = [c for c in cols if c in res.columns]
+    res = res[present_cols].sort_values(by=["relative_strength_20d", "unrealized_gain_pct"], ascending=[True, True]).reset_index(drop=True)
+
+    return res
+
+
+def _strong_winners(portfolio_report):
+    if portfolio_report is None or portfolio_report.empty:
+        return pd.DataFrame()
+
+    df = portfolio_report.copy()
+    if "error" in df.columns:
+        df = df[df["error"].isna()]
+
+    if df.empty:
+        return pd.DataFrame()
+
+    filt = (df.get("unrealized_gain_pct", -999) > 15) & (df.get("trend_regime") != "SVAK / NEGATIV TREND")
+
+    res = df[filt].copy()
+    if res.empty:
+        return pd.DataFrame()
+
+    cols = ["ticker", "market_value", "unrealized_gain_pct", "trend_regime"]
+    present_cols = [c for c in cols if c in res.columns]
+    res = res[present_cols].sort_values(by=["unrealized_gain_pct"], ascending=[False]).reset_index(drop=True)
+
+    return res

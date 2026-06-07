@@ -256,6 +256,46 @@ with tab_dashboard:
         f"{portfolio_summary['total_unrealized_gain_pct']}%",
     )
 
+    # Portfolio risk section
+    st.markdown("### Portfolio Risk")
+    pr = dashboard.get("portfolio_risk", {})
+
+    r1, r2, r3 = st.columns(3)
+    r1.metric(
+        "Antall posisjoner",
+        pr.get("positions", portfolio_summary.get("positions", 0)),
+    )
+
+    r2.metric(
+        "Topp posisjon %",
+        f"{pr.get('top_position_pct', 0)}%",
+    )
+
+    r3.metric(
+        "Top 3 konsentrasjon %",
+        f"{pr.get('top3_concentration_pct', 0)}%",
+    )
+
+    st.markdown("Topp posisjoner")
+    try:
+        show_dataframe(pr.get("top_positions", None))
+    except Exception:
+        st.info("Ingen topp posisjoner.")
+
+    st.markdown("Allokering (topp 10)")
+    try:
+        show_dataframe(pr.get("allocations", None).head(10))
+    except Exception:
+        st.info("Ingen allokeringst data.")
+
+    # Weakening positions
+    st.markdown("### Svekkende posisjoner")
+    show_dataframe(dashboard.get("weakening_positions"))
+
+    # Strong existing winners
+    st.markdown("### Sterke vinnere i porteføljen")
+    show_dataframe(dashboard.get("strong_winners"))
+
     st.markdown("### Topp kjøpskandidater")
     show_dataframe(dashboard["top_buy_candidates"])
 
