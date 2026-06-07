@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 
 from src.agent import ask_agent
 from src.context import build_agent_context
@@ -15,20 +16,28 @@ from src.walk_forward import rolling_walk_forward
 from src.walk_forward_report import summarize_rolling_walk_forward
 from src.portfolio_allocation import build_portfolio_allocation
 from src.orders import analyze_pending_orders
-from src.environment import (
-    environment_label,
-    is_prod,
+from src.environment import environment_label, is_prod
+from src.storage import (
+    load_portfolio,
+    load_pending_orders,
+    load_order_history,
+)
+from src.order_editor import (
+    create_buy_order,
+    create_sell_order,
+    execute_order,
+    cancel_order,
 )
 
 if is_prod():
     from src.user_data_prod import (
-        PORTFOLIO,
-        PENDING_ORDERS,
+        PORTFOLIO as DEFAULT_PORTFOLIO,
+        PENDING_ORDERS as DEFAULT_PENDING_ORDERS,
     )
 else:
     from src.user_data import (
-        PORTFOLIO,
-        PENDING_ORDERS,
+        PORTFOLIO as DEFAULT_PORTFOLIO,
+        PENDING_ORDERS as DEFAULT_PENDING_ORDERS,
     )
 
 try:
@@ -58,6 +67,10 @@ if is_prod():
     st.error(environment_label())
 else:
     st.info(environment_label())
+
+PORTFOLIO = load_portfolio(DEFAULT_PORTFOLIO)
+PENDING_ORDERS = load_pending_orders(DEFAULT_PENDING_ORDERS)
+ORDER_HISTORY = load_order_history([])
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -90,9 +103,11 @@ if "context" not in st.session_state:
 
 def refresh_context():
     with st.spinner("Oppdaterer analyser..."):
+        portfolio = load_portfolio(DEFAULT_PORTFOLIO)
+
         st.session_state.context = build_agent_context(
             get_active_watchlist(),
-            PORTFOLIO,
+            portfolio,
             pause_seconds=1,
         )
 
@@ -118,14 +133,31 @@ def show_ranking_table(df):
 
 
 def show_dataframe(df):
-    if df is None or df.empty:
-        st.info("Ingen data å vise.")
-    else:
+    if df is None:
+        st.info("Ingen data.")
+        return
+
+    if isinstance(df, pd.DataFrame):
+        if df.empty:
+            st.info("Ingen data.")
+            return
+
         st.dataframe(
             df,
             width="stretch",
             hide_index=True,
         )
+        return
+
+    if len(df) == 0:
+        st.info("Ingen data.")
+        return
+
+    st.dataframe(
+        pd.DataFrame(df),
+        width="stretch",
+        hide_index=True,
+    )
 
 
 with st.sidebar:
@@ -150,7 +182,7 @@ with st.sidebar:
         st.success("Analyser oppdatert.")
 
     if st.button("Lagre snapshot"):
-        df, path = save_model_snapshot(
+        _, path = save_model_snapshot(
             get_active_watchlist()
         )
         st.success(f"Snapshot lagret: {path}")
@@ -164,13 +196,14 @@ watchlist_report = st.session_state.context["watchlist_report"]
 portfolio_report = st.session_state.context["portfolio_report"]
 ranked = rank_report(watchlist_report)
 
-tab_ranking, tab_screening, tab_allocation, tab_orders, tab_portfolio, tab_snapshots, tab_backtest, tab_walk_forward, tab_chat = st.tabs(
+tab_ranking, tab_screening, tab_allocation, tab_orders, tab_portfolio, tab_history, tab_snapshots, tab_backtest, tab_walk_forward, tab_chat = st.tabs(
     [
         "Rangering",
         "Screening",
         "Allocation",
         "Ordre",
         "Portefølje",
+        "Historikk",
         "Snapshots",
         "Backtest",
         "Walk-forward",
@@ -247,24 +280,227 @@ with tab_allocation:
 with tab_orders:
     st.subheader("Pending ordre")
 
+    current_orders = load_pending_orders(
+        DEFAULT_PENDING_ORDERS
+    )
+
+    current_portfolio = load_portfolio(
+        DEFAULT_PORTFOLIO
+    )
+
     pending_orders = analyze_pending_orders(
-        PENDING_ORDERS,
+        current_orders,
         watchlist_report,
     )
 
     show_dataframe(pending_orders)
 
+    st.markdown("## Ny kjøpsordre")
+
+    with st.form("buy_order_form"):
+        buy_ticker = st.text_input(
+            "Ticker",
+            value="AAPL",
+        )
+
+        buy_shares = st.number_input(
+            "Antall aksjer",
+            min_value=1.0,
+            value=1.0,
+            step=1.0,
+        )
+
+        buy_limit = st.number_input(
+            "Limit-kurs",
+            min_value=0.0,
+            value=0.0,
+            step=1.0,
+        )
+
+        buy_note = st.text_input(
+            "Notat",
+            value="",
+        )
+
+        buy_submit = st.form_submit_button(
+            "Opprett kjøpsordre"
+        )
+
+        if buy_submit:
+            create_buy_order(
+                current_orders,
+                ticker=buy_ticker,
+                shares=buy_shares,
+                limit_price=buy_limit if buy_limit > 0 else None,
+                note=buy_note,
+            )
+
+            st.success("Kjøpsordre opprettet.")
+            st.rerun()
+
+    st.markdown("## Ny salgsordre")
+
+    if current_portfolio:
+        position_options = {
+            f"{p['ticker']} | {p['shares']} aksjer | kjøpt {p.get('buy_datetime', 'ukjent')}": p
+            for p in current_portfolio
+        }
+
+        with st.form("sell_order_form"):
+            selected_position_label = st.selectbox(
+                "Velg posisjon",
+                list(position_options.keys()),
+            )
+
+            selected_position = position_options[
+                selected_position_label
+            ]
+
+            sell_shares = st.number_input(
+                "Antall aksjer å selge",
+                min_value=1.0,
+                max_value=float(selected_position["shares"]),
+                value=float(selected_position["shares"]),
+                step=1.0,
+            )
+
+            sell_limit = st.number_input(
+                "Limit-kurs",
+                min_value=0.0,
+                value=0.0,
+                step=1.0,
+            )
+
+            sell_note = st.text_input(
+                "Notat",
+                value="",
+                key="sell_note",
+            )
+
+            sell_submit = st.form_submit_button(
+                "Opprett salgsordre"
+            )
+
+            if sell_submit:
+                create_sell_order(
+                    current_orders,
+                    current_portfolio,
+                    position_id=selected_position["position_id"],
+                    shares=sell_shares,
+                    limit_price=sell_limit if sell_limit > 0 else None,
+                    note=sell_note,
+                )
+
+                st.success("Salgsordre opprettet.")
+                st.rerun()
+
+    st.markdown("## Effektuer / kanseller ordre")
+
+    if current_orders:
+        order_options = {
+            f"{o['ticker']} | {o['action']} | {o['shares']} aksjer": o
+            for o in current_orders
+        }
+
+        selected_order_label = st.selectbox(
+            "Velg pending ordre",
+            list(order_options.keys()),
+        )
+
+        selected_order = order_options[
+            selected_order_label
+        ]
+
+        execution_price = st.number_input(
+            "Effektuert kurs",
+            min_value=0.0,
+            value=float(
+                selected_order.get("limit_price") or 0.0
+            ),
+            step=1.0,
+        )
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("Bekreft effektuering"):
+                execute_order(
+                    current_orders,
+                    current_portfolio,
+                    order_id=selected_order["order_id"],
+                    executed_price=execution_price,
+                )
+
+                refresh_context()
+
+                st.success("Ordre effektuert.")
+                st.rerun()
+
+        with col2:
+            if st.button("Ordre ikke effektuert"):
+                cancel_order(
+                    current_orders,
+                    selected_order["order_id"],
+                )
+
+                st.warning("Ordre kansellert.")
+                st.rerun()
+
 with tab_portfolio:
     st.subheader("Portefølje")
 
     if portfolio_report is None or portfolio_report.empty:
-        st.info("Ingen portefølje lagt inn.")
+        st.info("Ingen portefølje.")
     else:
+        from src.portfolio import summarize_portfolio
+
+        summary = summarize_portfolio(portfolio_report)
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        col1.metric(
+            "Kostverdi",
+            summary["total_cost_value"],
+        )
+
+        col2.metric(
+            "Markedsverdi",
+            summary["total_market_value"],
+        )
+
+        col3.metric(
+            "Urealisert gevinst/tap",
+            summary["total_unrealized_profit_loss"],
+        )
+
+        col4.metric(
+            "Urealisert %",
+            f"{summary['total_unrealized_gain_pct']}%",
+        )
+
+        st.markdown("### Posisjoner")
+
         st.dataframe(
             portfolio_report,
             width="stretch",
             hide_index=True,
         )
+
+    st.markdown("### Rå porteføljedata")
+    show_dataframe(PORTFOLIO)
+
+with tab_history:
+    st.subheader("Ordrehistorikk")
+
+    from src.orders import analyze_order_history
+
+    order_history = load_order_history([])
+
+    history_report = analyze_order_history(
+        order_history
+    )
+
+    show_dataframe(history_report)
 
 with tab_snapshots:
     st.subheader("Snapshot-historikk")
