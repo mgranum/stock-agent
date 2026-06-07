@@ -1,6 +1,6 @@
 import pandas as pd
 
-from src.backtest_config import SIGNAL_BACKTEST_BASELINE
+from src.config import load_backtest_config
 from src.signal_backtest import backtest_signal_watchlist
 
 
@@ -17,14 +17,7 @@ def rolling_walk_forward(
         test_periods = ["6mo", "1y"]
 
     if configs is None:
-        base = SIGNAL_BACKTEST_BASELINE
-
-        configs = [
-            {**base, "name": "baseline"},
-            {**base, "name": "stricter_buy", "min_buy_score": 80},
-            {**base, "name": "stronger_rs", "min_buy_relative_strength": 3},
-            {**base, "name": "risk_on", "require_risk_on": True},
-        ]
+        configs = _default_configs()
 
     rows = []
 
@@ -130,6 +123,18 @@ def summarize_result(config_name, period, result):
         "beat_buy_hold_count": int((result["difference_pct"] > 0).sum()),
         "tested_symbols": len(result),
     }
+
+
+def _default_configs():
+    config = load_backtest_config()
+    base = config["baseline"]
+
+    return [
+        {**base, "name": "baseline"},
+        {**base, "name": "stricter_buy", "min_buy_score": 80},
+        {**base, "name": "stronger_rs", "min_buy_relative_strength": 3},
+        {**base, "name": "risk_on", "require_risk_on": True},
+    ]
 
 
 def _config_kwargs(config):

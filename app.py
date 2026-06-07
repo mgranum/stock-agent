@@ -4,18 +4,13 @@ import pandas as pd
 from src.agent import ask_agent
 from src.context import build_agent_context
 from src.ranking import ranking_table
-from src.watchlists import WATCHLIST_ALL, WATCHLIST_US, WATCHLIST_NORDICS
 from src.model_backtest import save_model_snapshot, compare_snapshots
 from src.signal_backtest import backtest_signal_watchlist
 from src.backtest_report import summarize_backtest_result
-from src.backtest_config import (
-    SIGNAL_BACKTEST_BASELINE,
-    SIGNAL_BACKTEST_OBX,
-)
 from src.walk_forward import rolling_walk_forward
 from src.walk_forward_report import summarize_rolling_walk_forward
 from src.portfolio_allocation import build_portfolio_allocation
-from src.orders import analyze_pending_orders
+from src.orders import analyze_pending_orders, analyze_order_history
 from src.environment import environment_label, is_prod
 from src.storage import (
     load_portfolio,
@@ -28,30 +23,12 @@ from src.order_editor import (
     execute_order,
     cancel_order,
 )
-
-if is_prod():
-    from src.user_data_prod import (
-        PORTFOLIO as DEFAULT_PORTFOLIO,
-        PENDING_ORDERS as DEFAULT_PENDING_ORDERS,
-    )
-else:
-    from src.user_data import (
-        PORTFOLIO as DEFAULT_PORTFOLIO,
-        PENDING_ORDERS as DEFAULT_PENDING_ORDERS,
-    )
-
-try:
-    from src.watchlists import WATCHLIST_OBX
-except ImportError:
-    WATCHLIST_OBX = []
+from src.portfolio import summarize_portfolio
+from src.config import load_watchlists, load_backtest_config
 
 
-WATCHLISTS = {
-    "Alle": WATCHLIST_ALL,
-    "USA": WATCHLIST_US,
-    "Norden": WATCHLIST_NORDICS,
-    "OBX": WATCHLIST_OBX,
-}
+WATCHLISTS = load_watchlists()
+BACKTEST_CONFIG = load_backtest_config()
 
 
 st.set_page_config(
@@ -68,9 +45,11 @@ if is_prod():
 else:
     st.info(environment_label())
 
-PORTFOLIO = load_portfolio(DEFAULT_PORTFOLIO)
-PENDING_ORDERS = load_pending_orders(DEFAULT_PENDING_ORDERS)
+
+PORTFOLIO = load_portfolio([])
+PENDING_ORDERS = load_pending_orders([])
 ORDER_HISTORY = load_order_history([])
+
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -87,9 +66,15 @@ def get_active_watchlist():
 
 def get_active_backtest_config():
     if st.session_state.selected_watchlist_name == "OBX":
-        return SIGNAL_BACKTEST_OBX
+        config = BACKTEST_CONFIG["obx"]
+    else:
+        config = BACKTEST_CONFIG["baseline"]
 
-    return SIGNAL_BACKTEST_BASELINE
+    return {
+        "period": "2y",
+        "initial_cash": 10000,
+        **config,
+    }
 
 
 if "context" not in st.session_state:
@@ -103,11 +88,9 @@ if "context" not in st.session_state:
 
 def refresh_context():
     with st.spinner("Oppdaterer analyser..."):
-        portfolio = load_portfolio(DEFAULT_PORTFOLIO)
-
         st.session_state.context = build_agent_context(
             get_active_watchlist(),
-            portfolio,
+            load_portfolio([]),
             pause_seconds=1,
         )
 
@@ -196,6 +179,7 @@ watchlist_report = st.session_state.context["watchlist_report"]
 portfolio_report = st.session_state.context["portfolio_report"]
 ranked = rank_report(watchlist_report)
 
+
 tab_ranking, tab_screening, tab_allocation, tab_orders, tab_portfolio, tab_history, tab_snapshots, tab_backtest, tab_walk_forward, tab_chat = st.tabs(
     [
         "Rangering",
@@ -211,9 +195,11 @@ tab_ranking, tab_screening, tab_allocation, tab_orders, tab_portfolio, tab_histo
     ]
 )
 
+
 with tab_ranking:
     st.subheader("Rangert watchlist")
     show_ranking_table(ranked)
+
 
 with tab_screening:
     st.subheader("Screening")
@@ -261,6 +247,7 @@ with tab_screening:
     st.markdown("### Sterke fundamentals, men ikke kjøp nå")
     show_ranking_table(quality_not_buy)
 
+
 with tab_allocation:
     st.subheader("Kapitalallokering")
 
@@ -277,16 +264,12 @@ with tab_allocation:
     st.markdown("### Ikke kjøp / vurder salg")
     show_dataframe(allocation["avoid_list"])
 
+
 with tab_orders:
     st.subheader("Pending ordre")
 
-    current_orders = load_pending_orders(
-        DEFAULT_PENDING_ORDERS
-    )
-
-    current_portfolio = load_portfolio(
-        DEFAULT_PORTFOLIO
-    )
+    current_orders = load_pending_orders([])
+    current_portfolio = load_portfolio([])
 
     pending_orders = analyze_pending_orders(
         current_orders,
@@ -342,7 +325,11 @@ with tab_orders:
 
     if current_portfolio:
         position_options = {
-            f"{p['ticker']} | {p['shares']} aksjer | kjøpt {p.get('buy_datetime', 'ukjent')}": p
+            (
+                f"{p['ticker']} | "
+                f"{p['shares']} aksjer | "
+                f"kjøpt {p.get('buy_datetime', 'ukjent')}"
+            ): p
             for p in current_portfolio
         }
 
@@ -393,6 +380,8 @@ with tab_orders:
 
                 st.success("Salgsordre opprettet.")
                 st.rerun()
+    else:
+        st.info("Ingen posisjoner å selge fra.")
 
     st.markdown("## Effektuer / kanseller ordre")
 
@@ -445,6 +434,9 @@ with tab_orders:
 
                 st.warning("Ordre kansellert.")
                 st.rerun()
+    else:
+        st.info("Ingen pending ordre.")
+
 
 with tab_portfolio:
     st.subheader("Portefølje")
@@ -452,8 +444,6 @@ with tab_portfolio:
     if portfolio_report is None or portfolio_report.empty:
         st.info("Ingen portefølje.")
     else:
-        from src.portfolio import summarize_portfolio
-
         summary = summarize_portfolio(portfolio_report)
 
         col1, col2, col3, col4 = st.columns(4)
@@ -487,20 +477,18 @@ with tab_portfolio:
         )
 
     st.markdown("### Rå porteføljedata")
-    show_dataframe(PORTFOLIO)
+    show_dataframe(load_portfolio([]))
+
 
 with tab_history:
     st.subheader("Ordrehistorikk")
 
-    from src.orders import analyze_order_history
-
-    order_history = load_order_history([])
-
     history_report = analyze_order_history(
-        order_history
+        load_order_history([])
     )
 
     show_dataframe(history_report)
+
 
 with tab_snapshots:
     st.subheader("Snapshot-historikk")
@@ -515,6 +503,7 @@ with tab_snapshots:
             width="stretch",
             hide_index=True,
         )
+
 
 with tab_backtest:
     st.subheader("Backtest av signalmodell")
@@ -544,6 +533,7 @@ with tab_backtest:
             )
         )
 
+
 with tab_walk_forward:
     st.subheader("Rolling walk-forward")
 
@@ -565,6 +555,7 @@ with tab_walk_forward:
                 st.session_state.walk_forward_result
             )
         )
+
 
 with tab_chat:
     for message in st.session_state.messages:
