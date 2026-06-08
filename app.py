@@ -26,6 +26,7 @@ from src.order_editor import (
 from src.portfolio import summarize_portfolio
 from src.config import load_watchlists, load_backtest_config
 from src.dashboard import build_dashboard
+from src.strategy_classification import STRATEGY_TYPES
 
 
 WATCHLISTS = load_watchlists()
@@ -184,6 +185,7 @@ dashboard = build_dashboard(
     watchlist_report=watchlist_report,
     portfolio_report=portfolio_report,
     pending_orders=load_pending_orders([]),
+    watchlist_symbols=get_active_watchlist(),
 )
 
 
@@ -205,6 +207,41 @@ tab_dashboard, tab_ranking, tab_screening, tab_allocation, tab_orders, tab_portf
 
 
 with tab_dashboard:
+    st.markdown("### Markedsregime")
+    market_regime = dashboard["market_regime"]
+
+    if not market_regime.get("available"):
+        st.info(market_regime.get("message", "Markedsregime utilgjengelig."))
+    else:
+        st.markdown(f"**{market_regime['regime_label']}**")
+
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Benchmark", market_regime["benchmark_symbol"])
+        m2.metric("Kurs", market_regime["benchmark_price"])
+        m3.metric("SMA20", market_regime["sma20"])
+        m4.metric("SMA50", market_regime["sma50"])
+        m5.metric("SMA100", market_regime["sma100"])
+
+        if market_regime["reasons"]:
+            st.caption(" · ".join(market_regime["reasons"]))
+
+        st.info(market_regime["interpretation"])
+
+        kpis = market_regime["watchlist_kpis"]
+        k1, k2, k3 = st.columns(3)
+        k1.metric(
+            "Sterk opptrend",
+            f"{kpis['strong_uptrend_pct']}%",
+        )
+        k2.metric(
+            "Svak/negativ trend",
+            f"{kpis['weak_trend_pct']}%",
+        )
+        k3.metric(
+            "Snitt relativ styrke",
+            f"{kpis['avg_relative_strength']}%",
+        )
+
     st.subheader("Dagens situasjon")
 
     market = dashboard["market_summary"]
@@ -231,6 +268,33 @@ with tab_dashboard:
         "Aksjer analysert",
         market["total_symbols"],
     )
+
+    st.markdown("### Strategityper")
+    strategy_counts = dashboard.get("strategy_type_counts", {})
+    if not strategy_counts or sum(strategy_counts.values()) == 0:
+        st.info("Ingen strategidata tilgjengelig.")
+    else:
+        strategy_labels = {
+            "QUALITY_COMPOUNDER": "Quality Compounder",
+            "COMPOUNDER": "Compounder",
+            "MOMENTUM": "Momentum",
+            "CYCLICAL": "Cyclical",
+            "WEAK/AVOID": "Weak/Avoid",
+            "UNKNOWN": "Unknown",
+        }
+        columns = st.columns(len(STRATEGY_TYPES))
+        for column, strategy_type in zip(columns, STRATEGY_TYPES):
+            column.metric(
+                strategy_labels.get(strategy_type, strategy_type),
+                strategy_counts.get(strategy_type, 0),
+            )
+
+    st.markdown("### Strategiprofiler")
+    strategy_profiles = dashboard.get("strategy_profiles")
+    if strategy_profiles is None or strategy_profiles.empty:
+        st.info("Ingen strategiprofiler tilgjengelig.")
+    else:
+        show_dataframe(strategy_profiles)
 
     st.markdown("### Endringer siden sist snapshot")
     snapshot_changes = dashboard.get("changes_since_last_snapshot")

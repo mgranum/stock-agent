@@ -1,19 +1,34 @@
+from collections import Counter
+
 import pandas as pd
 
+from src.data import get_daily_prices
+from src.indicators import add_indicators
 from src.model_backtest import load_snapshots
-from src.portfolio import summarize_portfolio
 from src.orders import analyze_pending_orders
+from src.portfolio import summarize_portfolio
+from src.regime import analyze_market_regime
+from src.strategy_classification import add_strategy_types, strategy_type_counts
+from src.strategy_profiles import (
+    add_strategy_profile_columns,
+    strategy_profiles_overview,
+)
+from src.technicals import get_benchmark_for_symbol
 
 
 def build_dashboard(
     watchlist_report,
     portfolio_report,
     pending_orders,
+    watchlist_symbols=None,
 ):
     return {
         "portfolio_summary": summarize_portfolio(portfolio_report),
         "portfolio_risk": _portfolio_risk(portfolio_report),
-        "weakening_positions": _weakening_positions(portfolio_report),
+        "weakening_positions": _weakening_positions(
+            portfolio_report,
+            watchlist_report,
+        ),
         "strong_winners": _strong_winners(portfolio_report),
         "top_buy_candidates": _top_buy_candidates(watchlist_report),
         "risk_alerts": _risk_alerts(watchlist_report, portfolio_report),
@@ -22,10 +37,140 @@ def build_dashboard(
             watchlist_report,
         ),
         "market_summary": _market_summary(watchlist_report),
+        "market_regime": build_market_regime_summary(
+            watchlist_symbols or [],
+            watchlist_report,
+        ),
         "changes_since_last_snapshot": _changes_since_last_snapshot(
             watchlist_report,
         ),
+        "strategy_type_counts": strategy_type_counts(watchlist_report),
+        "strategy_profiles": strategy_profiles_overview(),
     }
+
+
+def build_market_regime_summary(watchlist_symbols, watchlist_report=None):
+    unavailable = {
+        "available": False,
+        "regime_label": "UNKNOWN",
+        "benchmark_symbol": None,
+        "benchmark_price": None,
+        "sma20": None,
+        "sma50": None,
+        "sma100": None,
+        "reasons": [],
+        "interpretation": "Markedsregime utilgjengelig.",
+        "watchlist_kpis": _watchlist_regime_kpis(watchlist_report),
+        "message": "Markedsregime utilgjengelig.",
+    }
+
+    if not watchlist_symbols:
+        return unavailable
+
+    benchmark_symbol = _benchmark_for_watchlist(watchlist_symbols)
+
+    try:
+        benchmark_df = get_daily_prices(benchmark_symbol)
+        benchmark_df = add_indicators(benchmark_df)
+    except (ValueError, KeyError):
+        return {
+            **unavailable,
+            "benchmark_symbol": benchmark_symbol,
+            "message": (
+                f"Kunne ikke hente benchmark-data for {benchmark_symbol}."
+            ),
+        }
+
+    if len(benchmark_df) < 100:
+        latest = benchmark_df.iloc[-1]
+        return {
+            **unavailable,
+            "benchmark_symbol": benchmark_symbol,
+            "benchmark_price": _round_metric(latest.get("close")),
+            "sma20": _round_metric(latest.get("sma20")),
+            "sma50": _round_metric(latest.get("sma50")),
+            "sma100": _round_metric(latest.get("sma100")),
+            "message": "For lite historikk til å beregne markedsregime.",
+        }
+
+    regime_result = analyze_market_regime(benchmark_df)
+    latest = benchmark_df.iloc[-1]
+    regime_label = _regime_display_label(regime_result)
+
+    return {
+        "available": True,
+        "regime_label": regime_label,
+        "benchmark_symbol": benchmark_symbol,
+        "benchmark_price": _round_metric(latest["close"]),
+        "sma20": _round_metric(latest["sma20"]),
+        "sma50": _round_metric(latest["sma50"]),
+        "sma100": _round_metric(latest["sma100"]),
+        "reasons": regime_result["market_regime_reasons"],
+        "interpretation": _regime_interpretation(regime_label),
+        "watchlist_kpis": _watchlist_regime_kpis(watchlist_report),
+        "message": None,
+    }
+
+
+def _benchmark_for_watchlist(symbols):
+    benchmarks = [get_benchmark_for_symbol(symbol) for symbol in symbols]
+    return Counter(benchmarks).most_common(1)[0][0]
+
+
+def _regime_display_label(regime_result):
+    score = regime_result["market_regime_score"]
+
+    if regime_result["market_regime"] == "RISK_ON":
+        return "RISK_ON"
+
+    if score == 1:
+        return "NEUTRAL"
+
+    return "RISK_OFF"
+
+
+def _regime_interpretation(regime_label):
+    interpretations = {
+        "RISK_ON": "Markedet støtter trendfølgende strategier",
+        "RISK_OFF": "Defensiv posisjonering anbefales",
+        "NEUTRAL": "Nøytralt marked – vær selektiv med nye posisjoner",
+        "UNKNOWN": "Markedsregime utilgjengelig",
+    }
+    return interpretations.get(
+        regime_label,
+        "Markedsregime utilgjengelig",
+    )
+
+
+def _watchlist_regime_kpis(watchlist_report):
+    if watchlist_report is None or watchlist_report.empty:
+        return {
+            "strong_uptrend_pct": 0,
+            "weak_trend_pct": 0,
+            "avg_relative_strength": 0,
+        }
+
+    total = len(watchlist_report)
+    strong = int(
+        (watchlist_report["trend_regime"] == "STERK OPPTREND").sum()
+    )
+    weak = int(
+        (watchlist_report["trend_regime"] == "SVAK / NEGATIV TREND").sum()
+    )
+    avg_rs = float(watchlist_report["relative_strength_20d"].mean())
+
+    return {
+        "strong_uptrend_pct": round(strong / total * 100, 1),
+        "weak_trend_pct": round(weak / total * 100, 1),
+        "avg_relative_strength": round(avg_rs, 2),
+    }
+
+
+def _round_metric(value):
+    if value is None or pd.isna(value):
+        return None
+
+    return round(float(value), 2)
 
 
 def _top_buy_candidates(watchlist_report):
@@ -39,6 +184,8 @@ def _top_buy_candidates(watchlist_report):
     if df.empty:
         return pd.DataFrame()
 
+    df = add_strategy_profile_columns(df)
+
     return df.sort_values(
         by=[
             "score",
@@ -49,6 +196,10 @@ def _top_buy_candidates(watchlist_report):
     )[
         [
             "ticker",
+            "strategy_type",
+            "style",
+            "preferred_hold_days",
+            "preferred_stop_loss_pct",
             "score",
             "trend_regime",
             "relative_strength_20d",
@@ -65,12 +216,25 @@ def _risk_alerts(watchlist_report, portfolio_report):
     if portfolio_report is None or portfolio_report.empty:
         return pd.DataFrame()
 
+    strategy_by_ticker = {}
+    if watchlist_report is not None and not watchlist_report.empty:
+        classified = add_strategy_types(watchlist_report)
+        strategy_by_ticker = dict(
+            zip(classified["ticker"], classified["strategy_type"])
+        )
+
     rows = []
 
     for _, row in portfolio_report.iterrows():
+        strategy_type = strategy_by_ticker.get(
+            row["ticker"],
+            "UNKNOWN",
+        )
+
         if row.get("trailing_stop_triggered") is True:
             rows.append({
                 "ticker": row["ticker"],
+                "strategy_type": strategy_type,
                 "alert": "Trailing stop trigget",
                 "severity": "HIGH",
                 "details": row.get("begrunnelse", ""),
@@ -79,6 +243,7 @@ def _risk_alerts(watchlist_report, portfolio_report):
         if row.get("trend_regime") == "SVAK / NEGATIV TREND":
             rows.append({
                 "ticker": row["ticker"],
+                "strategy_type": strategy_type,
                 "alert": "Svak / negativ trend",
                 "severity": "MEDIUM",
                 "details": row.get("begrunnelse", ""),
@@ -87,6 +252,7 @@ def _risk_alerts(watchlist_report, portfolio_report):
         if row.get("relative_strength_20d", 0) < -5:
             rows.append({
                 "ticker": row["ticker"],
+                "strategy_type": strategy_type,
                 "alert": "Svak relativ styrke",
                 "severity": "MEDIUM",
                 "details": f"RS 20d: {row['relative_strength_20d']}%",
@@ -167,7 +333,7 @@ def _portfolio_risk(portfolio_report):
     }
 
 
-def _weakening_positions(portfolio_report):
+def _weakening_positions(portfolio_report, watchlist_report=None):
     if portfolio_report is None or portfolio_report.empty:
         return pd.DataFrame()
 
@@ -187,9 +353,34 @@ def _weakening_positions(portfolio_report):
     if res.empty:
         return pd.DataFrame()
 
-    cols = ["ticker", "market_value", "unrealized_gain_pct", "trend_regime", "relative_strength_20d"]
+    strategy_by_ticker = {}
+    if watchlist_report is not None and not watchlist_report.empty:
+        classified = add_strategy_types(watchlist_report)
+        strategy_by_ticker = dict(
+            zip(classified["ticker"], classified["strategy_type"])
+        )
+
+    res["strategy_type"] = res["ticker"].map(
+        lambda ticker: strategy_by_ticker.get(ticker, "UNKNOWN")
+    )
+    res = add_strategy_profile_columns(res)
+
+    cols = [
+        "ticker",
+        "strategy_type",
+        "style",
+        "preferred_hold_days",
+        "preferred_stop_loss_pct",
+        "market_value",
+        "unrealized_gain_pct",
+        "trend_regime",
+        "relative_strength_20d",
+    ]
     present_cols = [c for c in cols if c in res.columns]
-    res = res[present_cols].sort_values(by=["relative_strength_20d", "unrealized_gain_pct"], ascending=[True, True]).reset_index(drop=True)
+    res = res[present_cols].sort_values(
+        by=["relative_strength_20d", "unrealized_gain_pct"],
+        ascending=[True, True],
+    ).reset_index(drop=True)
 
     return res
 
