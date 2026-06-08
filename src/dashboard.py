@@ -8,6 +8,11 @@ from src.model_backtest import load_snapshots
 from src.orders import analyze_pending_orders
 from src.portfolio import summarize_portfolio
 from src.regime import analyze_market_regime
+from src.strategy_classification import add_strategy_types, strategy_type_counts
+from src.strategy_profiles import (
+    add_strategy_profile_columns,
+    strategy_profiles_overview,
+)
 from src.technicals import get_benchmark_for_symbol
 
 
@@ -20,7 +25,10 @@ def build_dashboard(
     return {
         "portfolio_summary": summarize_portfolio(portfolio_report),
         "portfolio_risk": _portfolio_risk(portfolio_report),
-        "weakening_positions": _weakening_positions(portfolio_report),
+        "weakening_positions": _weakening_positions(
+            portfolio_report,
+            watchlist_report,
+        ),
         "strong_winners": _strong_winners(portfolio_report),
         "top_buy_candidates": _top_buy_candidates(watchlist_report),
         "risk_alerts": _risk_alerts(watchlist_report, portfolio_report),
@@ -36,6 +44,8 @@ def build_dashboard(
         "changes_since_last_snapshot": _changes_since_last_snapshot(
             watchlist_report,
         ),
+        "strategy_type_counts": strategy_type_counts(watchlist_report),
+        "strategy_profiles": strategy_profiles_overview(),
     }
 
 
@@ -174,6 +184,8 @@ def _top_buy_candidates(watchlist_report):
     if df.empty:
         return pd.DataFrame()
 
+    df = add_strategy_profile_columns(df)
+
     return df.sort_values(
         by=[
             "score",
@@ -184,6 +196,10 @@ def _top_buy_candidates(watchlist_report):
     )[
         [
             "ticker",
+            "strategy_type",
+            "style",
+            "preferred_hold_days",
+            "preferred_stop_loss_pct",
             "score",
             "trend_regime",
             "relative_strength_20d",
@@ -200,12 +216,25 @@ def _risk_alerts(watchlist_report, portfolio_report):
     if portfolio_report is None or portfolio_report.empty:
         return pd.DataFrame()
 
+    strategy_by_ticker = {}
+    if watchlist_report is not None and not watchlist_report.empty:
+        classified = add_strategy_types(watchlist_report)
+        strategy_by_ticker = dict(
+            zip(classified["ticker"], classified["strategy_type"])
+        )
+
     rows = []
 
     for _, row in portfolio_report.iterrows():
+        strategy_type = strategy_by_ticker.get(
+            row["ticker"],
+            "UNKNOWN",
+        )
+
         if row.get("trailing_stop_triggered") is True:
             rows.append({
                 "ticker": row["ticker"],
+                "strategy_type": strategy_type,
                 "alert": "Trailing stop trigget",
                 "severity": "HIGH",
                 "details": row.get("begrunnelse", ""),
@@ -214,6 +243,7 @@ def _risk_alerts(watchlist_report, portfolio_report):
         if row.get("trend_regime") == "SVAK / NEGATIV TREND":
             rows.append({
                 "ticker": row["ticker"],
+                "strategy_type": strategy_type,
                 "alert": "Svak / negativ trend",
                 "severity": "MEDIUM",
                 "details": row.get("begrunnelse", ""),
@@ -222,6 +252,7 @@ def _risk_alerts(watchlist_report, portfolio_report):
         if row.get("relative_strength_20d", 0) < -5:
             rows.append({
                 "ticker": row["ticker"],
+                "strategy_type": strategy_type,
                 "alert": "Svak relativ styrke",
                 "severity": "MEDIUM",
                 "details": f"RS 20d: {row['relative_strength_20d']}%",
@@ -302,7 +333,7 @@ def _portfolio_risk(portfolio_report):
     }
 
 
-def _weakening_positions(portfolio_report):
+def _weakening_positions(portfolio_report, watchlist_report=None):
     if portfolio_report is None or portfolio_report.empty:
         return pd.DataFrame()
 
@@ -322,9 +353,34 @@ def _weakening_positions(portfolio_report):
     if res.empty:
         return pd.DataFrame()
 
-    cols = ["ticker", "market_value", "unrealized_gain_pct", "trend_regime", "relative_strength_20d"]
+    strategy_by_ticker = {}
+    if watchlist_report is not None and not watchlist_report.empty:
+        classified = add_strategy_types(watchlist_report)
+        strategy_by_ticker = dict(
+            zip(classified["ticker"], classified["strategy_type"])
+        )
+
+    res["strategy_type"] = res["ticker"].map(
+        lambda ticker: strategy_by_ticker.get(ticker, "UNKNOWN")
+    )
+    res = add_strategy_profile_columns(res)
+
+    cols = [
+        "ticker",
+        "strategy_type",
+        "style",
+        "preferred_hold_days",
+        "preferred_stop_loss_pct",
+        "market_value",
+        "unrealized_gain_pct",
+        "trend_regime",
+        "relative_strength_20d",
+    ]
     present_cols = [c for c in cols if c in res.columns]
-    res = res[present_cols].sort_values(by=["relative_strength_20d", "unrealized_gain_pct"], ascending=[True, True]).reset_index(drop=True)
+    res = res[present_cols].sort_values(
+        by=["relative_strength_20d", "unrealized_gain_pct"],
+        ascending=[True, True],
+    ).reset_index(drop=True)
 
     return res
 

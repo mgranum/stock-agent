@@ -26,6 +26,7 @@ from src.order_editor import (
 from src.portfolio import summarize_portfolio
 from src.config import load_watchlists, load_backtest_config
 from src.dashboard import build_dashboard
+from src.strategy_classification import STRATEGY_TYPES
 
 
 WATCHLISTS = load_watchlists()
@@ -267,6 +268,33 @@ with tab_dashboard:
         "Aksjer analysert",
         market["total_symbols"],
     )
+
+    st.markdown("### Strategityper")
+    strategy_counts = dashboard.get("strategy_type_counts", {})
+    if not strategy_counts or sum(strategy_counts.values()) == 0:
+        st.info("Ingen strategidata tilgjengelig.")
+    else:
+        strategy_labels = {
+            "QUALITY_COMPOUNDER": "Quality Compounder",
+            "COMPOUNDER": "Compounder",
+            "MOMENTUM": "Momentum",
+            "CYCLICAL": "Cyclical",
+            "WEAK/AVOID": "Weak/Avoid",
+            "UNKNOWN": "Unknown",
+        }
+        columns = st.columns(len(STRATEGY_TYPES))
+        for column, strategy_type in zip(columns, STRATEGY_TYPES):
+            column.metric(
+                strategy_labels.get(strategy_type, strategy_type),
+                strategy_counts.get(strategy_type, 0),
+            )
+
+    st.markdown("### Strategiprofiler")
+    strategy_profiles = dashboard.get("strategy_profiles")
+    if strategy_profiles is None or strategy_profiles.empty:
+        st.info("Ingen strategiprofiler tilgjengelig.")
+    else:
+        show_dataframe(strategy_profiles)
 
     st.markdown("### Endringer siden sist snapshot")
     snapshot_changes = dashboard.get("changes_since_last_snapshot")

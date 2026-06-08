@@ -1,6 +1,7 @@
 import pandas as pd
 
 from src.analysis import analyze_watchlist
+from src.strategy_profiles import add_strategy_profile_columns
 
 
 def rank_watchlist(
@@ -48,8 +49,14 @@ def ranking_table(ranked_report):
     if ranked_report.empty:
         return pd.DataFrame()
 
+    ranked_report = add_strategy_profile_columns(ranked_report)
+
     columns = [
         "ticker",
+        "strategy_type",
+        "style",
+        "preferred_hold_days",
+        "preferred_stop_loss_pct",
         "score",
         "anbefaling",
         "trend_regime",
