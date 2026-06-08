@@ -184,6 +184,7 @@ dashboard = build_dashboard(
     watchlist_report=watchlist_report,
     portfolio_report=portfolio_report,
     pending_orders=load_pending_orders([]),
+    watchlist_symbols=get_active_watchlist(),
 )
 
 
@@ -205,6 +206,41 @@ tab_dashboard, tab_ranking, tab_screening, tab_allocation, tab_orders, tab_portf
 
 
 with tab_dashboard:
+    st.markdown("### Markedsregime")
+    market_regime = dashboard["market_regime"]
+
+    if not market_regime.get("available"):
+        st.info(market_regime.get("message", "Markedsregime utilgjengelig."))
+    else:
+        st.markdown(f"**{market_regime['regime_label']}**")
+
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Benchmark", market_regime["benchmark_symbol"])
+        m2.metric("Kurs", market_regime["benchmark_price"])
+        m3.metric("SMA20", market_regime["sma20"])
+        m4.metric("SMA50", market_regime["sma50"])
+        m5.metric("SMA100", market_regime["sma100"])
+
+        if market_regime["reasons"]:
+            st.caption(" · ".join(market_regime["reasons"]))
+
+        st.info(market_regime["interpretation"])
+
+        kpis = market_regime["watchlist_kpis"]
+        k1, k2, k3 = st.columns(3)
+        k1.metric(
+            "Sterk opptrend",
+            f"{kpis['strong_uptrend_pct']}%",
+        )
+        k2.metric(
+            "Svak/negativ trend",
+            f"{kpis['weak_trend_pct']}%",
+        )
+        k3.metric(
+            "Snitt relativ styrke",
+            f"{kpis['avg_relative_strength']}%",
+        )
+
     st.subheader("Dagens situasjon")
 
     market = dashboard["market_summary"]
