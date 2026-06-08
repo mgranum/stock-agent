@@ -1,5 +1,6 @@
 import pandas as pd
 
+from src.model_backtest import load_snapshots
 from src.portfolio import summarize_portfolio
 from src.orders import analyze_pending_orders
 
@@ -21,6 +22,9 @@ def build_dashboard(
             watchlist_report,
         ),
         "market_summary": _market_summary(watchlist_report),
+        "changes_since_last_snapshot": _changes_since_last_snapshot(
+            watchlist_report,
+        ),
     }
 
 
@@ -212,3 +216,83 @@ def _strong_winners(portfolio_report):
     res = res[present_cols].sort_values(by=["unrealized_gain_pct"], ascending=[False]).reset_index(drop=True)
 
     return res
+
+
+_SNAPSHOT_CHANGE_COLUMNS = [
+    "ticker",
+    "previous_score",
+    "current_score",
+    "score_change",
+    "previous_recommendation",
+    "current_recommendation",
+]
+
+
+def _sort_snapshot_changes(df):
+    if df.empty:
+        return df
+
+    return df.sort_values(
+        by="score_change",
+        key=lambda s: s.abs(),
+        ascending=False,
+    )[_SNAPSHOT_CHANGE_COLUMNS].reset_index(drop=True)
+
+
+def _changes_since_last_snapshot(watchlist_report):
+    snapshots = load_snapshots()
+
+    if snapshots.empty:
+        return None
+
+    latest_date = sorted(snapshots["date"].unique())[-1]
+    previous = snapshots[snapshots["date"] == latest_date][
+        ["ticker", "score", "anbefaling"]
+    ].rename(
+        columns={
+            "score": "previous_score",
+            "anbefaling": "previous_recommendation",
+        }
+    )
+
+    empty_sections = {
+        "recommendation_changed": pd.DataFrame(),
+        "large_score_changes": pd.DataFrame(),
+    }
+
+    if watchlist_report is None or watchlist_report.empty:
+        return empty_sections
+
+    current = watchlist_report[["ticker", "score", "anbefaling"]].rename(
+        columns={
+            "score": "current_score",
+            "anbefaling": "current_recommendation",
+        }
+    )
+
+    merged = current.merge(previous, on="ticker", how="inner")
+    if merged.empty:
+        return empty_sections
+
+    merged["score_change"] = (
+        merged["current_score"] - merged["previous_score"]
+    )
+
+    recommendation_changed = merged[
+        merged["previous_recommendation"]
+        != merged["current_recommendation"]
+    ]
+
+    large_score_changes = merged[
+        (merged["previous_recommendation"] == merged["current_recommendation"])
+        & (merged["score_change"].abs() >= 10)
+    ]
+
+    return {
+        "recommendation_changed": _sort_snapshot_changes(
+            recommendation_changed,
+        ),
+        "large_score_changes": _sort_snapshot_changes(
+            large_score_changes,
+        ),
+    }

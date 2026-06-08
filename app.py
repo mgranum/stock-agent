@@ -232,6 +232,28 @@ with tab_dashboard:
         market["total_symbols"],
     )
 
+    st.markdown("### Endringer siden sist snapshot")
+    snapshot_changes = dashboard.get("changes_since_last_snapshot")
+    if snapshot_changes is None:
+        st.info(
+            "Ingen snapshot lagret ennå. "
+            "Lagre et snapshot fra kontrollpanelet for å se endringer."
+        )
+    else:
+        st.markdown("#### Anbefaling endret")
+        recommendation_changed = snapshot_changes["recommendation_changed"]
+        if recommendation_changed.empty:
+            st.info("Ingen endringer i anbefaling.")
+        else:
+            show_dataframe(recommendation_changed)
+
+        st.markdown("#### Store score-endringer")
+        large_score_changes = snapshot_changes["large_score_changes"]
+        if large_score_changes.empty:
+            st.info("Ingen store score-endringer.")
+        else:
+            show_dataframe(large_score_changes)
+
     st.markdown("### Portefølje")
 
     p1, p2, p3, p4 = st.columns(4)
