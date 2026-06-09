@@ -9,6 +9,7 @@ def rolling_walk_forward(
     train_periods=None,
     test_periods=None,
     configs=None,
+    strategy_specific=False,
 ):
     if train_periods is None:
         train_periods = ["1y", "18mo"]
@@ -36,6 +37,7 @@ def rolling_walk_forward(
 
             result = backtest_signal_watchlist(
                 symbols=symbols,
+                strategy_specific=strategy_specific,
                 **_config_kwargs(train_config),
             )
 
@@ -79,6 +81,7 @@ def rolling_walk_forward(
 
             result = backtest_signal_watchlist(
                 symbols=symbols,
+                strategy_specific=strategy_specific,
                 **_config_kwargs(test_config),
             )
 
@@ -97,6 +100,7 @@ def rolling_walk_forward(
                 "train_period": train_period,
                 "test_period": test_period,
                 "selected_config": best_name,
+                "strategy_specific": strategy_specific,
                 "train_avg_difference_pct": train_df.iloc[0]["avg_difference_pct"],
                 "test_avg_strategy_return_pct": test_summary["avg_strategy_return_pct"],
                 "test_avg_buy_hold_return_pct": test_summary["avg_buy_hold_return_pct"],
@@ -110,6 +114,21 @@ def rolling_walk_forward(
         by=["test_avg_difference_pct", "test_avg_strategy_return_pct"],
         ascending=[False, False],
     ).reset_index(drop=True)
+
+
+def rolling_walk_forward_strategy_specific(
+    symbols,
+    train_periods=None,
+    test_periods=None,
+    configs=None,
+):
+    return rolling_walk_forward(
+        symbols=symbols,
+        train_periods=train_periods,
+        test_periods=test_periods,
+        configs=configs,
+        strategy_specific=True,
+    )
 
 
 def summarize_result(config_name, period, result):
@@ -146,16 +165,21 @@ def _config_kwargs(config):
 
 
 def _valid_rows(result):
-    if result.empty:
-        return result
+    required_columns = [
+        "strategy_return_pct",
+        "buy_and_hold_return_pct",
+        "difference_pct",
+    ]
 
-    if "error" in result.columns:
-        result = result[result["error"].isna()]
+    if result is None or result.empty:
+        return pd.DataFrame()
 
-    return result.dropna(
-        subset=[
-            "strategy_return_pct",
-            "buy_and_hold_return_pct",
-            "difference_pct",
-        ]
-    )
+    valid = result.copy()
+
+    if "error" in valid.columns:
+        valid = valid[valid["error"].isna()]
+
+    if not all(column in valid.columns for column in required_columns):
+        return pd.DataFrame()
+
+    return valid.dropna(subset=required_columns)

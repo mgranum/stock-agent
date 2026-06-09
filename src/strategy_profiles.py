@@ -4,28 +4,32 @@ from src.config import load_json_config
 from src.strategy_classification import STRATEGY_TYPES, add_strategy_types
 
 DEFAULT_STRATEGY_PROFILES = {
+    # Experimental trailing sensitivity test: slower SMA to reduce premature exits.
     "MOMENTUM": {
         "preferred_hold_days": 30,
         "preferred_stop_loss_pct": 0.08,
-        "preferred_trailing_sma": "sma50",
+        "preferred_trailing_sma": "sma200",
         "style": "Aggressive trend following",
     },
+    # Compounders need room for volatility and long holding periods.
+    # Wider hard stops and slower trailing exits reduce premature stop-outs
+    # on otherwise high-quality franchises.
     "QUALITY_COMPOUNDER": {
-        "preferred_hold_days": 180,
-        "preferred_stop_loss_pct": 0.15,
-        "preferred_trailing_sma": "sma100",
+        "preferred_hold_days": 365,
+        "preferred_stop_loss_pct": 0.20,
+        "preferred_trailing_sma": "sma200",
         "style": "Long-term quality accumulation",
     },
     "COMPOUNDER": {
-        "preferred_hold_days": 120,
-        "preferred_stop_loss_pct": 0.12,
-        "preferred_trailing_sma": "sma100",
+        "preferred_hold_days": 240,
+        "preferred_stop_loss_pct": 0.18,
+        "preferred_trailing_sma": "sma200",
         "style": "Quality with trend confirmation",
     },
     "CYCLICAL": {
         "preferred_hold_days": 45,
         "preferred_stop_loss_pct": 0.10,
-        "preferred_trailing_sma": "sma50",
+        "preferred_trailing_sma": "sma100",
         "style": "Cyclical swing trading",
     },
     "WEAK/AVOID": {

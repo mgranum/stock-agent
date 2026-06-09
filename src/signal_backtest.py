@@ -7,6 +7,8 @@ from src.fundamentals import analyze_fundamentals
 from src.fundamental_history import analyze_fundamental_history
 from src.scoring import combine_scores
 from src.regime import analyze_market_regime
+from src.strategy_classification import classify_stock
+from src.strategy_profiles import get_strategy_profile
 
 
 def _technical_result_at(df, benchmark_df, benchmark_symbol, i):
@@ -160,6 +162,69 @@ def _get_exit_reason(
     return None
 
 
+def _resolve_position_exit_params(
+    strategy_specific,
+    symbol,
+    score,
+    recommendation,
+    trend_regime,
+    relative_strength_20d,
+    fundamental_result,
+    fundamental_history_result,
+    default_min_hold_days,
+    default_stop_loss_pct,
+    default_trailing_sma,
+):
+    if not strategy_specific:
+        return (
+            None,
+            default_min_hold_days,
+            default_stop_loss_pct,
+            default_trailing_sma,
+        )
+
+    classification_row = {
+        "ticker": symbol,
+        "score": score,
+        "anbefaling": recommendation,
+        "trend_regime": trend_regime,
+        "relative_strength_20d": relative_strength_20d,
+        "fundamental_score": fundamental_result.get("fundamental_score", 0),
+        "fundamental_history_score": fundamental_history_result.get(
+            "fundamental_history_score",
+            0,
+        ),
+    }
+
+    strategy_type = classify_stock(classification_row)
+    profile = get_strategy_profile(strategy_type)
+
+    return (
+        strategy_type,
+        profile.get("preferred_hold_days", default_min_hold_days),
+        profile.get("preferred_stop_loss_pct", default_stop_loss_pct),
+        profile.get("preferred_trailing_sma", default_trailing_sma),
+    )
+
+
+def _strategy_trade_fields(
+    strategy_specific,
+    strategy_type,
+    effective_min_hold_days,
+    effective_stop_loss_pct,
+    effective_trailing_sma,
+):
+    if not strategy_specific:
+        return {}
+
+    return {
+        "strategy_type": strategy_type,
+        "effective_min_hold_days": effective_min_hold_days,
+        "effective_stop_loss_pct": effective_stop_loss_pct,
+        "effective_trailing_sma": effective_trailing_sma,
+    }
+
+
 def backtest_signal_model(
     symbol,
     period="2y",
@@ -170,6 +235,7 @@ def backtest_signal_model(
     min_buy_score=70,
     min_buy_relative_strength=0,
     require_risk_on=False,
+    strategy_specific=False,
 ):
     df = _get_price_data(symbol, period)
     df = add_indicators(df)
@@ -185,6 +251,10 @@ def backtest_signal_model(
     shares = 0
     entry_price = None
     entry_date = None
+    position_strategy_type = None
+    position_min_hold_days = min_hold_days
+    position_stop_loss_pct = stop_loss_pct
+    position_trailing_sma = trailing_sma
 
     trades = []
     start_i = 120
@@ -238,8 +308,8 @@ def backtest_signal_model(
 
         if shares > 0:
             hold_days = (date - entry_date).days
-            hard_stop = entry_price * (1 - stop_loss_pct)
-            trailing_stop = row[trailing_sma]
+            hard_stop = entry_price * (1 - position_stop_loss_pct)
+            trailing_stop = row[position_trailing_sma]
 
             exit_reason = _get_exit_reason(
                 price=price,
@@ -248,7 +318,7 @@ def backtest_signal_model(
                 hard_stop=hard_stop,
                 trailing_stop=trailing_stop,
                 hold_days=hold_days,
-                min_hold_days=min_hold_days,
+                min_hold_days=position_min_hold_days,
             )
 
             sell_signal = exit_reason is not None
@@ -258,6 +328,25 @@ def backtest_signal_model(
             sell_signal = False
 
         if buy_signal:
+            (
+                position_strategy_type,
+                position_min_hold_days,
+                position_stop_loss_pct,
+                position_trailing_sma,
+            ) = _resolve_position_exit_params(
+                strategy_specific=strategy_specific,
+                symbol=symbol,
+                score=score,
+                recommendation=recommendation,
+                trend_regime=trend_regime,
+                relative_strength_20d=relative_strength_20d,
+                fundamental_result=fundamental_result,
+                fundamental_history_result=fundamental_history_result,
+                default_min_hold_days=min_hold_days,
+                default_stop_loss_pct=stop_loss_pct,
+                default_trailing_sma=trailing_sma,
+            )
+
             shares = cash // price
             entry_price = price
             entry_date = date
@@ -277,6 +366,13 @@ def backtest_signal_model(
                 "reason": "KJØP / ØK + sterk trend",
                 "gain_pct": None,
                 "hold_days": 0,
+                **_strategy_trade_fields(
+                    strategy_specific,
+                    position_strategy_type,
+                    position_min_hold_days,
+                    position_stop_loss_pct,
+                    position_trailing_sma,
+                ),
             })
 
         elif sell_signal:
@@ -297,11 +393,22 @@ def backtest_signal_model(
                 "reason": exit_reason,
                 "gain_pct": round(gain_pct, 2),
                 "hold_days": hold_days,
+                **_strategy_trade_fields(
+                    strategy_specific,
+                    position_strategy_type,
+                    position_min_hold_days,
+                    position_stop_loss_pct,
+                    position_trailing_sma,
+                ),
             })
 
             shares = 0
             entry_price = None
             entry_date = None
+            position_strategy_type = None
+            position_min_hold_days = min_hold_days
+            position_stop_loss_pct = stop_loss_pct
+            position_trailing_sma = trailing_sma
 
     final_price = df.iloc[-1]["close"]
     final_value = cash + shares * final_price
@@ -335,6 +442,7 @@ def backtest_signal_model(
         "min_buy_score": min_buy_score,
         "min_buy_relative_strength": min_buy_relative_strength,
         "require_risk_on": require_risk_on,
+        "strategy_specific": strategy_specific,
     }
 
     return summary, pd.DataFrame(trades), df
@@ -350,6 +458,7 @@ def backtest_signal_watchlist(
     min_buy_score=70,
     min_buy_relative_strength=0,
     require_risk_on=False,
+    strategy_specific=False,
 ):
     rows = []
 
@@ -367,6 +476,7 @@ def backtest_signal_watchlist(
                 min_buy_score=min_buy_score,
                 min_buy_relative_strength=min_buy_relative_strength,
                 require_risk_on=require_risk_on,
+                strategy_specific=strategy_specific,
             )
 
             rows.append(summary)
@@ -378,3 +488,28 @@ def backtest_signal_watchlist(
             })
 
     return pd.DataFrame(rows)
+
+
+def backtest_strategy_specific_watchlist(
+    symbols,
+    period="2y",
+    initial_cash=10000,
+    min_hold_days=60,
+    stop_loss_pct=0.12,
+    trailing_sma="sma100",
+    min_buy_score=70,
+    min_buy_relative_strength=0,
+    require_risk_on=False,
+):
+    return backtest_signal_watchlist(
+        symbols=symbols,
+        period=period,
+        initial_cash=initial_cash,
+        min_hold_days=min_hold_days,
+        stop_loss_pct=stop_loss_pct,
+        trailing_sma=trailing_sma,
+        min_buy_score=min_buy_score,
+        min_buy_relative_strength=min_buy_relative_strength,
+        require_risk_on=require_risk_on,
+        strategy_specific=True,
+    )

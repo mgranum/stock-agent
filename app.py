@@ -709,14 +709,29 @@ with tab_backtest:
     st.write("Aktiv backtest-konfig:")
     st.json(active_config)
 
+    strategy_specific = st.checkbox(
+        "Bruk strategi-spesifikke exits",
+        value=False,
+    )
+
     if st.button("Kjør backtest"):
         with st.spinner("Kjører backtest..."):
             st.session_state.backtest_result = backtest_signal_watchlist(
                 get_active_watchlist(),
+                strategy_specific=strategy_specific,
                 **active_config,
+            )
+            st.session_state.backtest_mode = (
+                "Strategy-specific exits"
+                if strategy_specific
+                else "Baseline"
             )
 
     if "backtest_result" in st.session_state:
+        st.markdown(
+            f"**Modus:** {st.session_state.get('backtest_mode', 'Baseline')}"
+        )
+
         st.dataframe(
             st.session_state.backtest_result,
             width="stretch",

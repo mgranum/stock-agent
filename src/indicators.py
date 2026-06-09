@@ -25,6 +25,12 @@ def add_indicators(df):
         .mean()
     )
 
+    df["sma200"] = (
+        df["close"]
+        .rolling(window=200)
+        .mean()
+    )
+
     # -----------------------------
     # RSI (14)
     # -----------------------------
