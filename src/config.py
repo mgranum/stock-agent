@@ -96,22 +96,64 @@ DEFAULT_BACKTEST_CONFIG = {
 }
 
 
-def load_watchlists():
-    watchlists = load_json_config(
+def _load_editable_watchlists():
+    return load_json_config(
         "watchlists.json",
         DEFAULT_WATCHLISTS,
     )
 
-    all_watchlist = []
+
+def _derive_alle_watchlist(watchlists):
+    all_symbols = []
 
     for symbols in watchlists.values():
-        all_watchlist.extend(symbols)
+        all_symbols.extend(symbols)
 
-    watchlists["Alle"] = sorted(
-        list(set(all_watchlist))
-    )
-
+    watchlists["Alle"] = sorted(set(all_symbols))
     return watchlists
+
+
+def load_watchlists():
+    return _derive_alle_watchlist(_load_editable_watchlists())
+
+
+def add_symbol_to_watchlist(list_name, symbol):
+    if list_name == "Alle":
+        raise ValueError("Kan ikke redigere watchlisten 'Alle'.")
+
+    symbol = symbol.strip().upper()
+    if not symbol:
+        raise ValueError("Ticker kan ikke være tom.")
+
+    watchlists = _load_editable_watchlists()
+
+    if list_name not in watchlists:
+        raise ValueError(f"Watchlist '{list_name}' finnes ikke.")
+
+    if symbol not in watchlists[list_name]:
+        watchlists[list_name].append(symbol)
+        save_json_config("watchlists.json", watchlists)
+
+    return load_watchlists()
+
+
+def remove_symbol_from_watchlist(list_name, symbol):
+    if list_name == "Alle":
+        raise ValueError("Kan ikke redigere watchlisten 'Alle'.")
+
+    symbol = symbol.strip().upper()
+    watchlists = _load_editable_watchlists()
+
+    if list_name not in watchlists:
+        raise ValueError(f"Watchlist '{list_name}' finnes ikke.")
+
+    watchlists[list_name] = [
+        s for s in watchlists[list_name]
+        if s != symbol
+    ]
+    save_json_config("watchlists.json", watchlists)
+
+    return load_watchlists()
 
 
 def load_backtest_config():

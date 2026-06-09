@@ -1,6 +1,7 @@
 import pandas as pd
 
 from src.analysis import analyze_watchlist
+from src.company_names import get_company_name
 from src.strategy_profiles import add_strategy_profile_columns
 
 
@@ -75,7 +76,16 @@ def ranking_table(ranked_report):
         if col in ranked_report.columns
     ]
 
-    return ranked_report[existing_columns].copy()
+    table = ranked_report[existing_columns].copy()
+
+    if "ticker" in table.columns and not table.empty:
+        table.insert(
+            1,
+            "company_name",
+            table["ticker"].map(get_company_name),
+        )
+
+    return table
 
 
 def print_ranking(ranked_report, limit=10):

@@ -24,8 +24,15 @@ from src.order_editor import (
     cancel_order,
 )
 from src.portfolio import summarize_portfolio
-from src.config import load_watchlists, load_backtest_config
+from src.config import (
+    load_watchlists,
+    load_backtest_config,
+    add_symbol_to_watchlist,
+    remove_symbol_from_watchlist,
+)
 from src.strategy_classification import STRATEGY_TYPES
+from src.analysis import analyze_stock
+from src.company_names import get_company_name
 
 
 WATCHLISTS = load_watchlists()
@@ -59,9 +66,21 @@ if "selected_watchlist_name" not in st.session_state:
     st.session_state.selected_watchlist_name = "Alle"
 
 
+def reload_watchlists():
+    global WATCHLISTS
+    WATCHLISTS = load_watchlists()
+
+
 def get_active_watchlist():
     return WATCHLISTS[
         st.session_state.selected_watchlist_name
+    ]
+
+
+def editable_watchlist_names():
+    return [
+        name for name in WATCHLISTS.keys()
+        if name != "Alle"
     ]
 
 
@@ -185,11 +204,12 @@ daily_flow = st.session_state.context["daily_flow"]
 ranked = rank_report(watchlist_report)
 
 
-tab_dashboard, tab_ranking, tab_screening, tab_allocation, tab_orders, tab_portfolio, tab_history, tab_snapshots, tab_backtest, tab_walk_forward, tab_chat = st.tabs(
+tab_dashboard, tab_ranking, tab_screening, tab_watchlists, tab_allocation, tab_orders, tab_portfolio, tab_history, tab_snapshots, tab_backtest, tab_walk_forward, tab_chat = st.tabs(
     [
         "Dashboard",
         "Rangering",
         "Screening",
+        "Watchlists",
         "Allocation",
         "Ordre",
         "Portefølje",
@@ -499,6 +519,131 @@ with tab_screening:
 
     st.markdown("### Sterke fundamentals, men ikke kjøp nå")
     show_ranking_table(quality_not_buy)
+
+
+with tab_watchlists:
+    st.subheader("Watchlists")
+
+    feedback = st.session_state.pop("watchlist_feedback", None)
+    if feedback:
+        if feedback["type"] == "success":
+            st.success(feedback["message"])
+        else:
+            st.error(feedback["message"])
+
+    st.caption(
+        "Rediger symboler i USA, Norden og OBX. "
+        "Watchlisten «Alle» bygges automatisk fra de andre listene."
+    )
+    st.info(
+        "Endringer i watchlist oppdaterer ikke analysene automatisk. "
+        "Trykk Oppdater analyser når du vil reanalysere hele listen."
+    )
+
+    editable_names = editable_watchlist_names()
+
+    if "watchlist_editor_name" not in st.session_state:
+        st.session_state.watchlist_editor_name = editable_names[0]
+
+    editor_list = st.selectbox(
+        "Velg watchlist",
+        editable_names,
+        index=editable_names.index(
+            st.session_state.watchlist_editor_name
+        )
+        if st.session_state.watchlist_editor_name in editable_names
+        else 0,
+        key="watchlist_editor_select",
+    )
+    st.session_state.watchlist_editor_name = editor_list
+
+    symbols = WATCHLISTS.get(editor_list, [])
+    st.markdown(f"**{len(symbols)} symboler**")
+
+    if symbols:
+        for symbol in symbols:
+            col_ticker, col_remove = st.columns([5, 1])
+            company_name = get_company_name(symbol)
+            if company_name:
+                col_ticker.markdown(f"**{symbol}** — {company_name}")
+            else:
+                col_ticker.markdown(f"**{symbol}**")
+            if col_remove.button(
+                "Fjern",
+                key=f"watchlist_remove_{editor_list}_{symbol}",
+            ):
+                try:
+                    remove_symbol_from_watchlist(
+                        editor_list,
+                        symbol,
+                    )
+                    reload_watchlists()
+                    st.session_state.watchlist_feedback = {
+                        "type": "success",
+                        "message": (
+                            f"Fjernet {symbol} fra {editor_list}."
+                        ),
+                    }
+                    st.rerun()
+                except ValueError as exc:
+                    st.session_state.watchlist_feedback = {
+                        "type": "error",
+                        "message": str(exc),
+                    }
+                    st.rerun()
+    else:
+        st.info("Ingen symboler i denne listen.")
+
+    with st.form("add_watchlist_symbol_form"):
+        new_ticker = st.text_input("Legg til ticker")
+        add_submit = st.form_submit_button("Legg til")
+
+        if add_submit:
+            try:
+                ticker = new_ticker.strip().upper()
+                add_symbol_to_watchlist(editor_list, ticker)
+                reload_watchlists()
+
+                validation_note = ""
+                try:
+                    with st.spinner(f"Validerer {ticker}..."):
+                        result, _ = analyze_stock(ticker)
+                    validation_note = (
+                        f" Validering OK: score {result['score']}, "
+                        f"{result['anbefaling']}."
+                    )
+                except Exception as exc:
+                    validation_note = (
+                        f" Ticker lagret, men validering feilet: {exc}"
+                    )
+
+                st.session_state.watchlist_feedback = {
+                    "type": "success",
+                    "message": (
+                        f"La til {ticker} i {editor_list}."
+                        f"{validation_note}"
+                    ),
+                }
+                st.rerun()
+            except ValueError as exc:
+                st.error(str(exc))
+
+    with st.expander("Alle (kun visning)", expanded=False):
+        alle_symbols = WATCHLISTS.get("Alle", [])
+        st.caption(
+            f"{len(alle_symbols)} unike symboler fra alle lister."
+        )
+        show_dataframe(
+            pd.DataFrame({
+                "Ticker": alle_symbols,
+                "Selskap": [
+                    get_company_name(symbol)
+                    for symbol in alle_symbols
+                ],
+            })
+            if alle_symbols
+            else pd.DataFrame(columns=["Ticker", "Selskap"])
+        )
 
 
 with tab_allocation:
