@@ -1,10 +1,13 @@
 from src.analysis import analyze_watchlist
 from src.portfolio import analyze_portfolio
+from src.dashboard import build_dashboard
+from src.daily_flow import build_daily_flow
 
 
 def build_agent_context(
     watchlist,
     portfolio=None,
+    pending_orders=None,
     pause_seconds=1,
 ):
     print("Analyserer watchlist...")
@@ -24,10 +27,26 @@ def build_agent_context(
             pause_seconds=pause_seconds
         )
 
+    orders = pending_orders or []
+    dashboard = build_dashboard(
+        watchlist_report=watchlist_report,
+        portfolio_report=portfolio_report,
+        pending_orders=orders,
+        watchlist_symbols=watchlist,
+    )
+    daily_flow = build_daily_flow(
+        watchlist_report=watchlist_report,
+        portfolio_report=portfolio_report,
+        dashboard=dashboard,
+        pending_orders=orders,
+    )
+
     context = {
         "watchlist": watchlist,
         "watchlist_report": watchlist_report,
         "portfolio_report": portfolio_report,
+        "dashboard": dashboard,
+        "daily_flow": daily_flow,
     }
 
     return context

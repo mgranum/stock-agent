@@ -98,12 +98,406 @@ def _screen_strong_fundamentals_not_buy(watchlist_report):
     )
 
 
+def _format_ticker_list(df, limit=3):
+    if df is None or df.empty or "ticker" not in df.columns:
+        return "Ingen"
+
+    return ", ".join(df["ticker"].head(limit).tolist())
+
+
+def _format_risk_lines(risk_alerts, limit=5):
+    if not risk_alerts:
+        return ["Ingen kritiske risikovarsler."]
+
+    lines = []
+
+    for key in (
+        "near_trailing_stop",
+        "weakening_positions",
+        "large_drawdowns",
+        "other_alerts",
+    ):
+        df = risk_alerts.get(key)
+        if df is None or df.empty:
+            continue
+
+        for _, row in df.iterrows():
+            detail = row.get("details") or row.get("alert", "")
+            lines.append(f"- {row['ticker']}: {detail}")
+
+    concentration = risk_alerts.get("concentration_risk") or {}
+    for item in concentration.get("alerts", []):
+        lines.append(f"- {item['alert']}: {item['details']}")
+
+    if not lines:
+        return ["Ingen kritiske risikovarsler."]
+
+    return lines[:limit]
+
+
+def _get_dashboard(context):
+    return context.get("dashboard") or {}
+
+
+def _get_daily_flow(context):
+    return context.get("daily_flow") or {}
+
+
+def _is_pending_orders_question(question):
+    if any(
+        phrase in question
+        for phrase in [
+            "pending ordre",
+            "ventende ordre",
+            "pending order",
+        ]
+    ):
+        return True
+
+    if "ordrehistorikk" in question or "ordre historikk" in question:
+        return False
+
+    if "ordre" not in question:
+        return False
+
+    if question.strip() in {"ordre", "ordre?"}:
+        return True
+
+    return any(
+        word in question
+        for word in [
+            "pending",
+            "ventende",
+            "vis",
+            "har jeg",
+            "status",
+            "liste",
+        ]
+    )
+
+
+def _is_portfolio_summary_question(question):
+    if "portefølje" not in question and "portefolje" not in question:
+        return False
+
+    if any(
+        phrase in question
+        for phrase in [
+            "bør jeg holde",
+            "bør jeg selge",
+            "bør jeg redusere",
+            "bør jeg øke",
+            "min posisjon",
+        ]
+    ):
+        return False
+
+    return True
+
+
+def _is_weakest_positions_question(question):
+    return any(
+        phrase in question
+        for phrase in [
+            "svakeste posisjon",
+            "svakeste posisjoner",
+            "svekkende posisjon",
+            "svekkende posisjoner",
+            "svake posisjon",
+            "svake posisjoner",
+        ]
+    )
+
+
+def _is_strong_winners_question(question):
+    return any(
+        phrase in question
+        for phrase in [
+            "største gevinst",
+            "største gevinster",
+            "sterke vinnere",
+            "største vinner",
+            "største vinnere",
+            "beste vinner",
+        ]
+    )
+
+
+def _is_trailing_stop_question(question):
+    return "trailing stop" in question or "trailingstop" in question
+
+
+def _is_risk_question(question):
+    return any(
+        phrase in question
+        for phrase in [
+            "risiko",
+            "risikovarsel",
+            "risikovarsler",
+            "varsler",
+        ]
+    )
+
+
+def _format_pending_orders_answer(context):
+    daily_flow = _get_daily_flow(context)
+    pending = daily_flow.get("pending_orders") or {}
+    summary = pending.get("summary", "Ingen ventende ordre.")
+    orders_df = pending.get("orders")
+
+    if orders_df is None or orders_df.empty:
+        return f"Pending ordre: {summary}"
+
+    lines = ["Pending ordre:", summary, ""]
+
+    for _, row in orders_df.head(5).iterrows():
+        parts = [str(row.get("action", "?")), str(row.get("ticker", "?"))]
+        if row.get("shares") is not None:
+            parts.append(f"{row['shares']} aksjer")
+        if row.get("limit_price") is not None:
+            parts.append(f"limit {row['limit_price']}")
+        lines.append(f"- {' · '.join(parts)}")
+
+    if len(orders_df) > 5:
+        lines.append(f"... og {len(orders_df) - 5} til.")
+
+    return "\n".join(lines)
+
+
+def _format_portfolio_summary_answer(context):
+    dashboard = _get_dashboard(context)
+    summary = dashboard.get("portfolio_summary") or {}
+    risk = dashboard.get("portfolio_risk") or {}
+
+    positions = summary.get("positions", 0)
+    if positions == 0:
+        return "Portefølje: Ingen posisjoner."
+
+    lines = [
+        "Portefølje:",
+        f"- {positions} posisjoner",
+        f"- Kostverdi: {summary.get('total_cost_value', 0)}",
+        f"- Markedsverdi: {summary.get('total_market_value', 0)}",
+        (
+            f"- Urealisert: {summary.get('total_unrealized_profit_loss', 0)} "
+            f"({summary.get('total_unrealized_gain_pct', 0)}%)"
+        ),
+    ]
+
+    top_pct = risk.get("top_position_pct")
+    top3_pct = risk.get("top3_concentration_pct")
+    if top_pct:
+        lines.append(f"- Topp posisjon: {top_pct}%")
+    if top3_pct:
+        lines.append(f"- Topp 3 konsentrasjon: {top3_pct}%")
+
+    top_positions = risk.get("top_positions")
+    if top_positions is not None and not top_positions.empty:
+        tickers = ", ".join(top_positions["ticker"].head(3).tolist())
+        lines.append(f"- Største posisjoner: {tickers}")
+
+    return "\n".join(lines)
+
+
+def _format_weakening_positions_answer(context):
+    dashboard = _get_dashboard(context)
+    df = dashboard.get("weakening_positions")
+
+    if df is None or df.empty:
+        return "Svekkende posisjoner: Ingen identifisert."
+
+    lines = ["Svekkende / svakeste posisjoner:"]
+
+    for _, row in df.head(5).iterrows():
+        trend = row.get("trend_regime", "")
+        rs = row.get("relative_strength_20d", "N/A")
+        gain = row.get("unrealized_gain_pct", "N/A")
+        lines.append(
+            f"- {row['ticker']}: {trend}, RS {rs}%, urealisert {gain}%"
+        )
+
+    return "\n".join(lines)
+
+
+def _format_strong_winners_answer(context):
+    dashboard = _get_dashboard(context)
+    df = dashboard.get("strong_winners")
+
+    if df is None or df.empty:
+        return "Sterke vinnere: Ingen posisjoner over 15% gevinst med god trend."
+
+    lines = ["Sterke vinnere (største gevinst):"]
+
+    for _, row in df.head(5).iterrows():
+        gain = row.get("unrealized_gain_pct", "N/A")
+        trend = row.get("trend_regime", "")
+        value = row.get("market_value", "")
+        lines.append(
+            f"- {row['ticker']}: +{gain}% · {trend} · verdi {value}"
+        )
+
+    return "\n".join(lines)
+
+
+def _format_risk_alerts_answer(context):
+    daily_flow = _get_daily_flow(context)
+    risk_alerts = daily_flow.get("risk_alerts")
+
+    if not risk_alerts:
+        dashboard = _get_dashboard(context)
+        dashboard_alerts = dashboard.get("risk_alerts")
+        if dashboard_alerts is not None and not dashboard_alerts.empty:
+            lines = ["Risikovarsler:"]
+            for _, row in dashboard_alerts.head(5).iterrows():
+                lines.append(
+                    f"- {row['ticker']}: {row.get('alert', '')} "
+                    f"({row.get('severity', '')})"
+                )
+            return "\n".join(lines)
+
+        return "Risikovarsler: Ingen aktive varsler."
+
+    lines = ["Risikovarsler:"]
+    lines.extend(_format_risk_lines(risk_alerts, limit=8))
+    return "\n".join(lines)
+
+
+def _format_trailing_stop_answer(context):
+    daily_flow = _get_daily_flow(context)
+    risk_alerts = daily_flow.get("risk_alerts") or {}
+    near_stop = risk_alerts.get("near_trailing_stop")
+
+    lines = ["Trailing stop:"]
+
+    if near_stop is not None and not near_stop.empty:
+        lines.append("Nær stop:")
+        for _, row in near_stop.head(5).iterrows():
+            lines.append(f"- {row['ticker']}: {row.get('details', '')}")
+    else:
+        lines.append("Nær stop: Ingen posisjoner innen 3% av trailing stop.")
+
+    dashboard = _get_dashboard(context)
+    triggered = dashboard.get("risk_alerts")
+    if triggered is not None and not triggered.empty:
+        triggered_rows = triggered[
+            triggered["alert"] == "Trailing stop trigget"
+        ]
+        if not triggered_rows.empty:
+            lines.append("")
+            lines.append("Trigget:")
+            for _, row in triggered_rows.iterrows():
+                lines.append(f"- {row['ticker']}")
+
+    return "\n".join(lines)
+
+
+def _is_daily_flow_question(question):
+    explicit_phrases = [
+        "morning briefing",
+        "morgenbrief",
+        "morgen briefing",
+        "daily flow",
+        "dagens situasjon",
+        "dagens oversikt",
+        "viktigst nå",
+        "følge med",
+    ]
+    if any(phrase in question for phrase in explicit_phrases):
+        return True
+
+    if "i dag" in question and any(
+        word in question
+        for word in ["hva", "viktig", "følge", "situasjon", "oversikt"]
+    ):
+        return True
+
+    if "dashboard" in question and any(
+        word in question
+        for word in ["oppsummer", "status", "oversikt", "vis"]
+    ):
+        return True
+
+    if question.startswith("oppsummer") and "dashboard" in question:
+        return True
+
+    return False
+
+
+def _format_daily_flow_answer(context):
+    daily_flow = context.get("daily_flow")
+    if not daily_flow:
+        return (
+            "Morning Briefing er ikke tilgjengelig. "
+            "Oppdater analyser og prøv igjen."
+        )
+
+    regime = daily_flow["market_regime"]
+    signals = regime["signals"]
+    opportunities = daily_flow["key_opportunities"]
+    risk_alerts = daily_flow["risk_alerts"]
+    pending = daily_flow["pending_orders"]
+
+    lines = [
+        "Morning Briefing",
+        "",
+        f"Marked: {regime['label']} "
+        f"({signals['buy_count']} kjøp, "
+        f"{signals['weak_avoid_count']} svake/unngå, "
+        f"snitt RS {signals['avg_relative_strength']}%, "
+        f"snitt score {signals['avg_score']})",
+        "",
+        "Oppsummering:",
+    ]
+
+    for bullet in daily_flow.get("summary_bullets", []):
+        lines.append(f"- {bullet}")
+
+    lines.extend([
+        "",
+        "Muligheter:",
+        f"- Kjøpskandidater: {_format_ticker_list(opportunities.get('new_buy_candidates'))}",
+        f"- Momentum: {_format_ticker_list(opportunities.get('strongest_momentum'))}",
+        f"- Quality compounders: {_format_ticker_list(opportunities.get('strongest_quality_compounders'))}",
+        "",
+        "Risiko:",
+    ])
+    lines.extend(_format_risk_lines(risk_alerts))
+
+    lines.extend([
+        "",
+        f"Ordre: {pending.get('summary', 'Ingen ventende ordre.')}",
+    ])
+
+    return "\n".join(lines)
+
+
 def ask_agent(question, context):
     question = question.lower()
 
     watchlist = context["watchlist"]
     watchlist_report = context["watchlist_report"]
     portfolio_report = context["portfolio_report"]
+
+    if _is_daily_flow_question(question):
+        return _format_daily_flow_answer(context)
+
+    if _is_trailing_stop_question(question):
+        return _format_trailing_stop_answer(context)
+
+    if _is_risk_question(question):
+        return _format_risk_alerts_answer(context)
+
+    if _is_pending_orders_question(question):
+        return _format_pending_orders_answer(context)
+
+    if _is_weakest_positions_question(question):
+        return _format_weakening_positions_answer(context)
+
+    if _is_strong_winners_question(question):
+        return _format_strong_winners_answer(context)
+
+    if _is_portfolio_summary_question(question):
+        return _format_portfolio_summary_answer(context)
 
     is_portfolio_question = any(
         phrase in question
@@ -323,6 +717,14 @@ Trailing stop-loss:
         "- Vis kvalitetsselskaper\n"
         "- Vis vekst med trend\n"
         "- Kvalitet men ikke kjøp\n"
+        "- Hva bør jeg følge med på i dag?\n"
+        "- Oppsummer dashboardet\n"
+        "- Vis pending ordre\n"
+        "- Portefølje status\n"
+        "- Svakeste posisjoner\n"
+        "- Største gevinst\n"
+        "- Risikovarsler\n"
+        "- Trailing stop\n"
         "- Er NVDA en kjøpskandidat?\n"
         "- Bør jeg holde NVDA?"
     )

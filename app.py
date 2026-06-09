@@ -25,8 +25,6 @@ from src.order_editor import (
 )
 from src.portfolio import summarize_portfolio
 from src.config import load_watchlists, load_backtest_config
-from src.dashboard import build_dashboard
-from src.daily_flow import build_daily_flow
 from src.strategy_classification import STRATEGY_TYPES
 
 
@@ -85,6 +83,7 @@ if "context" not in st.session_state:
         st.session_state.context = build_agent_context(
             get_active_watchlist(),
             PORTFOLIO,
+            pending_orders=PENDING_ORDERS,
             pause_seconds=1,
         )
 
@@ -94,6 +93,7 @@ def refresh_context():
         st.session_state.context = build_agent_context(
             get_active_watchlist(),
             load_portfolio([]),
+            pending_orders=load_pending_orders([]),
             pause_seconds=1,
         )
 
@@ -180,21 +180,9 @@ with st.sidebar:
 
 watchlist_report = st.session_state.context["watchlist_report"]
 portfolio_report = st.session_state.context["portfolio_report"]
+dashboard = st.session_state.context["dashboard"]
+daily_flow = st.session_state.context["daily_flow"]
 ranked = rank_report(watchlist_report)
-
-dashboard = build_dashboard(
-    watchlist_report=watchlist_report,
-    portfolio_report=portfolio_report,
-    pending_orders=load_pending_orders([]),
-    watchlist_symbols=get_active_watchlist(),
-)
-
-daily_flow = build_daily_flow(
-    watchlist_report=watchlist_report,
-    portfolio_report=portfolio_report,
-    dashboard=dashboard,
-    pending_orders=PENDING_ORDERS,
-)
 
 
 tab_dashboard, tab_ranking, tab_screening, tab_allocation, tab_orders, tab_portfolio, tab_history, tab_snapshots, tab_backtest, tab_walk_forward, tab_chat = st.tabs(
