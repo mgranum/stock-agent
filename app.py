@@ -26,6 +26,7 @@ from src.order_editor import (
 from src.portfolio import summarize_portfolio
 from src.config import load_watchlists, load_backtest_config
 from src.dashboard import build_dashboard
+from src.daily_flow import build_daily_flow
 from src.strategy_classification import STRATEGY_TYPES
 
 
@@ -188,6 +189,13 @@ dashboard = build_dashboard(
     watchlist_symbols=get_active_watchlist(),
 )
 
+daily_flow = build_daily_flow(
+    watchlist_report=watchlist_report,
+    portfolio_report=portfolio_report,
+    dashboard=dashboard,
+    pending_orders=PENDING_ORDERS,
+)
+
 
 tab_dashboard, tab_ranking, tab_screening, tab_allocation, tab_orders, tab_portfolio, tab_history, tab_snapshots, tab_backtest, tab_walk_forward, tab_chat = st.tabs(
     [
@@ -207,6 +215,67 @@ tab_dashboard, tab_ranking, tab_screening, tab_allocation, tab_orders, tab_portf
 
 
 with tab_dashboard:
+    st.markdown("### Morning Briefing")
+
+    regime = daily_flow["market_regime"]
+    regime_signals = regime["signals"]
+
+    st.markdown(f"**{regime['label']}**")
+    b1, b2, b3, b4, b5 = st.columns(5)
+    b1.metric("Kjøp", regime_signals["buy_count"])
+    b2.metric("Svake/unngå", regime_signals["weak_avoid_count"])
+    b3.metric("Snitt RS", f"{regime_signals['avg_relative_strength']}%")
+    b4.metric("Snitt score", regime_signals["avg_score"])
+    b5.metric("Unngå/selg", regime_signals["avoid_count"])
+
+    for bullet in daily_flow["summary_bullets"]:
+        st.markdown(f"- {bullet}")
+
+    with st.expander("Detaljer", expanded=False):
+        st.markdown("#### Muligheter")
+        opportunities = daily_flow["key_opportunities"]
+
+        st.caption("Topp kjøpskandidater")
+        show_dataframe(opportunities["new_buy_candidates"])
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.caption("Sterkest momentum")
+            show_dataframe(opportunities["strongest_momentum"])
+        with c2:
+            st.caption("Sterkeste quality compounders")
+            show_dataframe(opportunities["strongest_quality_compounders"])
+
+        st.markdown("#### Risikovarsler")
+        alerts = daily_flow["risk_alerts"]
+        risk_frames = [
+            alerts["near_trailing_stop"],
+            alerts["weakening_positions"],
+            alerts["large_drawdowns"],
+            alerts["other_alerts"],
+        ]
+        combined_alerts = pd.concat(
+            [df for df in risk_frames if df is not None and not df.empty],
+            ignore_index=True,
+        )
+
+        concentration = alerts["concentration_risk"]
+        if concentration.get("has_risk"):
+            for item in concentration["alerts"]:
+                st.warning(f"{item['alert']}: {item['details']}")
+
+        if combined_alerts.empty and not concentration.get("has_risk"):
+            st.info("Ingen risikovarsler.")
+        else:
+            show_dataframe(combined_alerts)
+
+        st.markdown("#### Ventende ordre")
+        pending = daily_flow["pending_orders"]
+        st.caption(pending["summary"])
+        show_dataframe(pending["orders"])
+
+    st.divider()
+
     st.markdown("### Markedsregime")
     market_regime = dashboard["market_regime"]
 
