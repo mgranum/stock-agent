@@ -23,7 +23,11 @@ from src.order_editor import (
     execute_order,
     cancel_order,
 )
-from src.portfolio import summarize_portfolio
+from src.portfolio import (
+    ensure_portfolio_report,
+    summarize_portfolio,
+    valid_portfolio_rows,
+)
 from src.config import (
     load_watchlists,
     load_backtest_config,
@@ -34,6 +38,7 @@ from src.strategy_classification import STRATEGY_TYPES, add_strategy_types
 from src.analysis import analyze_stock
 from src.company_names import get_company_name
 from src.screener import suggest_watchlist_additions, load_screening_universe
+from src.alerts import build_alerts
 from src.research_ideas import (
     STATUS_WATCHLIST,
     load_research_ideas,
@@ -111,8 +116,8 @@ if "context" not in st.session_state:
     with st.spinner("Analyserer watchlist og portefølje..."):
         st.session_state.context = build_agent_context(
             get_active_watchlist(),
-            PORTFOLIO,
-            pending_orders=PENDING_ORDERS,
+            load_portfolio([]),
+            pending_orders=load_pending_orders([]),
             research_ideas=RESEARCH_IDEAS,
             pause_seconds=1,
         )
@@ -400,13 +405,22 @@ def morning_briefing_summary(daily_flow):
     return " · ".join(bullets[:3])
 
 
-def build_portfolio_actions_table(portfolio_report):
-    if portfolio_report is None or portfolio_report.empty:
-        return pd.DataFrame()
+def resolve_portfolio_report(context):
+    portfolio = load_portfolio([])
+    report = ensure_portfolio_report(
+        context.get("portfolio_report"),
+        portfolio,
+    )
 
-    df = portfolio_report.copy()
-    if "error" in df.columns:
-        df = df[df["error"].isna()]
+    if report is not None:
+        context["portfolio_report"] = report
+        context["dashboard"]["portfolio_summary"] = summarize_portfolio(report)
+
+    return report
+
+
+def build_portfolio_actions_table(portfolio_report):
+    df = valid_portfolio_rows(portfolio_report)
 
     if df.empty:
         return pd.DataFrame()
@@ -477,42 +491,16 @@ def build_new_opportunities(watchlist_report, research_ideas, owned):
     )[OPPORTUNITY_COLUMNS].reset_index(drop=True)
 
 
-def build_actionable_alerts(portfolio_report, daily_flow, research_summary):
-    alerts = []
+def show_alerts_compact(alerts):
+    if not alerts:
+        st.caption("Ingen viktige varsler akkurat nå.")
+        return
 
-    if portfolio_report is not None and not portfolio_report.empty:
-        df = portfolio_report.copy()
-        if "error" in df.columns:
-            df = df[df["error"].isna()]
-
-        for _, row in df[df["portefølje_råd"] == "REDUSER / SELG"].iterrows():
-            alerts.append(
-                f"**{row['ticker']}**: REDUSER / SELG "
-                f"({row.get('anbefaling', '')})"
-            )
-
-    near_stop = daily_flow["risk_alerts"].get("near_trailing_stop")
-    if near_stop is not None and not near_stop.empty:
-        for _, row in near_stop.iterrows():
-            details = row.get("details", "")
-            line = f"**{row['ticker']}**: Nær trailing stop"
-            if details:
-                line += f" — {details}"
-            alerts.append(line)
-
-    pending = daily_flow.get("pending_orders") or {}
-    if pending.get("total", 0) > 0:
-        alerts.append(f"Ventende ordre: {pending['summary']}")
-
-    for idea in research_summary.get("archive_ideas", []):
-        ticker = idea.get("ticker", "")
-        score = idea.get("score")
-        score_text = f" (score {int(score)})" if score is not None else ""
-        alerts.append(
-            f"**{ticker}**: Research-idé bør arkiveres{score_text}"
+    for alert in alerts:
+        st.markdown(
+            f"- **{alert['ticker']}** ({alert['severity']}): "
+            f"{alert['title']} — {alert['message']}"
         )
-
-    return alerts
 
 
 def show_strategy_type_metrics(strategy_counts):
@@ -569,7 +557,7 @@ with st.sidebar:
 
 
 watchlist_report = st.session_state.context["watchlist_report"]
-portfolio_report = st.session_state.context["portfolio_report"]
+portfolio_report = resolve_portfolio_report(st.session_state.context)
 dashboard = st.session_state.context["dashboard"]
 daily_flow = st.session_state.context["daily_flow"]
 ranked = rank_report(watchlist_report)
@@ -598,9 +586,15 @@ with tab_dashboard:
     if briefing:
         st.caption(briefing)
 
-    portfolio_summary = dashboard["portfolio_summary"]
-    research_summary = dashboard.get("research_ideas") or {}
-    owned = owned_tickers(portfolio_report, PORTFOLIO)
+    current_portfolio = load_portfolio([])
+    portfolio_summary = summarize_portfolio(portfolio_report)
+    owned = owned_tickers(portfolio_report, current_portfolio)
+
+    if current_portfolio and valid_portfolio_rows(portfolio_report).empty:
+        st.warning(
+            "Porteføljeanalyse mangler markedsverdi. "
+            "Trykk «Oppdater analyser» i sidepanelet."
+        )
 
     st.markdown("### Portefølje totalt")
     t1, t2, t3, t4 = st.columns(4)
@@ -634,16 +628,12 @@ with tab_dashboard:
         show_dataframe(opportunities)
 
     st.markdown("### Viktige varsler")
-    alerts = build_actionable_alerts(
+    alerts = build_alerts(
         portfolio_report,
-        daily_flow,
-        research_summary,
+        load_pending_orders([]),
+        RESEARCH_IDEAS,
     )
-    if not alerts:
-        st.caption("Ingen viktige varsler akkurat nå.")
-    else:
-        for alert in alerts:
-            st.markdown(f"- {alert}")
+    show_alerts_compact(alerts)
 
 
 with tab_ranking:
@@ -1172,7 +1162,7 @@ with tab_orders:
 with tab_portfolio:
     st.subheader("Portefølje")
 
-    if portfolio_report is None or portfolio_report.empty:
+    if valid_portfolio_rows(portfolio_report).empty:
         st.info("Ingen portefølje.")
     else:
         summary = summarize_portfolio(portfolio_report)
@@ -1202,7 +1192,7 @@ with tab_portfolio:
         st.markdown("### Posisjoner")
 
         st.dataframe(
-            portfolio_report,
+            valid_portfolio_rows(portfolio_report),
             width="stretch",
             hide_index=True,
         )

@@ -17,6 +17,40 @@ CACHE_DIR = "cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 
+def _prepare_daily_prices(df, symbol):
+    if df is None or df.empty:
+        raise ValueError(f"Ingen prisdata for {symbol}")
+
+    if "close" not in df.columns:
+        raise ValueError(f"Prisdata for {symbol} mangler close-kolonne")
+
+    cleaned = df.copy()
+    cleaned.index = pd.to_datetime(cleaned.index)
+    cleaned = cleaned.sort_index()
+    cleaned = cleaned[cleaned["close"].notna()]
+
+    if cleaned.empty:
+        raise ValueError(
+            f"Ingen gyldige close-priser for {symbol} etter opprydding"
+        )
+
+    return cleaned.astype(float)
+
+
+def _write_price_cache(cache_file, symbol, df):
+    today = date.today().isoformat()
+    cache_data = df.copy()
+    cache_data["date_index"] = cache_data.index.astype(str)
+
+    with open(cache_file, "w") as f:
+        json.dump({
+            "date": today,
+            "symbol": symbol,
+            "source": "yfinance",
+            "data": cache_data.to_dict(orient="records"),
+        }, f)
+
+
 def get_daily_prices(symbol, period="6mo", use_cache=True):
     today = date.today().isoformat()
 
@@ -35,7 +69,12 @@ def get_daily_prices(symbol, period="6mo", use_cache=True):
             df = pd.DataFrame(cached["data"])
             df.index = pd.to_datetime(df["date_index"])
             df = df.drop(columns=["date_index"])
-            return df.astype(float)
+            cleaned = _prepare_daily_prices(df, symbol)
+
+            if len(cleaned) < len(df):
+                _write_price_cache(cache_file, symbol, cleaned)
+
+            return cleaned
 
     print(f"Henter Yahoo Finance-data for {symbol}")
 
@@ -72,16 +111,7 @@ def get_daily_prices(symbol, period="6mo", use_cache=True):
     ]]
 
     df.index = pd.to_datetime(df.index)
+    cleaned = _prepare_daily_prices(df, symbol)
+    _write_price_cache(cache_file, symbol, cleaned)
 
-    cache_data = df.copy()
-    cache_data["date_index"] = cache_data.index.astype(str)
-
-    with open(cache_file, "w") as f:
-        json.dump({
-            "date": today,
-            "symbol": symbol,
-            "source": "yfinance",
-            "data": cache_data.to_dict(orient="records"),
-        }, f)
-
-    return df
+    return cleaned

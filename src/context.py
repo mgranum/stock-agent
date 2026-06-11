@@ -18,9 +18,10 @@ def build_agent_context(
         pause_seconds=pause_seconds
     )
 
+    portfolio = portfolio or []
     portfolio_report = None
 
-    if portfolio:
+    if len(portfolio) > 0:
         print("Analyserer portefølje...")
 
         portfolio_report = analyze_portfolio(

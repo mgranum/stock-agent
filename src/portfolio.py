@@ -3,6 +3,19 @@ import pandas as pd
 
 from src.analysis import analyze_stock
 
+PORTFOLIO_METRIC_COLUMNS = (
+    "market_value",
+    "unrealized_gain_pct",
+    "current_price",
+    "cost_value",
+)
+
+PORTFOLIO_ACTION_FIELDS = (
+    "portefølje_råd",
+    "anbefaling",
+    "trailing_stop_loss",
+)
+
 
 def analyze_portfolio(portfolio, pause_seconds=1):
     rows = []
@@ -80,20 +93,43 @@ def analyze_portfolio(portfolio, pause_seconds=1):
     return pd.DataFrame(rows)
 
 
-def summarize_portfolio(portfolio_report):
+def valid_portfolio_rows(portfolio_report):
     if portfolio_report is None or portfolio_report.empty:
-        return {
-            "total_cost_value": 0,
-            "total_market_value": 0,
-            "total_unrealized_profit_loss": 0,
-            "total_unrealized_gain_pct": 0,
-            "positions": 0,
-        }
+        return pd.DataFrame()
 
-    valid = portfolio_report.copy()
+    df = portfolio_report.copy()
+    if "error" in df.columns:
+        df = df[df["error"].isna()]
 
-    if "error" in valid.columns:
-        valid = valid[valid["error"].isna()]
+    if df.empty:
+        return pd.DataFrame()
+
+    required = list(PORTFOLIO_METRIC_COLUMNS) + list(PORTFOLIO_ACTION_FIELDS)
+    missing = [column for column in required if column not in df.columns]
+    if missing:
+        return pd.DataFrame()
+
+    return df[
+        df["market_value"].notna() & df["unrealized_gain_pct"].notna()
+    ].copy()
+
+
+def portfolio_report_is_analyzed(portfolio_report):
+    return not valid_portfolio_rows(portfolio_report).empty
+
+
+def ensure_portfolio_report(portfolio_report, portfolio):
+    if not portfolio:
+        return None
+
+    if portfolio_report_is_analyzed(portfolio_report):
+        return portfolio_report
+
+    return analyze_portfolio(portfolio, pause_seconds=0)
+
+
+def summarize_portfolio(portfolio_report):
+    valid = valid_portfolio_rows(portfolio_report)
 
     if valid.empty:
         return {
