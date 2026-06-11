@@ -1,4 +1,295 @@
+import pandas as pd
+
+from src.analysis import analyze_watchlist
+from src.company_names import get_company_name
+from src.config import load_json_config
 from src.ranking import rank_watchlist
+from src.strategy_classification import add_strategy_types
+
+
+MIN_SUGGESTION_SCORE = 55
+AVOID_RECOMMENDATION = "UNNGÅ / SELG"
+
+SCREEN_RESULT_COLUMNS = [
+    "ticker",
+    "company_name",
+    "score",
+    "recommendation",
+    "strategy_type",
+    "trend_regime",
+    "relative_strength_20d",
+    "fundamental_score",
+    "fundamental_history_score",
+]
+
+REJECTED_COLUMNS = [
+    "ticker",
+    "company_name",
+    "score",
+    "recommendation",
+    "reason",
+]
+
+DIAGNOSTIC_KEYS = [
+    "total_universe",
+    "already_in_watchlists",
+    "analyzed",
+    "failed",
+    "passed_filters",
+    "filtered_low_score",
+    "filtered_unnga_selg",
+]
+
+
+def load_screening_universe():
+    return load_json_config("screening_universe.json", {})
+
+
+def _universe_symbols(universe_name):
+    universes = load_screening_universe()
+
+    if universe_name not in universes:
+        known = ", ".join(sorted(universes)) or "(none configured)"
+        raise ValueError(
+            f"Unknown screening universe '{universe_name}'. "
+            f"Available: {known}"
+        )
+
+    return list(universes[universe_name])
+
+
+def _collect_existing_symbols(existing_watchlists):
+    symbols = set()
+
+    for list_name, tickers in existing_watchlists.items():
+        if list_name == "Alle":
+            continue
+        symbols.update(ticker.strip().upper() for ticker in tickers)
+
+    return symbols
+
+
+def _sort_candidates(df):
+    if df.empty:
+        return df
+
+    return df.sort_values(
+        by=["score", "relative_strength_20d"],
+        ascending=[False, False],
+    ).reset_index(drop=True)
+
+
+def _limit_results(df, max_results):
+    if max_results is None or df.empty:
+        return df
+
+    return df.head(max_results).reset_index(drop=True)
+
+
+def _format_screen_results(ranked_df):
+    if ranked_df.empty:
+        return pd.DataFrame(columns=SCREEN_RESULT_COLUMNS)
+
+    result = add_strategy_types(ranked_df.copy())
+    result["company_name"] = result["ticker"].map(get_company_name)
+    result["recommendation"] = result["anbefaling"]
+
+    return result[SCREEN_RESULT_COLUMNS].reset_index(drop=True)
+
+
+def _empty_diagnostics(total_universe=0, already_in_watchlists=0):
+    return {
+        key: 0
+        for key in DIAGNOSTIC_KEYS
+    } | {
+        "total_universe": total_universe,
+        "already_in_watchlists": already_in_watchlists,
+    }
+
+
+def _empty_screening_result(total_universe=0, already_in_watchlists=0):
+    return {
+        "candidates": pd.DataFrame(columns=SCREEN_RESULT_COLUMNS),
+        "diagnostics": _empty_diagnostics(
+            total_universe=total_universe,
+            already_in_watchlists=already_in_watchlists,
+        ),
+        "rejected": pd.DataFrame(columns=REJECTED_COLUMNS),
+    }
+
+
+def _rank_analyzed_report(report):
+    if report.empty:
+        return report
+
+    return report.sort_values(
+        by=[
+            "score",
+            "fundamental_history_score",
+            "fundamental_score",
+            "relative_strength_20d",
+        ],
+        ascending=[False, False, False, False],
+    ).reset_index(drop=True)
+
+
+def _filter_reason(row):
+    recommendation = row.get("recommendation") or ""
+    if recommendation == AVOID_RECOMMENDATION:
+        return "UNNGÅ / SELG"
+
+    score = row.get("score")
+    if pd.isna(score) or score < MIN_SUGGESTION_SCORE:
+        return "Lav score"
+
+    return None
+
+
+def _build_rejected_candidates(candidates, failed_report):
+    rejected_rows = []
+
+    for _, row in candidates.iterrows():
+        reason = _filter_reason(row)
+        if reason is None:
+            continue
+
+        rejected_rows.append({
+            "ticker": row["ticker"],
+            "company_name": row.get("company_name") or "",
+            "score": row.get("score"),
+            "recommendation": row.get("recommendation") or "",
+            "reason": reason,
+        })
+
+    if failed_report is not None and not failed_report.empty:
+        for _, row in failed_report.iterrows():
+            rejected_rows.append({
+                "ticker": row["ticker"],
+                "company_name": get_company_name(row["ticker"]),
+                "score": None,
+                "recommendation": "",
+                "reason": f"Analyse feilet: {row['error']}",
+            })
+
+    if not rejected_rows:
+        return pd.DataFrame(columns=REJECTED_COLUMNS)
+
+    rejected = pd.DataFrame(rejected_rows)
+    return rejected.sort_values(
+        by=["score"],
+        ascending=[False],
+        na_position="last",
+    ).reset_index(drop=True)
+
+
+def screen_universe(
+    universe_name,
+    max_results=None,
+    max_symbols=None,
+    pause_seconds=1,
+):
+    symbols = _universe_symbols(universe_name)
+
+    if max_symbols is not None:
+        symbols = symbols[:max_symbols]
+
+    ranked = rank_watchlist(
+        symbols,
+        pause_seconds=pause_seconds,
+    )
+    results = _format_screen_results(ranked)
+    return _limit_results(_sort_candidates(results), max_results)
+
+
+def suggest_watchlist_additions(
+    universe_name,
+    existing_watchlists,
+    max_results=None,
+    max_symbols=None,
+    pause_seconds=1,
+):
+    universe_symbols = _universe_symbols(universe_name)
+    total_universe = len(universe_symbols)
+    existing_symbols = _collect_existing_symbols(existing_watchlists)
+    already_in_watchlists = sum(
+        1
+        for symbol in universe_symbols
+        if symbol.strip().upper() in existing_symbols
+    )
+
+    symbols = [
+        symbol
+        for symbol in universe_symbols
+        if symbol.strip().upper() not in existing_symbols
+    ]
+
+    if max_symbols is not None:
+        symbols = symbols[:max_symbols]
+
+    if not symbols:
+        return _empty_screening_result(
+            total_universe=total_universe,
+            already_in_watchlists=already_in_watchlists,
+        )
+
+    report = analyze_watchlist(
+        symbols,
+        pause_seconds=pause_seconds,
+    )
+
+    failed_report = pd.DataFrame()
+    if "error" in report.columns:
+        failed_report = report[report["error"].notna()].copy()
+        report = report[report["error"].isna()]
+
+    analyzed = len(report)
+    failed = len(failed_report)
+    candidates = _format_screen_results(_rank_analyzed_report(report))
+
+    if candidates.empty:
+        diagnostics = _empty_diagnostics(
+            total_universe=total_universe,
+            already_in_watchlists=already_in_watchlists,
+        )
+        diagnostics.update({
+            "analyzed": analyzed,
+            "failed": failed,
+        })
+        return {
+            "candidates": pd.DataFrame(columns=SCREEN_RESULT_COLUMNS),
+            "diagnostics": diagnostics,
+            "rejected": _build_rejected_candidates(
+                candidates,
+                failed_report,
+            ),
+        }
+
+    reasons = candidates.apply(_filter_reason, axis=1)
+    filtered = candidates[reasons.isna()]
+    filtered_low_score = int((reasons == "Lav score").sum())
+    filtered_unnga_selg = int((reasons == "UNNGÅ / SELG").sum())
+
+    diagnostics = {
+        "total_universe": total_universe,
+        "already_in_watchlists": already_in_watchlists,
+        "analyzed": analyzed,
+        "failed": failed,
+        "passed_filters": len(filtered),
+        "filtered_low_score": filtered_low_score,
+        "filtered_unnga_selg": filtered_unnga_selg,
+    }
+
+    return {
+        "candidates": _limit_results(
+            _sort_candidates(filtered),
+            max_results,
+        ),
+        "diagnostics": diagnostics,
+        "rejected": _build_rejected_candidates(
+            candidates,
+            failed_report,
+        ),
+    }
 
 
 def screen_stocks(

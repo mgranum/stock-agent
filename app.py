@@ -33,6 +33,13 @@ from src.config import (
 from src.strategy_classification import STRATEGY_TYPES
 from src.analysis import analyze_stock
 from src.company_names import get_company_name
+from src.screener import suggest_watchlist_additions, load_screening_universe
+from src.research_ideas import (
+    load_research_ideas,
+    add_research_idea,
+    remove_research_idea,
+    update_research_ideas,
+)
 
 
 WATCHLISTS = load_watchlists()
@@ -135,6 +142,172 @@ def show_ranking_table(df):
         width="stretch",
         hide_index=True,
     )
+
+
+EXTERNAL_SCREEN_COLUMNS = [
+    "ticker",
+    "company_name",
+    "score",
+    "recommendation",
+    "strategy_type",
+    "trend_regime",
+    "relative_strength_20d",
+]
+
+
+def show_screening_diagnostics(diagnostics):
+    if not diagnostics:
+        return
+
+    lines = [
+        f"- Universe: {diagnostics.get('total_universe', 0)}",
+        f"- Already in watchlists: {diagnostics.get('already_in_watchlists', 0)}",
+        f"- Analyzed: {diagnostics.get('analyzed', 0)}",
+        f"- Passed filters: {diagnostics.get('passed_filters', 0)}",
+        f"- Low score: {diagnostics.get('filtered_low_score', 0)}",
+        f"- UNNGÅ / SELG: {diagnostics.get('filtered_unnga_selg', 0)}",
+    ]
+
+    failed = diagnostics.get("failed", 0)
+    if failed:
+        lines.insert(4, f"- Failed: {failed}")
+
+    st.markdown("\n".join(lines))
+
+
+def show_external_screen_results(df, target_watchlist, source_universe):
+    header_cols = st.columns([1, 2, 0.6, 1.2, 1.1, 1.4, 0.7, 1.0])
+    for col, label in zip(
+        header_cols,
+        [
+            "Ticker",
+            "Selskap",
+            "Score",
+            "Anbefaling",
+            "Strategi",
+            "Trend",
+            "RS %",
+            "Handling",
+        ],
+    ):
+        col.caption(f"**{label}**")
+
+    for idx, row in df.iterrows():
+        cols = st.columns([1, 2, 0.6, 1.2, 1.1, 1.4, 0.7, 1.0])
+        cols[0].write(row["ticker"])
+        cols[1].write(row.get("company_name") or "")
+        cols[2].write(int(row["score"]) if pd.notna(row["score"]) else "")
+        cols[3].write(row["recommendation"])
+        cols[4].write(row["strategy_type"])
+        cols[5].write(row["trend_regime"])
+        rs = row["relative_strength_20d"]
+        cols[6].write(f"{rs:.1f}" if pd.notna(rs) else "")
+
+        with cols[7]:
+            if st.button(
+                "Legg til",
+                key=f"external_screen_add_{target_watchlist}_{row['ticker']}_{idx}",
+            ):
+                try:
+                    add_symbol_to_watchlist(target_watchlist, row["ticker"])
+                    reload_watchlists()
+                    st.session_state.external_screen_feedback = (
+                        f"La til {row['ticker']} i {target_watchlist}."
+                    )
+                    st.session_state.external_screen_results = (
+                        df[df["ticker"] != row["ticker"]]
+                        .reset_index(drop=True)
+                    )
+                    st.rerun()
+                except ValueError as exc:
+                    st.error(str(exc))
+
+            if st.button(
+                "Lagre som idé",
+                key=(
+                    f"external_screen_save_{source_universe}_"
+                    f"{row['ticker']}_{idx}"
+                ),
+            ):
+                try:
+                    add_research_idea(row.to_dict(), source_universe)
+                    st.session_state.external_screen_feedback = (
+                        f"Lagret {row['ticker']} som research-idé."
+                    )
+                    st.rerun()
+                except ValueError as exc:
+                    st.error(str(exc))
+
+
+def show_research_ideas(ideas, target_watchlist):
+    sorted_ideas = sorted(
+        ideas,
+        key=lambda idea: idea.get("last_updated_at")
+        or idea.get("saved_at")
+        or "",
+        reverse=True,
+    )
+
+    header_cols = st.columns([1, 1.6, 0.5, 1.0, 1.0, 0.9, 1.0, 1.1])
+    for col, label in zip(
+        header_cols,
+        [
+            "Ticker",
+            "Selskap",
+            "Score",
+            "Anbefaling",
+            "Status",
+            "Strategi",
+            "Oppdatert",
+            "Handling",
+        ],
+    ):
+        col.caption(f"**{label}**")
+
+    for idx, idea in enumerate(sorted_ideas):
+        cols = st.columns([1, 1.6, 0.5, 1.0, 1.0, 0.9, 1.0, 1.1])
+        cols[0].write(idea.get("ticker", ""))
+        cols[1].write(idea.get("company_name") or "")
+        score = idea.get("score")
+        cols[2].write(
+            int(score) if score is not None and pd.notna(score) else ""
+        )
+        cols[3].write(idea.get("recommendation") or "")
+        cols[4].write(idea.get("status") or "")
+        cols[5].write(idea.get("strategy_type") or "")
+        updated_at = idea.get("last_updated_at") or idea.get("saved_at") or ""
+        cols[6].write(updated_at.replace("T", " ")[:16])
+
+        with cols[7]:
+            if st.button(
+                "Legg til",
+                key=f"research_idea_add_{target_watchlist}_{idea.get('ticker')}_{idx}",
+            ):
+                try:
+                    add_symbol_to_watchlist(
+                        target_watchlist,
+                        idea.get("ticker"),
+                    )
+                    reload_watchlists()
+                    st.session_state.research_ideas_feedback = (
+                        f"La til {idea.get('ticker')} i {target_watchlist}."
+                    )
+                    st.rerun()
+                except ValueError as exc:
+                    st.error(str(exc))
+
+            if st.button(
+                "Fjern",
+                key=f"research_idea_remove_{idea.get('ticker')}_{idx}",
+            ):
+                try:
+                    remove_research_idea(idea.get("ticker"))
+                    st.session_state.research_ideas_feedback = (
+                        f"Fjernet {idea.get('ticker')} fra research-idéer."
+                    )
+                    st.rerun()
+                except ValueError as exc:
+                    st.error(str(exc))
 
 
 def show_dataframe(df):
@@ -476,49 +649,156 @@ with tab_ranking:
 
 with tab_screening:
     st.subheader("Screening")
-
-    buy_candidates = rank_report(
-        watchlist_report[
-            watchlist_report["anbefaling"] == "KJØP / ØK"
-        ]
+    st.caption(
+        "Screen universer utenfor watchlistene dine, lagre idéer, "
+        "eller legg kandidater direkte til watchlist."
     )
 
-    quality_companies = rank_report(
-        watchlist_report[
-            (watchlist_report["fundamental_score"] >= 70)
-            & (watchlist_report["fundamental_history_score"] >= 70)
-            & (watchlist_report["score"] >= 55)
-        ]
+    st.markdown("### Finn nye kandidater")
+    st.caption(
+        "Analyserer hele universet, filtrerer bort symboler som allerede "
+        "ligger på watchlistene dine, og viser de beste forslagene."
     )
 
-    growth_with_trend = rank_report(
-        watchlist_report[
-            (watchlist_report["score"] >= 60)
-            & (watchlist_report["fundamental_history_score"] >= 70)
-            & (watchlist_report["relative_strength_20d"] > 0)
-            & (watchlist_report["trend_regime"] == "STERK OPPTREND")
-        ]
+    external_feedback = st.session_state.pop("external_screen_feedback", None)
+    if external_feedback:
+        st.success(external_feedback)
+
+    universe_options = sorted(load_screening_universe())
+    if not universe_options:
+        st.warning(
+            "Ingen screening-univers konfigurert. "
+            "Legg til data/config/screening_universe.json."
+        )
+    else:
+        control_cols = st.columns([2, 1, 2])
+        with control_cols[0]:
+            external_universe = st.selectbox(
+                "Univers",
+                universe_options,
+                key="external_screen_universe",
+            )
+        with control_cols[1]:
+            external_max_results = st.number_input(
+                "Maks antall forslag",
+                min_value=0,
+                value=0,
+                step=1,
+                help="0 = vis alle forslag etter filtrering",
+                key="external_screen_max_results",
+            )
+        with control_cols[2]:
+            external_target_watchlist = st.selectbox(
+                "Legg til i",
+                editable_watchlist_names(),
+                key="external_screen_target_watchlist",
+            )
+
+        if st.button("Kjør screening", key="run_external_screen"):
+            max_results = (
+                None
+                if external_max_results == 0
+                else int(external_max_results)
+            )
+            with st.spinner(f"Screener {external_universe}..."):
+                screen_result = suggest_watchlist_additions(
+                    external_universe,
+                    WATCHLISTS,
+                    max_results=max_results,
+                    pause_seconds=1,
+                )
+                st.session_state.external_screen_results = (
+                    screen_result["candidates"]
+                )
+                st.session_state.external_screen_diagnostics = (
+                    screen_result["diagnostics"]
+                )
+                st.session_state.external_screen_rejected = (
+                    screen_result["rejected"]
+                )
+                st.session_state.external_screen_source_universe = (
+                    external_universe
+                )
+
+        external_results = st.session_state.get("external_screen_results")
+        external_diagnostics = st.session_state.get(
+            "external_screen_diagnostics"
+        )
+        external_rejected = st.session_state.get("external_screen_rejected")
+        external_source_universe = st.session_state.get(
+            "external_screen_source_universe",
+            external_universe,
+        )
+        if external_results is not None:
+            if external_results.empty:
+                st.info("Ingen nye kandidater funnet.")
+                show_screening_diagnostics(external_diagnostics)
+                if (
+                    external_rejected is not None
+                    and not external_rejected.empty
+                ):
+                    with st.expander("Se forkastede kandidater"):
+                        show_dataframe(external_rejected)
+            else:
+                display_df = external_results[
+                    [
+                        col for col in EXTERNAL_SCREEN_COLUMNS
+                        if col in external_results.columns
+                    ]
+                ]
+                show_external_screen_results(
+                    display_df,
+                    external_target_watchlist,
+                    external_source_universe,
+                )
+
+    st.divider()
+    st.markdown("### Research ideas")
+    st.caption(
+        "Lagrede kandidater fra screening. Oppdater for ferske scorer "
+        "og handlingsstatus."
     )
 
-    quality_not_buy = rank_report(
-        watchlist_report[
-            (watchlist_report["fundamental_score"] >= 70)
-            & (watchlist_report["fundamental_history_score"] >= 70)
-            & (watchlist_report["anbefaling"] != "KJØP / ØK")
-        ]
-    )
+    research_feedback = st.session_state.pop("research_ideas_feedback", None)
+    if research_feedback:
+        st.success(research_feedback)
 
-    st.markdown("### Kjøpskandidater")
-    show_ranking_table(buy_candidates)
+    research_control_cols = st.columns([2, 1, 2])
+    with research_control_cols[0]:
+        research_target_watchlist = st.selectbox(
+            "Legg til i",
+            editable_watchlist_names(),
+            key="research_target_watchlist",
+        )
+    with research_control_cols[2]:
+        if st.button(
+            "Oppdater research ideas",
+            key="update_research_ideas",
+        ):
+            research_ideas = load_research_ideas()
+            if not research_ideas:
+                st.session_state.research_ideas_feedback = (
+                    "Ingen research-idéer å oppdatere."
+                )
+            else:
+                with st.spinner("Oppdaterer research-idéer..."):
+                    result = update_research_ideas(pause_seconds=1)
+                message = (
+                    f"Oppdaterte {len(result['ideas'])} research-idéer."
+                )
+                if result["failed"]:
+                    failed_tickers = ", ".join(
+                        item["ticker"] for item in result["failed"]
+                    )
+                    message += f" Feilet for: {failed_tickers}."
+                st.session_state.research_ideas_feedback = message
+            st.rerun()
 
-    st.markdown("### Kvalitetsselskaper")
-    show_ranking_table(quality_companies)
-
-    st.markdown("### Vekst med sterk trend")
-    show_ranking_table(growth_with_trend)
-
-    st.markdown("### Sterke fundamentals, men ikke kjøp nå")
-    show_ranking_table(quality_not_buy)
+    research_ideas = load_research_ideas()
+    if not research_ideas:
+        st.info("Ingen lagrede research-idéer.")
+    else:
+        show_research_ideas(research_ideas, research_target_watchlist)
 
 
 with tab_watchlists:
