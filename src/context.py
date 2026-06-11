@@ -8,6 +8,7 @@ def build_agent_context(
     watchlist,
     portfolio=None,
     pending_orders=None,
+    research_ideas=None,
     pause_seconds=1,
 ):
     print("Analyserer watchlist...")
@@ -33,6 +34,7 @@ def build_agent_context(
         portfolio_report=portfolio_report,
         pending_orders=orders,
         watchlist_symbols=watchlist,
+        research_ideas=research_ideas or [],
     )
     daily_flow = build_daily_flow(
         watchlist_report=watchlist_report,

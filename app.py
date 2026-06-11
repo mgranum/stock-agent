@@ -30,15 +30,17 @@ from src.config import (
     add_symbol_to_watchlist,
     remove_symbol_from_watchlist,
 )
-from src.strategy_classification import STRATEGY_TYPES
+from src.strategy_classification import STRATEGY_TYPES, add_strategy_types
 from src.analysis import analyze_stock
 from src.company_names import get_company_name
 from src.screener import suggest_watchlist_additions, load_screening_universe
 from src.research_ideas import (
+    STATUS_WATCHLIST,
     load_research_ideas,
     add_research_idea,
     remove_research_idea,
     update_research_ideas,
+    research_idea_status,
 )
 
 
@@ -64,6 +66,7 @@ else:
 PORTFOLIO = load_portfolio([])
 PENDING_ORDERS = load_pending_orders([])
 ORDER_HISTORY = load_order_history([])
+RESEARCH_IDEAS = load_research_ideas()
 
 
 if "messages" not in st.session_state:
@@ -110,6 +113,7 @@ if "context" not in st.session_state:
             get_active_watchlist(),
             PORTFOLIO,
             pending_orders=PENDING_ORDERS,
+            research_ideas=RESEARCH_IDEAS,
             pause_seconds=1,
         )
 
@@ -120,6 +124,7 @@ def refresh_context():
             get_active_watchlist(),
             load_portfolio([]),
             pending_orders=load_pending_orders([]),
+            research_ideas=load_research_ideas(),
             pause_seconds=1,
         )
 
@@ -338,6 +343,199 @@ def show_dataframe(df):
     )
 
 
+PORTFOLIO_ACTION_SORT = {
+    "REDUSER / SELG": 0,
+    "VURDER REDUKSJON": 1,
+    "VURDER GEVINSTSIKRING": 2,
+    "FØLG MED / IKKE ØK": 3,
+    "HOLD / FØLG MED": 4,
+    "HOLD": 5,
+    "HOLD / LA VINNER LØPE": 6,
+}
+
+PORTFOLIO_ACTION_COLUMNS = [
+    "ticker",
+    "company_name",
+    "market_value",
+    "unrealized_gain_pct",
+    "score",
+    "anbefaling",
+    "portefølje_råd",
+    "trend_regime",
+    "relative_strength_20d",
+]
+
+OPPORTUNITY_COLUMNS = [
+    "ticker",
+    "company_name",
+    "source",
+    "score",
+    "recommendation",
+    "strategy_type",
+    "trend_regime",
+    "relative_strength_20d",
+]
+
+
+def owned_tickers(portfolio_report, portfolio):
+    tickers = set()
+    for position in portfolio or []:
+        ticker = position.get("ticker")
+        if ticker:
+            tickers.add(str(ticker).strip().upper())
+
+    if portfolio_report is not None and not portfolio_report.empty:
+        tickers.update(
+            portfolio_report["ticker"].astype(str).str.strip().str.upper()
+        )
+
+    return tickers
+
+
+def morning_briefing_summary(daily_flow):
+    bullets = daily_flow.get("summary_bullets", [])
+    if not bullets:
+        return ""
+
+    return " · ".join(bullets[:3])
+
+
+def build_portfolio_actions_table(portfolio_report):
+    if portfolio_report is None or portfolio_report.empty:
+        return pd.DataFrame()
+
+    df = portfolio_report.copy()
+    if "error" in df.columns:
+        df = df[df["error"].isna()]
+
+    if df.empty:
+        return pd.DataFrame()
+
+    df["company_name"] = df["ticker"].apply(get_company_name)
+    df["_sort"] = df["portefølje_råd"].map(
+        lambda action: PORTFOLIO_ACTION_SORT.get(action, 99)
+    )
+    df = df.sort_values("_sort").drop(columns="_sort")
+
+    columns = [col for col in PORTFOLIO_ACTION_COLUMNS if col in df.columns]
+    return df[columns].reset_index(drop=True)
+
+
+def build_new_opportunities(watchlist_report, research_ideas, owned):
+    rows = []
+    seen = set()
+
+    if watchlist_report is not None and not watchlist_report.empty:
+        classified = add_strategy_types(watchlist_report)
+        buys = classified[classified["anbefaling"] == "KJØP / ØK"]
+
+        for _, row in buys.iterrows():
+            ticker = str(row["ticker"]).strip().upper()
+            if ticker in owned or ticker in seen:
+                continue
+
+            seen.add(ticker)
+            rows.append({
+                "ticker": row["ticker"],
+                "company_name": get_company_name(row["ticker"]) or "",
+                "source": "WATCHLIST",
+                "score": row["score"],
+                "recommendation": row["anbefaling"],
+                "strategy_type": row.get("strategy_type", ""),
+                "trend_regime": row.get("trend_regime", ""),
+                "relative_strength_20d": row.get("relative_strength_20d"),
+            })
+
+    for idea in research_ideas or []:
+        ticker = str(idea.get("ticker", "")).strip().upper()
+        if not ticker or ticker in owned or ticker in seen:
+            continue
+
+        status = idea.get("status") or research_idea_status(idea)
+        if status != STATUS_WATCHLIST:
+            continue
+
+        seen.add(ticker)
+        rows.append({
+            "ticker": idea.get("ticker"),
+            "company_name": idea.get("company_name") or get_company_name(ticker) or "",
+            "source": "RESEARCH",
+            "score": idea.get("score"),
+            "recommendation": idea.get("recommendation") or "",
+            "strategy_type": idea.get("strategy_type", ""),
+            "trend_regime": idea.get("trend_regime", ""),
+            "relative_strength_20d": idea.get("relative_strength_20d"),
+        })
+
+    if not rows:
+        return pd.DataFrame(columns=OPPORTUNITY_COLUMNS)
+
+    df = pd.DataFrame(rows)
+    return df.sort_values(
+        by=["score", "relative_strength_20d"],
+        ascending=[False, False],
+    )[OPPORTUNITY_COLUMNS].reset_index(drop=True)
+
+
+def build_actionable_alerts(portfolio_report, daily_flow, research_summary):
+    alerts = []
+
+    if portfolio_report is not None and not portfolio_report.empty:
+        df = portfolio_report.copy()
+        if "error" in df.columns:
+            df = df[df["error"].isna()]
+
+        for _, row in df[df["portefølje_råd"] == "REDUSER / SELG"].iterrows():
+            alerts.append(
+                f"**{row['ticker']}**: REDUSER / SELG "
+                f"({row.get('anbefaling', '')})"
+            )
+
+    near_stop = daily_flow["risk_alerts"].get("near_trailing_stop")
+    if near_stop is not None and not near_stop.empty:
+        for _, row in near_stop.iterrows():
+            details = row.get("details", "")
+            line = f"**{row['ticker']}**: Nær trailing stop"
+            if details:
+                line += f" — {details}"
+            alerts.append(line)
+
+    pending = daily_flow.get("pending_orders") or {}
+    if pending.get("total", 0) > 0:
+        alerts.append(f"Ventende ordre: {pending['summary']}")
+
+    for idea in research_summary.get("archive_ideas", []):
+        ticker = idea.get("ticker", "")
+        score = idea.get("score")
+        score_text = f" (score {int(score)})" if score is not None else ""
+        alerts.append(
+            f"**{ticker}**: Research-idé bør arkiveres{score_text}"
+        )
+
+    return alerts
+
+
+def show_strategy_type_metrics(strategy_counts):
+    if not strategy_counts or sum(strategy_counts.values()) == 0:
+        st.info("Ingen strategidata tilgjengelig.")
+        return
+
+    strategy_labels = {
+        "QUALITY_COMPOUNDER": "Quality",
+        "COMPOUNDER": "Compounder",
+        "MOMENTUM": "Momentum",
+        "CYCLICAL": "Cyclical",
+        "WEAK/AVOID": "Weak/Avoid",
+        "UNKNOWN": "Unknown",
+    }
+    columns = st.columns(len(STRATEGY_TYPES))
+    for column, strategy_type in zip(columns, STRATEGY_TYPES):
+        column.metric(
+            strategy_labels.get(strategy_type, strategy_type),
+            strategy_counts.get(strategy_type, 0),
+        )
+
+
 with st.sidebar:
     st.header("Kontrollpanel")
     st.caption(environment_label())
@@ -396,255 +594,112 @@ tab_dashboard, tab_ranking, tab_screening, tab_watchlists, tab_allocation, tab_o
 
 
 with tab_dashboard:
-    st.markdown("### Morning Briefing")
+    briefing = morning_briefing_summary(daily_flow)
+    if briefing:
+        st.caption(briefing)
 
-    regime = daily_flow["market_regime"]
-    regime_signals = regime["signals"]
-
-    st.markdown(f"**{regime['label']}**")
-    b1, b2, b3, b4, b5 = st.columns(5)
-    b1.metric("Kjøp", regime_signals["buy_count"])
-    b2.metric("Svake/unngå", regime_signals["weak_avoid_count"])
-    b3.metric("Snitt RS", f"{regime_signals['avg_relative_strength']}%")
-    b4.metric("Snitt score", regime_signals["avg_score"])
-    b5.metric("Unngå/selg", regime_signals["avoid_count"])
-
-    for bullet in daily_flow["summary_bullets"]:
-        st.markdown(f"- {bullet}")
-
-    with st.expander("Detaljer", expanded=False):
-        st.markdown("#### Muligheter")
-        opportunities = daily_flow["key_opportunities"]
-
-        st.caption("Topp kjøpskandidater")
-        show_dataframe(opportunities["new_buy_candidates"])
-
-        c1, c2 = st.columns(2)
-        with c1:
-            st.caption("Sterkest momentum")
-            show_dataframe(opportunities["strongest_momentum"])
-        with c2:
-            st.caption("Sterkeste quality compounders")
-            show_dataframe(opportunities["strongest_quality_compounders"])
-
-        st.markdown("#### Risikovarsler")
-        alerts = daily_flow["risk_alerts"]
-        risk_frames = [
-            alerts["near_trailing_stop"],
-            alerts["weakening_positions"],
-            alerts["large_drawdowns"],
-            alerts["other_alerts"],
-        ]
-        combined_alerts = pd.concat(
-            [df for df in risk_frames if df is not None and not df.empty],
-            ignore_index=True,
-        )
-
-        concentration = alerts["concentration_risk"]
-        if concentration.get("has_risk"):
-            for item in concentration["alerts"]:
-                st.warning(f"{item['alert']}: {item['details']}")
-
-        if combined_alerts.empty and not concentration.get("has_risk"):
-            st.info("Ingen risikovarsler.")
-        else:
-            show_dataframe(combined_alerts)
-
-        st.markdown("#### Ventende ordre")
-        pending = daily_flow["pending_orders"]
-        st.caption(pending["summary"])
-        show_dataframe(pending["orders"])
-
-    st.divider()
-
-    st.markdown("### Markedsregime")
-    market_regime = dashboard["market_regime"]
-
-    if not market_regime.get("available"):
-        st.info(market_regime.get("message", "Markedsregime utilgjengelig."))
-    else:
-        st.markdown(f"**{market_regime['regime_label']}**")
-
-        m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("Benchmark", market_regime["benchmark_symbol"])
-        m2.metric("Kurs", market_regime["benchmark_price"])
-        m3.metric("SMA20", market_regime["sma20"])
-        m4.metric("SMA50", market_regime["sma50"])
-        m5.metric("SMA100", market_regime["sma100"])
-
-        if market_regime["reasons"]:
-            st.caption(" · ".join(market_regime["reasons"]))
-
-        st.info(market_regime["interpretation"])
-
-        kpis = market_regime["watchlist_kpis"]
-        k1, k2, k3 = st.columns(3)
-        k1.metric(
-            "Sterk opptrend",
-            f"{kpis['strong_uptrend_pct']}%",
-        )
-        k2.metric(
-            "Svak/negativ trend",
-            f"{kpis['weak_trend_pct']}%",
-        )
-        k3.metric(
-            "Snitt relativ styrke",
-            f"{kpis['avg_relative_strength']}%",
-        )
-
-    st.subheader("Dagens situasjon")
-
-    market = dashboard["market_summary"]
     portfolio_summary = dashboard["portfolio_summary"]
+    research_summary = dashboard.get("research_ideas") or {}
+    owned = owned_tickers(portfolio_report, PORTFOLIO)
 
-    col1, col2, col3, col4 = st.columns(4)
-
-    col1.metric(
-        "Kjøpskandidater",
-        market["buy_count"],
-    )
-
-    col2.metric(
-        "Hold / observer",
-        market["hold_count"],
-    )
-
-    col3.metric(
-        "Unngå / selg",
-        market["avoid_count"],
-    )
-
-    col4.metric(
-        "Aksjer analysert",
-        market["total_symbols"],
-    )
-
-    st.markdown("### Strategityper")
-    strategy_counts = dashboard.get("strategy_type_counts", {})
-    if not strategy_counts or sum(strategy_counts.values()) == 0:
-        st.info("Ingen strategidata tilgjengelig.")
-    else:
-        strategy_labels = {
-            "QUALITY_COMPOUNDER": "Quality Compounder",
-            "COMPOUNDER": "Compounder",
-            "MOMENTUM": "Momentum",
-            "CYCLICAL": "Cyclical",
-            "WEAK/AVOID": "Weak/Avoid",
-            "UNKNOWN": "Unknown",
-        }
-        columns = st.columns(len(STRATEGY_TYPES))
-        for column, strategy_type in zip(columns, STRATEGY_TYPES):
-            column.metric(
-                strategy_labels.get(strategy_type, strategy_type),
-                strategy_counts.get(strategy_type, 0),
-            )
-
-    st.markdown("### Strategiprofiler")
-    strategy_profiles = dashboard.get("strategy_profiles")
-    if strategy_profiles is None or strategy_profiles.empty:
-        st.info("Ingen strategiprofiler tilgjengelig.")
-    else:
-        show_dataframe(strategy_profiles)
-
-    st.markdown("### Endringer siden sist snapshot")
-    snapshot_changes = dashboard.get("changes_since_last_snapshot")
-    if snapshot_changes is None:
-        st.info(
-            "Ingen snapshot lagret ennå. "
-            "Lagre et snapshot fra kontrollpanelet for å se endringer."
-        )
-    else:
-        st.markdown("#### Anbefaling endret")
-        recommendation_changed = snapshot_changes["recommendation_changed"]
-        if recommendation_changed.empty:
-            st.info("Ingen endringer i anbefaling.")
-        else:
-            show_dataframe(recommendation_changed)
-
-        st.markdown("#### Store score-endringer")
-        large_score_changes = snapshot_changes["large_score_changes"]
-        if large_score_changes.empty:
-            st.info("Ingen store score-endringer.")
-        else:
-            show_dataframe(large_score_changes)
-
-    st.markdown("### Portefølje")
-
-    p1, p2, p3, p4 = st.columns(4)
-
-    p1.metric(
-        "Kostverdi",
-        portfolio_summary["total_cost_value"],
-    )
-
-    p2.metric(
-        "Markedsverdi",
-        portfolio_summary["total_market_value"],
-    )
-
-    p3.metric(
+    st.markdown("### Portefølje totalt")
+    t1, t2, t3, t4 = st.columns(4)
+    t1.metric("Markedsverdi", portfolio_summary["total_market_value"])
+    t2.metric(
         "Urealisert gevinst/tap",
         portfolio_summary["total_unrealized_profit_loss"],
     )
-
-    p4.metric(
+    t3.metric(
         "Urealisert %",
         f"{portfolio_summary['total_unrealized_gain_pct']}%",
     )
+    t4.metric("Posisjoner", portfolio_summary["positions"])
 
-    # Portfolio risk section
-    st.markdown("### Portfolio Risk")
-    pr = dashboard.get("portfolio_risk", {})
+    st.markdown("### Mine posisjoner – hva bør jeg gjøre?")
+    actions_table = build_portfolio_actions_table(portfolio_report)
+    if actions_table.empty:
+        st.info("Ingen porteføljeposisjoner.")
+    else:
+        show_dataframe(actions_table)
 
-    r1, r2, r3 = st.columns(3)
-    r1.metric(
-        "Antall posisjoner",
-        pr.get("positions", portfolio_summary.get("positions", 0)),
+    st.markdown("### Nye muligheter")
+    opportunities = build_new_opportunities(
+        watchlist_report,
+        RESEARCH_IDEAS,
+        owned,
     )
+    if opportunities.empty:
+        st.info("Ingen nye kjøpskandidater utenfor porteføljen.")
+    else:
+        show_dataframe(opportunities)
 
-    r2.metric(
-        "Topp posisjon %",
-        f"{pr.get('top_position_pct', 0)}%",
+    st.markdown("### Viktige varsler")
+    alerts = build_actionable_alerts(
+        portfolio_report,
+        daily_flow,
+        research_summary,
     )
-
-    r3.metric(
-        "Top 3 konsentrasjon %",
-        f"{pr.get('top3_concentration_pct', 0)}%",
-    )
-
-    st.markdown("Topp posisjoner")
-    try:
-        show_dataframe(pr.get("top_positions", None))
-    except Exception:
-        st.info("Ingen topp posisjoner.")
-
-    st.markdown("Allokering (topp 10)")
-    try:
-        show_dataframe(pr.get("allocations", None).head(10))
-    except Exception:
-        st.info("Ingen allokeringst data.")
-
-    # Weakening positions
-    st.markdown("### Svekkende posisjoner")
-    show_dataframe(dashboard.get("weakening_positions"))
-
-    # Strong existing winners
-    st.markdown("### Sterke vinnere i porteføljen")
-    show_dataframe(dashboard.get("strong_winners"))
-
-    st.markdown("### Topp kjøpskandidater")
-    show_dataframe(dashboard["top_buy_candidates"])
-
-    st.markdown("### Viktigste varsler")
-    show_dataframe(dashboard["risk_alerts"])
-
-    st.markdown("### Pending ordre")
-    show_dataframe(dashboard["pending_orders"])
+    if not alerts:
+        st.caption("Ingen viktige varsler akkurat nå.")
+    else:
+        for alert in alerts:
+            st.markdown(f"- {alert}")
 
 
 with tab_ranking:
     st.subheader("Rangert watchlist")
     show_ranking_table(ranked)
+
+    market = dashboard["market_summary"]
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Kjøpskandidater", market["buy_count"])
+    m2.metric("Hold / observer", market["hold_count"])
+    m3.metric("Unngå / selg", market["avoid_count"])
+    m4.metric("Aksjer analysert", market["total_symbols"])
+
+    with st.expander("Strategityper", expanded=False):
+        show_strategy_type_metrics(
+            dashboard.get("strategy_type_counts", {}),
+        )
+
+    with st.expander("Strategiprofiler", expanded=False):
+        strategy_profiles = dashboard.get("strategy_profiles")
+        if strategy_profiles is None or strategy_profiles.empty:
+            st.info("Ingen strategiprofiler tilgjengelig.")
+        else:
+            show_dataframe(strategy_profiles)
+
+    with st.expander("Topp kjøpskandidater", expanded=False):
+        show_dataframe(dashboard["top_buy_candidates"])
+
+    market_regime = dashboard["market_regime"]
+    with st.expander("Markedsregime", expanded=False):
+        if not market_regime.get("available"):
+            st.info(
+                market_regime.get(
+                    "message",
+                    "Markedsregime utilgjengelig.",
+                )
+            )
+        else:
+            st.markdown(f"**{market_regime['regime_label']}**")
+            r1, r2, r3, r4, r5 = st.columns(5)
+            r1.metric("Benchmark", market_regime["benchmark_symbol"])
+            r2.metric("Kurs", market_regime["benchmark_price"])
+            r3.metric("SMA20", market_regime["sma20"])
+            r4.metric("SMA50", market_regime["sma50"])
+            r5.metric("SMA100", market_regime["sma100"])
+            if market_regime["reasons"]:
+                st.caption(" · ".join(market_regime["reasons"]))
+            st.info(market_regime["interpretation"])
+            kpis = market_regime["watchlist_kpis"]
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Sterk opptrend", f"{kpis['strong_uptrend_pct']}%")
+            k2.metric("Svak/negativ trend", f"{kpis['weak_trend_pct']}%")
+            k3.metric(
+                "Snitt relativ styrke",
+                f"{kpis['avg_relative_strength']}%",
+            )
 
 
 with tab_screening:
@@ -775,8 +830,7 @@ with tab_screening:
             "Oppdater research ideas",
             key="update_research_ideas",
         ):
-            research_ideas = load_research_ideas()
-            if not research_ideas:
+            if not RESEARCH_IDEAS:
                 st.session_state.research_ideas_feedback = (
                     "Ingen research-idéer å oppdatere."
                 )
@@ -794,11 +848,10 @@ with tab_screening:
                 st.session_state.research_ideas_feedback = message
             st.rerun()
 
-    research_ideas = load_research_ideas()
-    if not research_ideas:
+    if not RESEARCH_IDEAS:
         st.info("Ingen lagrede research-idéer.")
     else:
-        show_research_ideas(research_ideas, research_target_watchlist)
+        show_research_ideas(RESEARCH_IDEAS, research_target_watchlist)
 
 
 with tab_watchlists:
@@ -1154,6 +1207,36 @@ with tab_portfolio:
             hide_index=True,
         )
 
+    pr = dashboard.get("portfolio_risk", {})
+    with st.expander("Portfolio risk", expanded=False):
+        r1, r2, r3 = st.columns(3)
+        r1.metric(
+            "Antall posisjoner",
+            pr.get("positions", dashboard["portfolio_summary"].get("positions", 0)),
+        )
+        r2.metric("Topp posisjon %", f"{pr.get('top_position_pct', 0)}%")
+        r3.metric(
+            "Top 3 konsentrasjon %",
+            f"{pr.get('top3_concentration_pct', 0)}%",
+        )
+        st.caption("Topp posisjoner")
+        show_dataframe(pr.get("top_positions"))
+        st.caption("Allokering (topp 10)")
+        allocations = pr.get("allocations")
+        if allocations is not None and not allocations.empty:
+            show_dataframe(allocations.head(10))
+        else:
+            st.info("Ingen allokeringsdata.")
+
+    with st.expander("Svekkende posisjoner", expanded=False):
+        show_dataframe(dashboard.get("weakening_positions"))
+
+    with st.expander("Sterke vinnere", expanded=False):
+        show_dataframe(dashboard.get("strong_winners"))
+
+    with st.expander("Porteføljevarsler", expanded=False):
+        show_dataframe(dashboard.get("risk_alerts"))
+
     st.markdown("### Rå porteføljedata")
     show_dataframe(load_portfolio([]))
 
@@ -1170,6 +1253,30 @@ with tab_history:
 
 with tab_snapshots:
     st.subheader("Snapshot-historikk")
+
+    snapshot_changes = dashboard.get("changes_since_last_snapshot")
+    if snapshot_changes is None:
+        st.info(
+            "Ingen snapshot lagret ennå. "
+            "Lagre et snapshot fra kontrollpanelet for å se endringer."
+        )
+    else:
+        with st.expander("Endringer siden sist snapshot", expanded=True):
+            st.markdown("#### Anbefaling endret")
+            recommendation_changed = snapshot_changes[
+                "recommendation_changed"
+            ]
+            if recommendation_changed.empty:
+                st.info("Ingen endringer i anbefaling.")
+            else:
+                show_dataframe(recommendation_changed)
+
+            st.markdown("#### Store score-endringer")
+            large_score_changes = snapshot_changes["large_score_changes"]
+            if large_score_changes.empty:
+                st.info("Ingen store score-endringer.")
+            else:
+                show_dataframe(large_score_changes)
 
     snapshots = compare_snapshots()
 

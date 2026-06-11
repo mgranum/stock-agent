@@ -1,5 +1,5 @@
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from src.analysis import analyze_stock
 from src.company_names import get_company_name
@@ -9,6 +9,11 @@ from src.strategy_classification import classify_stock
 FILENAME = "research_ideas.json"
 BUY_RECOMMENDATION = "KJØP / ØK"
 AVOID_RECOMMENDATION = "UNNGÅ / SELG"
+STATUS_WATCHLIST = "LEGG TIL WATCHLIST"
+STATUS_FOLLOW = "FØLG MED"
+STATUS_ARCHIVE = "ARKIVER"
+STALE_DAYS = 7
+_ACTIONABLE_STATUSES = (STATUS_WATCHLIST, STATUS_FOLLOW)
 
 
 def load_research_ideas():
@@ -31,6 +36,83 @@ def _coerce_score(score):
         return float(score)
     except (TypeError, ValueError):
         return 0
+
+
+def _parse_iso_timestamp(value):
+    if not value:
+        return None
+
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _idea_status(idea):
+    return idea.get("status") or research_idea_status(idea)
+
+
+def is_stale_research_idea(idea, stale_days=STALE_DAYS):
+    updated = _parse_iso_timestamp(idea.get("last_updated_at"))
+    if updated is None:
+        return True
+
+    now = datetime.now(timezone.utc)
+    if updated.tzinfo is None:
+        updated = updated.replace(tzinfo=timezone.utc)
+
+    return now - updated >= timedelta(days=stale_days)
+
+
+def summarize_research_ideas(ideas):
+    ideas = ideas or []
+    watchlist_ideas = []
+    follow_ideas = []
+    archive_ideas = []
+    stale_ideas = []
+
+    for idea in ideas:
+        status = _idea_status(idea)
+
+        if status == STATUS_WATCHLIST:
+            watchlist_ideas.append(idea)
+        elif status == STATUS_FOLLOW:
+            follow_ideas.append(idea)
+        elif status == STATUS_ARCHIVE:
+            archive_ideas.append(idea)
+
+        if is_stale_research_idea(idea):
+            stale_ideas.append(idea)
+
+    actionable = sorted(
+        [
+            idea
+            for idea in ideas
+            if _idea_status(idea) in _ACTIONABLE_STATUSES
+        ],
+        key=lambda idea: _coerce_score(idea.get("score")),
+        reverse=True,
+    )
+
+    return {
+        "total": len(ideas),
+        "watchlist_count": len(watchlist_ideas),
+        "follow_count": len(follow_ideas),
+        "archive_count": len(archive_ideas),
+        "stale_count": len(stale_ideas),
+        "watchlist_ideas": watchlist_ideas,
+        "follow_ideas": follow_ideas,
+        "archive_ideas": archive_ideas,
+        "stale_ideas": stale_ideas,
+        "top_actionable": [
+            {
+                "ticker": idea.get("ticker"),
+                "score": _coerce_score(idea.get("score")),
+                "status": _idea_status(idea),
+            }
+            for idea in actionable[:5]
+        ],
+    }
 
 
 def research_idea_status(idea):

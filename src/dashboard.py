@@ -13,6 +13,7 @@ from src.strategy_profiles import (
     add_strategy_profile_columns,
     strategy_profiles_overview,
 )
+from src.research_ideas import summarize_research_ideas
 from src.technicals import get_benchmark_for_symbol
 
 
@@ -21,6 +22,7 @@ def build_dashboard(
     portfolio_report,
     pending_orders,
     watchlist_symbols=None,
+    research_ideas=None,
 ):
     return {
         "portfolio_summary": summarize_portfolio(portfolio_report),
@@ -46,6 +48,7 @@ def build_dashboard(
         ),
         "strategy_type_counts": strategy_type_counts(watchlist_report),
         "strategy_profiles": strategy_profiles_overview(),
+        "research_ideas": summarize_research_ideas(research_ideas),
     }
 
 

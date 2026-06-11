@@ -436,6 +436,9 @@ def _build_summary_bullets(
     if pending_summary["total"] > 0:
         bullets.append(pending_summary["summary"] + ".")
 
+    research_summary = dashboard.get("research_ideas") or {}
+    bullets.extend(_research_idea_bullets(research_summary))
+
     portfolio_summary = dashboard.get("portfolio_summary") or {}
     gain_pct = portfolio_summary.get("total_unrealized_gain_pct")
     if gain_pct is not None and portfolio_summary.get("positions", 0) > 0:
@@ -444,7 +447,46 @@ def _build_summary_bullets(
             f"urealisert {gain_pct}%."
         )
 
-    return bullets[:5]
+    return bullets[:8]
+
+
+def _research_idea_bullets(research_summary):
+    if not research_summary or research_summary.get("total", 0) == 0:
+        return []
+
+    bullets = []
+
+    watchlist_count = research_summary.get("watchlist_count", 0)
+    if watchlist_count > 0:
+        tickers = ", ".join(
+            idea.get("ticker", "")
+            for idea in research_summary.get("watchlist_ideas", [])[:3]
+            if idea.get("ticker")
+        )
+        if tickers:
+            bullets.append(
+                f"{watchlist_count} research-idé(er) bør legges til watchlist: "
+                f"{tickers}."
+            )
+        else:
+            bullets.append(
+                f"{watchlist_count} research-idé(er) bør legges til watchlist."
+            )
+
+    stale_count = research_summary.get("stale_count", 0)
+    if stale_count > 0:
+        bullets.append(
+            f"{stale_count} research-idé(er) er utdaterte (>7 dager). "
+            "Oppdater i Screening."
+        )
+
+    archive_count = research_summary.get("archive_count", 0)
+    if archive_count > 0:
+        bullets.append(
+            f"{archive_count} research-idé(er) bør arkiveres/fjernes."
+        )
+
+    return bullets
 
 
 def _count_risk_items(risk_alerts):
