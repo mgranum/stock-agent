@@ -38,7 +38,15 @@ from src.strategy_classification import STRATEGY_TYPES, add_strategy_types
 from src.analysis import analyze_stock
 from src.company_names import get_company_name
 from src.screener import suggest_watchlist_additions, load_screening_universe
-from src.alerts import build_alerts
+from src.alerts import (
+    ACTION_ADD_TO_WATCHLIST,
+    ACTION_ARCHIVE_RESEARCH,
+    ACTION_PREPARE_SELL_ORDER,
+    ACTION_PROTECT_PROFIT,
+    ACTION_REVIEW_ORDER,
+    ACTION_REVIEW_SELL,
+    build_alerts,
+)
 from src.research_ideas import (
     STATUS_WATCHLIST,
     load_research_ideas,
@@ -491,16 +499,90 @@ def build_new_opportunities(watchlist_report, research_ideas, owned):
     )[OPPORTUNITY_COLUMNS].reset_index(drop=True)
 
 
+_ALERT_UI_GROUPS = (
+    (ACTION_REVIEW_SELL, "Selg"),
+    (ACTION_PREPARE_SELL_ORDER, "Forbered ordre"),
+    (ACTION_PROTECT_PROFIT, "Gevinstsikring"),
+    (ACTION_REVIEW_ORDER, "Ventende ordre"),
+    (ACTION_ADD_TO_WATCHLIST, "Watchlist"),
+    (ACTION_ARCHIVE_RESEARCH, "Arkiver"),
+)
+
+_PRIORITY_LABELS = {
+    1: "Høy",
+    2: "Medium",
+    3: "Lav",
+}
+
+
+def sort_alerts_for_display(alerts):
+    return sorted(
+        alerts,
+        key=lambda alert: (
+            alert.get("priority", 99),
+            alert.get("ticker", ""),
+        ),
+    )
+
+
+def _alert_priority_label(alert):
+    return _PRIORITY_LABELS.get(alert.get("priority"), "Lav")
+
+
+def _escape_markdown_table_cell(text):
+    return str(text).replace("|", "\\|").replace("\n", " ")
+
+
+def _build_alert_group_table(alerts):
+    lines = [
+        "| Prioritet | Ticker | Handling | Varsel |",
+        "| --- | --- | --- | --- |",
+    ]
+    for alert in alerts:
+        lines.append(
+            "| "
+            f"{_alert_priority_label(alert)} | "
+            f"{_escape_markdown_table_cell(alert.get('ticker', ''))} | "
+            f"{_escape_markdown_table_cell(alert.get('action_label', ''))} | "
+            f"{_escape_markdown_table_cell(alert.get('message', ''))} |"
+        )
+    return "\n".join(lines)
+
+
 def show_alerts_compact(alerts):
     if not alerts:
         st.caption("Ingen viktige varsler akkurat nå.")
         return
 
-    for alert in alerts:
-        st.markdown(
-            f"- **{alert['ticker']}** ({alert['severity']}): "
-            f"{alert['title']} — {alert['message']}"
-        )
+    sorted_alerts = sort_alerts_for_display(alerts)
+    alerts_by_action = {}
+    for alert in sorted_alerts:
+        alerts_by_action.setdefault(alert.get("action"), []).append(alert)
+
+    known_actions = {action for action, _ in _ALERT_UI_GROUPS}
+    rendered_any = False
+
+    for action, heading in _ALERT_UI_GROUPS:
+        group = alerts_by_action.get(action, [])
+        if not group:
+            continue
+
+        rendered_any = True
+        st.markdown(f"**{heading}**")
+        st.markdown(_build_alert_group_table(group))
+
+    unknown_alerts = [
+        alert
+        for alert in sorted_alerts
+        if alert.get("action") not in known_actions
+    ]
+    if unknown_alerts:
+        st.markdown("**Annet**")
+        st.markdown(_build_alert_group_table(unknown_alerts))
+        rendered_any = True
+
+    if not rendered_any:
+        st.caption("Ingen viktige varsler akkurat nå.")
 
 
 def show_strategy_type_metrics(strategy_counts):
