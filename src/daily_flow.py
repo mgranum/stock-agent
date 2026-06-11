@@ -1,6 +1,7 @@
 import pandas as pd
 
 from src.orders import analyze_pending_orders
+from src.portfolio import valid_portfolio_rows
 from src.strategy_classification import add_strategy_types
 
 
@@ -238,9 +239,7 @@ def _positions_near_trailing_stop(portfolio_report):
     if portfolio_report is None or portfolio_report.empty:
         return pd.DataFrame()
 
-    df = portfolio_report.copy()
-    if "error" in df.columns:
-        df = df[df["error"].isna()]
+    df = valid_portfolio_rows(portfolio_report)
 
     rows = []
     for _, row in df.iterrows():
@@ -273,11 +272,9 @@ def _large_drawdown_positions(portfolio_report):
     if portfolio_report is None or portfolio_report.empty:
         return pd.DataFrame()
 
-    df = portfolio_report.copy()
-    if "error" in df.columns:
-        df = df[df["error"].isna()]
+    df = valid_portfolio_rows(portfolio_report)
 
-    if "unrealized_gain_pct" not in df.columns:
+    if df.empty:
         return pd.DataFrame()
 
     losers = df[df["unrealized_gain_pct"] <= LARGE_DRAWDOWN_PCT].copy()

@@ -6,7 +6,7 @@ from src.data import get_daily_prices
 from src.indicators import add_indicators
 from src.model_backtest import load_snapshots
 from src.orders import analyze_pending_orders
-from src.portfolio import summarize_portfolio
+from src.portfolio import summarize_portfolio, valid_portfolio_rows
 from src.regime import analyze_market_regime
 from src.strategy_classification import add_strategy_types, strategy_type_counts
 from src.strategy_profiles import (
@@ -227,8 +227,9 @@ def _risk_alerts(watchlist_report, portfolio_report):
         )
 
     rows = []
+    df = valid_portfolio_rows(portfolio_report)
 
-    for _, row in portfolio_report.iterrows():
+    for _, row in df.iterrows():
         strategy_type = strategy_by_ticker.get(
             row["ticker"],
             "UNKNOWN",
@@ -299,10 +300,7 @@ def _portfolio_risk(portfolio_report):
             "allocations": pd.DataFrame(),
         }
 
-    df = portfolio_report.copy()
-
-    if "error" in df.columns:
-        df = df[df["error"].isna()]
+    df = valid_portfolio_rows(portfolio_report)
 
     if df.empty:
         return {
@@ -340,16 +338,14 @@ def _weakening_positions(portfolio_report, watchlist_report=None):
     if portfolio_report is None or portfolio_report.empty:
         return pd.DataFrame()
 
-    df = portfolio_report.copy()
-    if "error" in df.columns:
-        df = df[df["error"].isna()]
+    df = valid_portfolio_rows(portfolio_report)
 
     if df.empty:
         return pd.DataFrame()
 
     filt = (
-        (df.get("trend_regime") == "SVAK / NEGATIV TREND")
-        | (df.get("relative_strength_20d", 0) < 0)
+        (df["trend_regime"] == "SVAK / NEGATIV TREND")
+        | (df["relative_strength_20d"] < 0)
     )
 
     res = df[filt].copy()
@@ -392,14 +388,14 @@ def _strong_winners(portfolio_report):
     if portfolio_report is None or portfolio_report.empty:
         return pd.DataFrame()
 
-    df = portfolio_report.copy()
-    if "error" in df.columns:
-        df = df[df["error"].isna()]
+    df = valid_portfolio_rows(portfolio_report)
 
     if df.empty:
         return pd.DataFrame()
 
-    filt = (df.get("unrealized_gain_pct", -999) > 15) & (df.get("trend_regime") != "SVAK / NEGATIV TREND")
+    filt = (df["unrealized_gain_pct"] > 15) & (
+        df["trend_regime"] != "SVAK / NEGATIV TREND"
+    )
 
     res = df[filt].copy()
     if res.empty:
