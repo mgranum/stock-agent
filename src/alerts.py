@@ -50,7 +50,7 @@ _REVIEW_SELL_ALERT_PRIORITY = {
 _ACTION_LABELS = {
     ACTION_REVIEW_SELL: "Vurder salg",
     ACTION_PROTECT_PROFIT: "Sikre gevinst",
-    ACTION_PREPARE_SELL_ORDER: "Forbered salgsordre",
+    ACTION_PREPARE_SELL_ORDER: "Følg stop-nivå",
     ACTION_REVIEW_ORDER: "Gjennomgå ordre",
     ACTION_ADD_TO_WATCHLIST: "Legg til watchlist",
     ACTION_ARCHIVE_RESEARCH: "Arkiver idé",
@@ -275,13 +275,10 @@ def _profit_protection_message(row):
 
 def _near_trailing_stop_message(row, distance_pct):
     trailing = row.get("trailing_stop_loss")
-    parts = [f"{round(distance_pct, 1)} % over stop {float(trailing):.2f}"]
-
-    gain = _format_signed_pct(row.get("unrealized_gain_pct"))
-    if gain:
-        parts.append(f"gevinst {gain}")
-
-    return f"{' · '.join(parts)}. Forbered salgsordre."
+    return (
+        f"Kursen er {round(distance_pct, 1)} % over stop {float(trailing):.2f}. "
+        "Behold posisjonen, men vær klar til å handle hvis stop brytes."
+    )
 
 
 def _trailing_stop_triggered_message(row):

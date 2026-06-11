@@ -501,7 +501,7 @@ def build_new_opportunities(watchlist_report, research_ideas, owned):
 
 _ALERT_UI_GROUPS = (
     (ACTION_REVIEW_SELL, "Selg"),
-    (ACTION_PREPARE_SELL_ORDER, "Forbered ordre"),
+    (ACTION_PREPARE_SELL_ORDER, "Følg stop-nivå"),
     (ACTION_PROTECT_PROFIT, "Gevinstsikring"),
     (ACTION_REVIEW_ORDER, "Ventende ordre"),
     (ACTION_ADD_TO_WATCHLIST, "Watchlist"),

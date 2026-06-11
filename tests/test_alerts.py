@@ -95,9 +95,13 @@ class BuildAlertsV2Tests(unittest.TestCase):
 
         alerts = build_alerts(portfolio_report, pending_orders, research_ideas)
         actions = {alert["alert_type"]: alert["action"] for alert in alerts}
+        action_labels = {
+            alert["alert_type"]: alert["action_label"] for alert in alerts
+        }
 
         self.assertEqual(actions["PROFIT_PROTECTION"], ACTION_PROTECT_PROFIT)
         self.assertEqual(actions["NEAR_TRAILING_STOP"], ACTION_PREPARE_SELL_ORDER)
+        self.assertEqual(action_labels["NEAR_TRAILING_STOP"], "Følg stop-nivå")
         self.assertEqual(actions["PENDING_ORDER"], ACTION_REVIEW_ORDER)
         self.assertEqual(actions["RESEARCH_ADD"], ACTION_ADD_TO_WATCHLIST)
         self.assertEqual(actions["RESEARCH_ARCHIVE"], ACTION_ARCHIVE_RESEARCH)
@@ -287,8 +291,9 @@ class BuildAlertsV3Tests(unittest.TestCase):
         self.assertIn("250.00 brutt", messages[ALERT_TRAILING_STOP_TRIGGERED])
         self.assertIn("240.00", messages[ALERT_TRAILING_STOP_TRIGGERED])
         self.assertIn("-4.1 %", messages[ALERT_TRAILING_STOP_TRIGGERED])
+        self.assertIn("Kursen er", messages[ALERT_NEAR_TRAILING_STOP])
         self.assertIn("over stop 100.00", messages[ALERT_NEAR_TRAILING_STOP])
-        self.assertIn("+62.0 %", messages[ALERT_NEAR_TRAILING_STOP])
+        self.assertIn("Behold posisjonen", messages[ALERT_NEAR_TRAILING_STOP])
         self.assertIn("+24.0 %", messages[ALERT_PROFIT_PROTECTION])
         self.assertIn("Salgsordre venter", messages["PENDING_ORDER"])
         self.assertIn("250.0", messages["PENDING_ORDER"])
