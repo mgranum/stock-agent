@@ -109,9 +109,11 @@ def valid_portfolio_rows(portfolio_report):
     if missing:
         return pd.DataFrame()
 
-    return df[
-        df["market_value"].notna() & df["unrealized_gain_pct"].notna()
-    ].copy()
+    for column in PORTFOLIO_METRIC_COLUMNS:
+        df[column] = pd.to_numeric(df[column], errors="coerce")
+
+    metric_mask = df[list(PORTFOLIO_METRIC_COLUMNS)].notna().all(axis=1)
+    return df[metric_mask].copy()
 
 
 def portfolio_report_is_analyzed(portfolio_report):
