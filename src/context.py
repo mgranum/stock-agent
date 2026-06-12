@@ -1,8 +1,8 @@
 from src.alerts import build_alerts
 from src.analysis import analyze_watchlist
-from src.portfolio import analyze_portfolio
-from src.dashboard import build_dashboard
+from src.dashboard import build_dashboard, build_portfolio_risk
 from src.daily_flow import build_daily_flow
+from src.portfolio import analyze_portfolio, ensure_portfolio_report, summarize_portfolio
 
 
 def build_agent_context(
@@ -61,3 +61,18 @@ def build_agent_context(
     }
 
     return context
+
+
+def resolve_portfolio_report(context, portfolio):
+    report = ensure_portfolio_report(
+        context.get("portfolio_report"),
+        portfolio,
+    )
+
+    if report is not None:
+        context["portfolio_report"] = report
+        dashboard = context.setdefault("dashboard", {})
+        dashboard["portfolio_summary"] = summarize_portfolio(report)
+        dashboard["portfolio_risk"] = build_portfolio_risk(report)
+
+    return report

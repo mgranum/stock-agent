@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 from src.agent import ask_agent
-from src.context import build_agent_context
+from src.context import build_agent_context, resolve_portfolio_report
 from src.ranking import ranking_table
 from src.model_backtest import save_model_snapshot, compare_snapshots
 from src.signal_backtest import backtest_signal_watchlist
@@ -24,7 +24,6 @@ from src.order_editor import (
     cancel_order,
 )
 from src.portfolio import (
-    ensure_portfolio_report,
     summarize_portfolio,
     valid_portfolio_rows,
 )
@@ -434,20 +433,6 @@ def owned_tickers(portfolio_report, portfolio):
     return tickers
 
 
-def resolve_portfolio_report(context):
-    portfolio = load_portfolio([])
-    report = ensure_portfolio_report(
-        context.get("portfolio_report"),
-        portfolio,
-    )
-
-    if report is not None:
-        context["portfolio_report"] = report
-        context["dashboard"]["portfolio_summary"] = summarize_portfolio(report)
-
-    return report
-
-
 def build_portfolio_actions_table(portfolio_report):
     df = valid_portfolio_rows(portfolio_report)
 
@@ -627,6 +612,78 @@ def show_strategy_type_metrics(strategy_counts):
         )
 
 
+def _geo_buckets_table(buckets):
+    if not buckets:
+        return pd.DataFrame()
+
+    rows = []
+    for bucket in buckets:
+        tickers = bucket.get("tickers") or []
+        rows.append({
+            "Marked": bucket.get("label", bucket.get("market", "")),
+            "Andel %": bucket.get("allocation_pct", 0),
+            "Markedsverdi": bucket.get("market_value", 0),
+            "Posisjoner": bucket.get("position_count", 0),
+            "Tickers": ", ".join(tickers),
+        })
+
+    return pd.DataFrame(rows)
+
+
+def show_portfolio_risk_section(portfolio_risk):
+    st.markdown("### Porteføljerisiko")
+
+    if not portfolio_risk or not portfolio_risk.get("available"):
+        st.info("Ingen portefølje – risiko kan ikke beregnes.")
+        return
+
+    risk_level = portfolio_risk.get("risk_level") or {}
+    concentration = portfolio_risk.get("concentration") or {}
+    diversification = portfolio_risk.get("diversification") or {}
+    geographic = portfolio_risk.get("geographic_exposure") or {}
+
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("Risikonivå", risk_level.get("level", "–"))
+    r2.metric(
+        "Topp posisjon",
+        f"{concentration.get('top_position_pct', portfolio_risk.get('top_position_pct', 0))}%",
+    )
+    r3.metric(
+        "Topp 3",
+        f"{concentration.get('top3_concentration_pct', portfolio_risk.get('top3_concentration_pct', 0))}%",
+    )
+    r4.metric("Effektiv N", diversification.get("effective_n", 0))
+
+    buckets = geographic.get("buckets") or []
+    bucket_by_market = {
+        bucket.get("market"): bucket
+        for bucket in buckets
+    }
+    g1, g2, g3 = st.columns(3)
+    g1.metric(
+        "USA",
+        f"{bucket_by_market.get('USA', {}).get('allocation_pct', 0)}%",
+    )
+    g2.metric(
+        "OBX / Norge",
+        f"{bucket_by_market.get('OBX', {}).get('allocation_pct', 0)}%",
+    )
+    g3.metric(
+        "Øvrig Norden",
+        f"{bucket_by_market.get('NORDEN', {}).get('allocation_pct', 0)}%",
+    )
+
+    reasons = risk_level.get("reasons") or []
+    if reasons:
+        st.markdown("\n".join(f"- {reason}" for reason in reasons))
+
+    with st.expander("Detaljer", expanded=False):
+        st.markdown("**Største posisjoner**")
+        show_dataframe(concentration.get("largest_positions"))
+        st.markdown("**Geografisk fordeling**")
+        show_dataframe(_geo_buckets_table(buckets))
+
+
 with st.sidebar:
     st.header("Kontrollpanel")
     st.caption(environment_label())
@@ -660,7 +717,10 @@ with st.sidebar:
 
 
 watchlist_report = st.session_state.context["watchlist_report"]
-portfolio_report = resolve_portfolio_report(st.session_state.context)
+portfolio_report = resolve_portfolio_report(
+    st.session_state.context,
+    load_portfolio([]),
+)
 dashboard = st.session_state.context["dashboard"]
 daily_flow = st.session_state.context["daily_flow"]
 dashboard_alerts = build_alerts(
@@ -734,6 +794,8 @@ with tab_dashboard:
         f"{portfolio_summary['total_unrealized_gain_pct']}%",
     )
     t4.metric("Posisjoner", portfolio_summary["positions"])
+
+    show_portfolio_risk_section(dashboard.get("portfolio_risk"))
 
     st.markdown("### Mine posisjoner – hva bør jeg gjøre?")
     actions_table = build_portfolio_actions_table(portfolio_report)

@@ -26,7 +26,7 @@ def build_dashboard(
 ):
     return {
         "portfolio_summary": summarize_portfolio(portfolio_report),
-        "portfolio_risk": _portfolio_risk(portfolio_report),
+        "portfolio_risk": build_portfolio_risk(portfolio_report),
         "weakening_positions": _weakening_positions(
             portfolio_report,
             watchlist_report,
@@ -289,49 +289,398 @@ def _market_summary(watchlist_report):
 
 
 # Portfolio risk and concentration analysis
-def _portfolio_risk(portfolio_report):
-    if portfolio_report is None or portfolio_report.empty:
-        return {
-            "positions": 0,
-            "total_market_value": 0,
+_CONCENTRATION_TOP1_ELEVATED_PCT = 25.0
+_CONCENTRATION_TOP1_HIGH_PCT = 35.0
+_CONCENTRATION_TOP3_ELEVATED_PCT = 60.0
+_CONCENTRATION_TOP3_HIGH_PCT = 70.0
+_CONCENTRATION_LARGE_POSITION_PCT = 20.0
+_GEO_DOMINANT_PCT = 65.0
+_GEO_DOMINANT_HIGH_PCT = 80.0
+
+_GEO_BUCKET_ORDER = (
+    ("USA", "USA"),
+    ("OBX", "OBX / Norge"),
+    ("NORDEN", "Øvrig Norden"),
+)
+
+
+def _market_bucket_for_ticker(ticker):
+    ticker = str(ticker).upper()
+    if ticker.endswith(".OL"):
+        return "OBX", "OBX / Norge"
+    if ticker.endswith((".ST", ".CO", ".HE")):
+        return "NORDEN", "Øvrig Norden"
+    return "USA", "USA"
+
+
+def _empty_portfolio_risk():
+    return {
+        "positions": 0,
+        "total_market_value": 0,
+        "top_position_pct": 0,
+        "top3_concentration_pct": 0,
+        "top_positions": pd.DataFrame(),
+        "allocations": pd.DataFrame(),
+        "available": False,
+        "concentration": {
             "top_position_pct": 0,
             "top3_concentration_pct": 0,
-            "top_positions": pd.DataFrame(),
-            "allocations": pd.DataFrame(),
-        }
+            "positions_over_20pct": 0,
+            "largest_positions": pd.DataFrame(),
+            "flags": [],
+        },
+        "diversification": {
+            "hhi": 0,
+            "effective_n": 0,
+            "equal_weight_pct": 0,
+            "max_deviation_from_equal_pct": 0,
+        },
+        "geographic_exposure": {
+            "buckets": [],
+            "dominant_market": None,
+            "dominant_market_pct": 0,
+            "flags": [],
+        },
+        "risk_level": {
+            "level": None,
+            "score": 0,
+            "reasons": [],
+            "drivers": [],
+        },
+    }
+
+
+def _portfolio_risk(portfolio_report):
+    if portfolio_report is None or portfolio_report.empty:
+        return _empty_portfolio_risk()
 
     df = valid_portfolio_rows(portfolio_report)
 
     if df.empty:
-        return {
-            "positions": 0,
-            "total_market_value": 0,
-            "top_position_pct": 0,
-            "top3_concentration_pct": 0,
-            "top_positions": pd.DataFrame(),
-            "allocations": pd.DataFrame(),
-        }
+        return _empty_portfolio_risk()
 
     total_market = df["market_value"].sum()
     alloc = df[["ticker", "market_value"]].copy()
     alloc = alloc.groupby("ticker", as_index=False).sum()
     alloc["allocation_pct"] = alloc["market_value"] / total_market * 100
-    alloc = alloc.sort_values(by="allocation_pct", ascending=False).reset_index(drop=True)
+    alloc = alloc.sort_values(
+        by="allocation_pct",
+        ascending=False,
+    ).reset_index(drop=True)
 
     top_positions = alloc.head(5).copy()
+    positions_count = len(alloc)
 
-    top_position_pct = round(float(top_positions.iloc[0]["allocation_pct"]) if not top_positions.empty else 0, 2)
-    top3_conc = round(float(top_positions.head(3)["allocation_pct"].sum()) if not top_positions.empty else 0, 2)
+    top_position_pct = round(
+        float(top_positions.iloc[0]["allocation_pct"])
+        if not top_positions.empty
+        else 0,
+        2,
+    )
+    top3_conc = round(
+        float(top_positions.head(3)["allocation_pct"].sum())
+        if not top_positions.empty
+        else 0,
+        2,
+    )
 
-    # Return both metrics and DataFrames
+    concentration = _build_concentration_metrics(
+        alloc,
+        top_position_pct,
+        top3_conc,
+    )
+    diversification = _build_diversification_metrics(alloc, positions_count)
+    geographic_exposure = _build_geographic_exposure(alloc, total_market)
+    risk_level = _build_portfolio_risk_level(
+        positions_count,
+        top_position_pct,
+        top3_conc,
+        concentration["positions_over_20pct"],
+        diversification["effective_n"],
+        geographic_exposure["dominant_market"],
+        geographic_exposure["dominant_market_pct"],
+        top_positions,
+    )
+
     return {
-        "positions": len(alloc),
+        "positions": positions_count,
         "total_market_value": round(total_market, 2),
         "top_position_pct": top_position_pct,
         "top3_concentration_pct": top3_conc,
         "top_positions": top_positions,
         "allocations": alloc,
+        "available": True,
+        "concentration": concentration,
+        "diversification": diversification,
+        "geographic_exposure": geographic_exposure,
+        "risk_level": risk_level,
     }
+
+
+def _build_concentration_metrics(alloc, top_position_pct, top3_conc):
+    positions_over_20pct = int(
+        (alloc["allocation_pct"] > _CONCENTRATION_LARGE_POSITION_PCT).sum()
+    )
+    largest_positions = alloc.head(5)[
+        ["ticker", "market_value", "allocation_pct"]
+    ].copy()
+
+    flags = []
+    if top_position_pct >= _CONCENTRATION_TOP1_HIGH_PCT:
+        flags.append({
+            "code": "TOP1_HIGH",
+            "severity": "HIGH",
+            "detail": f"Topp posisjon utgjør {top_position_pct}%.",
+        })
+    elif top_position_pct >= _CONCENTRATION_TOP1_ELEVATED_PCT:
+        flags.append({
+            "code": "TOP1_ELEVATED",
+            "severity": "MEDIUM",
+            "detail": f"Topp posisjon utgjør {top_position_pct}%.",
+        })
+
+    if top3_conc >= _CONCENTRATION_TOP3_HIGH_PCT:
+        flags.append({
+            "code": "TOP3_HIGH",
+            "severity": "HIGH",
+            "detail": f"Topp 3 utgjør {top3_conc}%.",
+        })
+    elif top3_conc >= _CONCENTRATION_TOP3_ELEVATED_PCT:
+        flags.append({
+            "code": "TOP3_ELEVATED",
+            "severity": "MEDIUM",
+            "detail": f"Topp 3 utgjør {top3_conc}%.",
+        })
+
+    if positions_over_20pct >= 3:
+        flags.append({
+            "code": "MANY_LARGE_POSITIONS",
+            "severity": "MEDIUM",
+            "detail": (
+                f"{positions_over_20pct} posisjoner utgjør "
+                f"mer enn {_CONCENTRATION_LARGE_POSITION_PCT:g} % hver."
+            ),
+        })
+
+    return {
+        "top_position_pct": top_position_pct,
+        "top3_concentration_pct": top3_conc,
+        "positions_over_20pct": positions_over_20pct,
+        "largest_positions": largest_positions,
+        "flags": flags,
+    }
+
+
+def _build_diversification_metrics(alloc, positions_count):
+    if positions_count == 0:
+        return {
+            "hhi": 0,
+            "effective_n": 0,
+            "equal_weight_pct": 0,
+            "max_deviation_from_equal_pct": 0,
+        }
+
+    weights = alloc["allocation_pct"] / 100
+    hhi = round(float((weights ** 2).sum()), 4)
+    effective_n = round(1 / hhi, 1) if hhi > 0 else 0
+    equal_weight_pct = round(100 / positions_count, 2)
+    max_deviation = round(
+        float((alloc["allocation_pct"] - equal_weight_pct).abs().max()),
+        2,
+    )
+
+    return {
+        "hhi": hhi,
+        "effective_n": effective_n,
+        "equal_weight_pct": equal_weight_pct,
+        "max_deviation_from_equal_pct": max_deviation,
+    }
+
+
+def _build_geographic_exposure(alloc, total_market):
+    bucket_values = {market: 0.0 for market, _ in _GEO_BUCKET_ORDER}
+    bucket_tickers = {market: [] for market, _ in _GEO_BUCKET_ORDER}
+    bucket_counts = {market: 0 for market, _ in _GEO_BUCKET_ORDER}
+
+    for _, row in alloc.iterrows():
+        market, _ = _market_bucket_for_ticker(row["ticker"])
+        bucket_values[market] += float(row["market_value"])
+        bucket_tickers[market].append(row["ticker"])
+        bucket_counts[market] += 1
+
+    buckets = []
+    for market, label in _GEO_BUCKET_ORDER:
+        market_value = bucket_values[market]
+        allocation_pct = round(
+            market_value / total_market * 100,
+            2,
+        ) if total_market > 0 else 0
+        buckets.append({
+            "market": market,
+            "label": label,
+            "allocation_pct": allocation_pct,
+            "market_value": round(market_value, 2),
+            "position_count": bucket_counts[market],
+            "tickers": bucket_tickers[market],
+        })
+
+    dominant = max(buckets, key=lambda item: item["allocation_pct"])
+    dominant_market = dominant["market"] if dominant["allocation_pct"] > 0 else None
+    dominant_market_pct = dominant["allocation_pct"]
+
+    flags = []
+    if dominant_market_pct >= _GEO_DOMINANT_HIGH_PCT:
+        flags.append({
+            "code": "GEO_DOMINANT_HIGH",
+            "severity": "HIGH",
+            "detail": (
+                f"{dominant['label']} utgjør {dominant_market_pct} % "
+                "av porteføljen."
+            ),
+        })
+    elif dominant_market_pct >= _GEO_DOMINANT_PCT:
+        flags.append({
+            "code": "GEO_DOMINANT",
+            "severity": "MEDIUM",
+            "detail": (
+                f"{dominant['label']} utgjør {dominant_market_pct} % "
+                "av porteføljen."
+            ),
+        })
+
+    return {
+        "buckets": buckets,
+        "dominant_market": dominant_market,
+        "dominant_market_pct": dominant_market_pct,
+        "flags": flags,
+    }
+
+
+def _build_portfolio_risk_level(
+    positions_count,
+    top_position_pct,
+    top3_conc,
+    positions_over_20pct,
+    effective_n,
+    dominant_market,
+    dominant_market_pct,
+    top_positions,
+):
+    if positions_count == 0:
+        return {
+            "level": None,
+            "score": 0,
+            "reasons": [],
+            "drivers": [],
+        }
+
+    score = 0
+    drivers = []
+
+    if positions_count == 1:
+        drivers.append("SINGLE_POSITION")
+        return {
+            "level": "HØY",
+            "score": 3,
+            "reasons": [
+                "Porteføljen består av én enkelt posisjon.",
+            ],
+            "drivers": drivers,
+        }
+
+    if top_position_pct >= _CONCENTRATION_TOP1_HIGH_PCT:
+        score += 2
+        drivers.append("TOP1_HIGH")
+    elif top_position_pct >= _CONCENTRATION_TOP1_ELEVATED_PCT:
+        score += 1
+        drivers.append("TOP1_ELEVATED")
+
+    if top3_conc >= _CONCENTRATION_TOP3_HIGH_PCT:
+        score += 2
+        drivers.append("TOP3_HIGH")
+    elif top3_conc >= _CONCENTRATION_TOP3_ELEVATED_PCT:
+        score += 1
+        drivers.append("TOP3_ELEVATED")
+
+    if effective_n < 3:
+        score += 2
+        drivers.append("LOW_EFFECTIVE_N")
+    elif effective_n < 5:
+        score += 1
+        drivers.append("MODERATE_EFFECTIVE_N")
+
+    if dominant_market_pct >= _GEO_DOMINANT_HIGH_PCT:
+        score += 2
+        drivers.append("GEO_DOMINANT_HIGH")
+    elif dominant_market_pct >= _GEO_DOMINANT_PCT:
+        score += 1
+        drivers.append("GEO_DOMINANT")
+
+    if positions_over_20pct >= 3:
+        score += 1
+        drivers.append("MANY_LARGE_POSITIONS")
+
+    if score <= 1:
+        level = "LAV"
+    elif score <= 3:
+        level = "MEDIUM"
+    else:
+        level = "HØY"
+
+    reasons = _portfolio_risk_reasons(
+        top_positions,
+        top_position_pct,
+        top3_conc,
+        effective_n,
+        dominant_market,
+        dominant_market_pct,
+    )
+
+    return {
+        "level": level,
+        "score": score,
+        "reasons": reasons,
+        "drivers": drivers,
+    }
+
+
+def _portfolio_risk_reasons(
+    top_positions,
+    top_position_pct,
+    top3_conc,
+    effective_n,
+    dominant_market,
+    dominant_market_pct,
+):
+    reasons = []
+    market_labels = dict(_GEO_BUCKET_ORDER)
+
+    if not top_positions.empty:
+        top_ticker = top_positions.iloc[0]["ticker"]
+        if top_position_pct >= _CONCENTRATION_TOP1_ELEVATED_PCT:
+            reasons.append(
+                f"{top_ticker} utgjør {top_position_pct} % av porteføljen."
+            )
+
+    if top3_conc >= _CONCENTRATION_TOP3_ELEVATED_PCT:
+        reasons.append(f"Topp 3 utgjør {top3_conc} % av porteføljen.")
+
+    if effective_n < 5:
+        reasons.append(
+            f"Effektiv diversifisering er {effective_n} (lav spredning)."
+        )
+
+    if dominant_market and dominant_market_pct >= _GEO_DOMINANT_PCT:
+        label = market_labels.get(dominant_market, dominant_market)
+        reasons.append(
+            f"{label} utgjør {dominant_market_pct} % av porteføljen."
+        )
+
+    return reasons[:3]
+
+
+def build_portfolio_risk(portfolio_report):
+    return _portfolio_risk(portfolio_report)
 
 
 def _weakening_positions(portfolio_report, watchlist_report=None):
