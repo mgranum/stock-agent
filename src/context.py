@@ -1,3 +1,14 @@
+from __future__ import annotations
+
+import json
+from datetime import date, datetime, timezone
+from io import StringIO
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
 from src.advisor import build_advisor_details, build_advisor_output
 from src.alerts import build_alerts
 from src.analysis import analyze_watchlist
@@ -8,6 +19,213 @@ from src.earnings import build_earnings_summary
 from src.news import build_news_summary
 from src.portfolio import analyze_portfolio, ensure_portfolio_report, summarize_portfolio
 from src.sentiment import build_sentiment_summary, merge_sentiment_into_news_summary
+
+CONTEXT_SNAPSHOT_VERSION = 1
+CONTEXT_SNAPSHOT_FILENAME = "context_snapshot.json"
+_DATAFRAME_MARKER = "__type__"
+_DATAFRAME_TYPE = "dataframe"
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def context_snapshot_path() -> Path:
+    cache_dir = _project_root() / "cache"
+    cache_dir.mkdir(exist_ok=True)
+    return cache_dir / CONTEXT_SNAPSHOT_FILENAME
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+
+    return parsed
+
+
+def _serialize_dataframe(df: pd.DataFrame) -> dict[str, Any]:
+    split_payload = json.loads(
+        df.to_json(orient="split", date_format="iso")
+    )
+    return {
+        _DATAFRAME_MARKER: _DATAFRAME_TYPE,
+        **split_payload,
+    }
+
+
+def _deserialize_dataframe(payload: dict[str, Any]) -> pd.DataFrame:
+    split_payload = {
+        key: value
+        for key, value in payload.items()
+        if key != _DATAFRAME_MARKER
+    }
+
+    if not split_payload.get("data"):
+        return pd.DataFrame(columns=split_payload.get("columns") or [])
+
+    return pd.read_json(
+        StringIO(json.dumps(split_payload)),
+        orient="split",
+    )
+
+
+def _serialize_value(value: Any) -> Any:
+    if isinstance(value, pd.DataFrame):
+        return _serialize_dataframe(value)
+
+    if isinstance(value, dict):
+        return {
+            key: _serialize_value(item)
+            for key, item in value.items()
+        }
+
+    if isinstance(value, list):
+        return [_serialize_value(item) for item in value]
+
+    if isinstance(value, tuple):
+        return [_serialize_value(item) for item in value]
+
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+
+    if isinstance(value, (np.integer,)):
+        return int(value)
+
+    if isinstance(value, (np.floating,)):
+        if np.isnan(value):
+            return None
+        return float(value)
+
+    if isinstance(value, (np.bool_,)):
+        return bool(value)
+
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+
+    return value
+
+
+def _deserialize_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        if value.get(_DATAFRAME_MARKER) == _DATAFRAME_TYPE:
+            return _deserialize_dataframe(value)
+
+        return {
+            key: _deserialize_value(item)
+            for key, item in value.items()
+        }
+
+    if isinstance(value, list):
+        return [_deserialize_value(item) for item in value]
+
+    return value
+
+
+def _serialize_context(context: dict[str, Any]) -> dict[str, Any]:
+    return _serialize_value(context)
+
+
+def _deserialize_context(payload: dict[str, Any]) -> dict[str, Any]:
+    restored = _deserialize_value(payload)
+    if not isinstance(restored, dict):
+        raise ValueError("Context snapshot must deserialize to a dict.")
+    return restored
+
+
+def save_context_snapshot(
+    context: dict[str, Any],
+    today: date | None = None,
+) -> Path:
+    today = today or date.today()
+    path = context_snapshot_path()
+    payload = {
+        "version": CONTEXT_SNAPSHOT_VERSION,
+        "built_at": _utc_now_iso(),
+        "date": today.isoformat(),
+        "context": _serialize_context(context),
+    }
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+
+    return path
+
+
+def load_context_snapshot(
+    max_age_hours: float = 24,
+    now: datetime | None = None,
+) -> dict[str, Any] | None:
+    path = context_snapshot_path()
+
+    if not path.exists():
+        return None
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    if payload.get("version") != CONTEXT_SNAPSHOT_VERSION:
+        return None
+
+    built_at = _parse_iso_datetime(payload.get("built_at"))
+    if built_at is None:
+        return None
+
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+
+    age_hours = (reference - built_at).total_seconds() / 3600
+    if age_hours > max_age_hours:
+        return None
+
+    context_payload = payload.get("context")
+    if not isinstance(context_payload, dict):
+        return None
+
+    try:
+        return _deserialize_context(context_payload)
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def load_or_build_agent_context(
+    watchlist,
+    portfolio=None,
+    pending_orders=None,
+    research_ideas=None,
+    pause_seconds=1,
+    max_age_hours=24,
+    now=None,
+):
+    context = load_context_snapshot(max_age_hours=max_age_hours, now=now)
+    if context is not None:
+        return context
+
+    return build_agent_context(
+        watchlist,
+        portfolio=portfolio,
+        pending_orders=pending_orders,
+        research_ideas=research_ideas,
+        pause_seconds=pause_seconds,
+    )
 
 
 def build_agent_context(

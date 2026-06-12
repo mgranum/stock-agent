@@ -2,7 +2,12 @@ import streamlit as st
 import pandas as pd
 
 from src.agent import ask_agent
-from src.context import build_agent_context, resolve_portfolio_report
+from src.context import (
+    build_agent_context,
+    load_context_snapshot,
+    resolve_portfolio_report,
+    save_context_snapshot,
+)
 from src.ranking import ranking_table
 from src.model_backtest import save_model_snapshot, compare_snapshots
 from src.signal_backtest import backtest_signal_watchlist
@@ -147,14 +152,19 @@ def get_active_backtest_config():
 
 
 if "context" not in st.session_state:
-    with st.spinner("Analyserer watchlist og portefølje..."):
-        st.session_state.context = build_agent_context(
-            get_active_watchlist(),
-            load_portfolio([]),
-            pending_orders=load_pending_orders([]),
-            research_ideas=RESEARCH_IDEAS,
-            pause_seconds=1,
-        )
+    cached_context = load_context_snapshot()
+    if cached_context is not None:
+        st.session_state.context = cached_context
+    else:
+        with st.spinner("Analyserer watchlist og portefølje..."):
+            st.session_state.context = build_agent_context(
+                get_active_watchlist(),
+                load_portfolio([]),
+                pending_orders=load_pending_orders([]),
+                research_ideas=RESEARCH_IDEAS,
+                pause_seconds=1,
+            )
+            save_context_snapshot(st.session_state.context)
 
 
 def refresh_context():
@@ -166,6 +176,7 @@ def refresh_context():
             research_ideas=load_research_ideas(),
             pause_seconds=1,
         )
+        save_context_snapshot(st.session_state.context)
 
 
 def rank_report(df):
