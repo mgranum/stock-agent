@@ -58,7 +58,11 @@ from src.advisor import (
     build_advisor_details,
     format_advisor_cell,
 )
-from src.analyst import DISCLAIMER as ANALYST_DISCLAIMER, build_analyst_table
+from src.analyst import (
+    DISCLAIMER as ANALYST_DISCLAIMER,
+    build_analyst_changes_table,
+    build_analyst_table,
+)
 from src.earnings import build_earnings_table
 from src.news import build_news_table
 from src.research_ideas import (
@@ -897,6 +901,10 @@ with tab_dashboard:
     else:
         show_dataframe(analyst_table)
         st.caption(ANALYST_DISCLAIMER)
+        analyst_changes = analyst_summary.get("material_changes") or []
+        if analyst_changes:
+            st.markdown("#### Endringer siden sist")
+            show_dataframe(build_analyst_changes_table(analyst_summary))
         analyst_last_updated = analyst_summary.get("last_updated")
         if analyst_last_updated:
             st.caption(f"Sist oppdatert: {analyst_last_updated}")

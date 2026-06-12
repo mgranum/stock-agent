@@ -258,5 +258,159 @@ class AgentAdvisorTests(unittest.TestCase):
         self.assertIn("Ingen motstridende signaler", answer)
 
 
+def _analyst_summary():
+    return {
+        "items": [
+            {
+                "ticker": "NVDA",
+                "in_portfolio": True,
+                "recommendation_key": "strong_buy",
+                "recommendation_mean": 1.3,
+                "analyst_count": 59,
+                "target_mean": 298.93,
+                "upside_pct": 45.9,
+            },
+            {
+                "ticker": "GOOGL",
+                "in_portfolio": True,
+                "recommendation_key": "buy",
+                "recommendation_mean": 1.8,
+                "analyst_count": 52,
+                "target_mean": 432.83,
+                "upside_pct": 12.5,
+            },
+            {
+                "ticker": "EQNR.OL",
+                "in_portfolio": False,
+                "recommendation_key": "hold",
+                "recommendation_mean": 3.28,
+                "analyst_count": 24,
+                "target_mean": 364.31,
+                "upside_pct": 8.9,
+            },
+            {
+                "ticker": "EMPTY",
+                "in_portfolio": False,
+                "recommendation_key": None,
+                "recommendation_mean": None,
+                "analyst_count": None,
+                "target_mean": None,
+                "upside_pct": None,
+            },
+        ],
+        "portfolio_items": [],
+        "watchlist_items": [],
+        "material_changes": [
+            {
+                "ticker": "NVDA",
+                "change_type": "target_mean",
+                "Endring": "Kursmål opp (+5.5%)",
+                "Fra": 283.0,
+                "Til": 298.93,
+            }
+        ],
+        "missing_data": ["EMPTY"],
+        "last_updated": "2026-06-12T08:00:00+00:00",
+    }
+
+
+def _analyst_context(analyst_summary=None):
+    return {
+        "watchlist": ["NVDA", "GOOGL", "EQNR.OL", "EMPTY"],
+        "watchlist_report": pd.DataFrame(
+            [
+                {"ticker": "NVDA", "score": 70, "anbefaling": "KJØP / ØK"},
+                {"ticker": "GOOGL", "score": 68, "anbefaling": "KJØP / ØK"},
+            ]
+        ),
+        "portfolio_report": None,
+        "earnings_summary": {},
+        "analyst_summary": analyst_summary if analyst_summary is not None else _analyst_summary(),
+        "dashboard": {},
+        "daily_flow": {},
+    }
+
+
+class AgentAnalystTests(unittest.TestCase):
+    def test_ticker_analyst_question(self):
+        answer = ask_agent(
+            "Hva sier analytikerne om NVDA?",
+            _analyst_context(),
+        )
+
+        self.assertIn("NVDA – Analytikerkonsensus", answer)
+        self.assertIn("Konsensus: Sterk kjøp", answer)
+        self.assertIn("Analytikere: 59", answer)
+        self.assertIn("Kursmål: 298.93", answer)
+        self.assertIn("Oppside %: 45.9", answer)
+        self.assertIn("Endringer siden sist:", answer)
+        self.assertIn("Kursmål opp (+5.5%)", answer)
+        self.assertIn("støttesignal", answer.lower())
+
+    def test_price_target_question(self):
+        answer = ask_agent(
+            "Hva er kursmålet på GOOGL?",
+            _analyst_context(),
+        )
+
+        self.assertIn("GOOGL – Analytikerkonsensus", answer)
+        self.assertIn("Kursmål: 432.83", answer)
+        self.assertIn("Oppside %: 12.5", answer)
+
+    def test_portfolio_largest_upside(self):
+        answer = ask_agent(
+            "Hvilke porteføljeaksjer har størst oppside?",
+            _analyst_context(),
+        )
+
+        self.assertIn("Porteføljeaksjer med størst analytiker-oppside", answer)
+        self.assertLess(
+            answer.index("NVDA"),
+            answer.index("GOOGL"),
+        )
+        self.assertIn("45.9% oppside", answer)
+
+    def test_weakest_analyst_consensus(self):
+        answer = ask_agent(
+            "Hvilke aksjer har svakest analytikerkonsensus?",
+            _analyst_context(),
+        )
+
+        self.assertIn("Svakeste analytikerkonsensus", answer)
+        self.assertLess(
+            answer.index("EQNR.OL"),
+            answer.index("NVDA"),
+        )
+        self.assertIn("Hold", answer)
+
+    def test_analyst_changes_since_last(self):
+        answer = ask_agent(
+            "Har analytikerne endret mening siden sist?",
+            _analyst_context(),
+        )
+
+        self.assertIn("Analytikerendringer siden sist", answer)
+        self.assertIn("NVDA", answer)
+        self.assertIn("Kursmål opp (+5.5%)", answer)
+
+    def test_no_analyst_changes_message(self):
+        summary = _analyst_summary()
+        summary["material_changes"] = []
+        answer = ask_agent(
+            "Har analytikerne endret mening siden sist?",
+            _analyst_context(summary),
+        )
+
+        self.assertIn("Ingen materielle endringer siden sist", answer)
+
+    def test_missing_analyst_data(self):
+        answer = ask_agent(
+            "Hva sier analytikerne om EMPTY?",
+            _analyst_context(),
+        )
+
+        self.assertIn("Analytikerkonsensus for EMPTY: Ingen data tilgjengelig", answer)
+
+
 if __name__ == "__main__":
     unittest.main()

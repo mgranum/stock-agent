@@ -1,6 +1,15 @@
 from src.analysis import generate_text_report
 from src.ranking import ranking_table
 from src.advisor import build_advisor_details, format_advisor_detail_answer
+from src.analyst import (
+    DISCLAIMER as ANALYST_DISCLAIMER,
+    analyst_tickers,
+    find_analyst_item,
+    format_analyst_item_answer,
+    format_analyst_material_changes_answer,
+    format_portfolio_analyst_upside_answer,
+    format_weakest_analyst_consensus_answer,
+)
 
 
 def format_buy_recommendation(recommendation):
@@ -148,6 +157,14 @@ def _get_earnings_summary(context):
     return (
         context.get("earnings_summary")
         or _get_dashboard(context).get("earnings_summary")
+        or {}
+    )
+
+
+def _get_analyst_summary(context):
+    return (
+        context.get("analyst_summary")
+        or _get_dashboard(context).get("analyst_summary")
         or {}
     )
 
@@ -703,6 +720,131 @@ def _format_earnings_answer(context, question=""):
     return "\n".join(lines).strip()
 
 
+def _is_analyst_changes_question(question):
+    return any(
+        phrase in question
+        for phrase in [
+            "endret mening siden sist",
+            "endringer siden sist",
+            "analytikerendringer",
+            "har analytikerne endret",
+        ]
+    )
+
+
+def _is_portfolio_analyst_upside_question(question):
+    return (
+        "størst oppside" in question or "stor oppside" in question
+    ) and "portefølje" in question
+
+
+def _is_weakest_analyst_consensus_question(question):
+    return any(
+        phrase in question
+        for phrase in [
+            "svakest analytiker",
+            "svakeste analytiker",
+            "svakest konsensus",
+            "svakeste konsensus",
+            "svakeste analytikerkonsensus",
+            "svakest analytikerkonsensus",
+        ]
+    )
+
+
+def _is_analyst_price_target_question(question):
+    return "kursmål" in question or "kursmålet" in question
+
+
+def _is_analyst_ticker_question(question):
+    return any(
+        phrase in question
+        for phrase in [
+            "analytiker",
+            "analytikere",
+            "analytikerkonsensus",
+            "konsensus",
+        ]
+    )
+
+
+def _is_analyst_question(question):
+    if _is_analyst_changes_question(question):
+        return True
+    if _is_portfolio_analyst_upside_question(question):
+        return True
+    if _is_weakest_analyst_consensus_question(question):
+        return True
+    if _is_analyst_price_target_question(question):
+        return True
+    return _is_analyst_ticker_question(question)
+
+
+def _analyst_tickers_for_matching(context):
+    tickers = set(analyst_tickers(_get_analyst_summary(context)))
+
+    for ticker in context.get("watchlist") or []:
+        normalized = str(ticker).strip().upper()
+        if normalized:
+            tickers.add(normalized)
+
+    portfolio_report = context.get("portfolio_report")
+    if portfolio_report is not None and not portfolio_report.empty:
+        if "ticker" in portfolio_report.columns:
+            for ticker in portfolio_report["ticker"]:
+                normalized = str(ticker).strip().upper()
+                if normalized:
+                    tickers.add(normalized)
+
+    return sorted(tickers, key=len, reverse=True)
+
+
+def _extract_analyst_ticker(question, context):
+    for ticker in _analyst_tickers_for_matching(context):
+        if ticker.lower() in question:
+            return ticker
+
+    return None
+
+
+def _format_analyst_answer(context, question):
+    analyst_summary = _get_analyst_summary(context)
+    if not analyst_summary:
+        return (
+            "Analytikerkonsensus: Ingen data tilgjengelig. Oppdater analyser.\n\n"
+            f"{ANALYST_DISCLAIMER}"
+        )
+
+    if _is_analyst_changes_question(question):
+        return format_analyst_material_changes_answer(analyst_summary)
+
+    if _is_portfolio_analyst_upside_question(question):
+        return format_portfolio_analyst_upside_answer(analyst_summary)
+
+    if _is_weakest_analyst_consensus_question(question):
+        return format_weakest_analyst_consensus_answer(analyst_summary)
+
+    ticker = _extract_analyst_ticker(question, context)
+    if ticker:
+        item = find_analyst_item(analyst_summary, ticker)
+        if item is None:
+            return (
+                f"Analytikerkonsensus for {ticker}: Ingen data tilgjengelig.\n\n"
+                f"{ANALYST_DISCLAIMER}"
+            )
+        return format_analyst_item_answer(
+            item,
+            material_changes=analyst_summary.get("material_changes"),
+        )
+
+    return (
+        "Analytikerkonsensus: Spesifiser ticker, for eksempel "
+        "«Hva sier analytikerne om NVDA?» eller "
+        "«Hva er kursmålet på GOOGL?».\n\n"
+        f"{ANALYST_DISCLAIMER}"
+    )
+
+
 def _is_daily_flow_question(question):
     explicit_phrases = [
         "morning briefing",
@@ -792,6 +934,9 @@ def ask_agent(question, context):
 
     if _is_earnings_question(question):
         return _format_earnings_answer(context, question=question)
+
+    if _is_analyst_question(question):
+        return _format_analyst_answer(context, question)
 
     if _is_advisor_question(question):
         return _format_advisor_answer(context, question)
@@ -1047,6 +1192,11 @@ Trailing stop-loss:
         "- Har jeg earnings denne uken?\n"
         "- Hvilke porteføljeaksjer rapporterer?\n"
         "- Hva bør jeg følge med på før earnings?\n"
+        "- Hva sier analytikerne om NVDA?\n"
+        "- Hva er kursmålet på GOOGL?\n"
+        "- Hvilke porteføljeaksjer har størst oppside?\n"
+        "- Hvilke aksjer har svakest analytikerkonsensus?\n"
+        "- Har analytikerne endret mening siden sist?\n"
         "- Er NVDA en kjøpskandidat?\n"
         "- Bør jeg holde NVDA?"
     )

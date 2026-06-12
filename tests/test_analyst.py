@@ -9,9 +9,13 @@ import pandas as pd
 
 from src.analyst import (
     SOURCE_YFINANCE,
+    _apply_change_detection,
+    _collect_item_material_changes,
     _write_analyst_cache,
+    build_analyst_changes_table,
     build_analyst_summary,
     build_analyst_table,
+    build_material_changes,
     compute_upside_pct,
     format_recommendation_label,
     get_analyst,
@@ -373,6 +377,218 @@ class SortAnalystItemsTests(unittest.TestCase):
             [item["ticker"] for item in sorted_items],
             ["NVDA", "MSFT", "EQNR.OL"],
         )
+
+
+class AnalystChangeDetectionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.cache_root = Path(self.temp_dir.name)
+
+        self.temp_dir_patcher = patch(
+            "src.analyst._cache_dir",
+            return_value=self.cache_root,
+        )
+        self.temp_dir_patcher.start()
+        self.addCleanup(self.temp_dir_patcher.stop)
+
+    def _base_item(self, **overrides):
+        item = {
+            "ticker": "AAPL",
+            "recommendation_key": "buy",
+            "recommendation_mean": 2.0,
+            "target_mean": 100.0,
+            "previous_target_mean": 100.0,
+            "previous_recommendation_mean": 2.0,
+            "previous_recommendation_key": "buy",
+            "target_mean_delta": 0.0,
+            "target_mean_delta_pct": 0.0,
+            "recommendation_mean_delta": 0.0,
+            "recommendation_changed": False,
+        }
+        item.update(overrides)
+        return item
+
+    def test_target_mean_up_more_than_five_percent(self):
+        item = self._base_item(
+            target_mean=106.0,
+            target_mean_delta=6.0,
+            target_mean_delta_pct=6.0,
+        )
+
+        changes = _collect_item_material_changes(item)
+
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]["change_type"], "target_mean")
+        self.assertIn("opp", changes[0]["Endring"])
+        self.assertEqual(changes[0]["Fra"], 100.0)
+        self.assertEqual(changes[0]["Til"], 106.0)
+
+    def test_target_mean_down_more_than_five_percent(self):
+        item = self._base_item(
+            target_mean=94.0,
+            target_mean_delta=-6.0,
+            target_mean_delta_pct=-6.0,
+        )
+
+        changes = _collect_item_material_changes(item)
+
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]["change_type"], "target_mean")
+        self.assertIn("ned", changes[0]["Endring"])
+        self.assertEqual(changes[0]["Fra"], 100.0)
+        self.assertEqual(changes[0]["Til"], 94.0)
+
+    def test_recommendation_mean_changed(self):
+        item = self._base_item(
+            recommendation_mean=2.3,
+            recommendation_mean_delta=0.3,
+        )
+
+        changes = _collect_item_material_changes(item)
+
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]["change_type"], "recommendation_mean")
+        self.assertEqual(changes[0]["Fra"], 2.0)
+        self.assertEqual(changes[0]["Til"], 2.3)
+
+    def test_recommendation_key_changed(self):
+        item = self._base_item(
+            recommendation_key="hold",
+            previous_recommendation_key="buy",
+            recommendation_changed=True,
+        )
+
+        changes = _collect_item_material_changes(item)
+
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]["change_type"], "recommendation_key")
+        self.assertEqual(changes[0]["Fra"], "Kjøp")
+        self.assertEqual(changes[0]["Til"], "Hold")
+
+    def test_no_material_change_below_threshold(self):
+        item = self._base_item(
+            target_mean=103.0,
+            target_mean_delta=3.0,
+            target_mean_delta_pct=3.0,
+            recommendation_mean=2.1,
+            recommendation_mean_delta=0.1,
+        )
+
+        changes = _collect_item_material_changes(item)
+
+        self.assertEqual(changes, [])
+
+    def test_first_cache_without_previous_has_no_change(self):
+        data = {
+            "ticker": "AAPL",
+            "recommendation_key": "buy",
+            "recommendation_mean": 2.0,
+            "target_mean": 100.0,
+        }
+
+        result = _apply_change_detection(data, None)
+
+        self.assertIsNone(result.get("previous_target_mean"))
+        self.assertIsNone(result.get("target_mean_delta_pct"))
+        self.assertFalse(result.get("recommendation_changed"))
+        self.assertEqual(_collect_item_material_changes(result), [])
+
+    @patch("src.analyst._fetch_yfinance_analyst")
+    def test_get_analyst_detects_changes_on_cache_refresh(self, mock_fetch):
+        cache_file = self.cache_root / "AAPL_analyst.json"
+        _write_analyst_cache(
+            cache_file,
+            "AAPL",
+            {
+                "ticker": "AAPL",
+                "recommendation_key": "hold",
+                "recommendation_mean": 3.0,
+                "analyst_count": 30,
+                "target_mean": 100.0,
+                "current_price": 95.0,
+                "upside_pct": 5.3,
+                "source": SOURCE_YFINANCE,
+                "last_updated": "2026-06-11T08:00:00+00:00",
+            },
+            today=date(2026, 6, 11),
+        )
+
+        mock_fetch.return_value = {
+            "ticker": "AAPL",
+            "recommendation_key": "buy",
+            "recommendation_mean": 2.0,
+            "analyst_count": 31,
+            "target_mean": 110.0,
+            "current_price": 95.0,
+            "upside_pct": 15.8,
+            "source": SOURCE_YFINANCE,
+            "last_updated": "2026-06-12T08:00:00+00:00",
+        }
+
+        result = get_analyst("AAPL", use_cache=True, today=date(2026, 6, 12))
+
+        self.assertEqual(result["previous_target_mean"], 100.0)
+        self.assertEqual(result["target_mean_delta_pct"], 10.0)
+        self.assertEqual(result["recommendation_mean_delta"], -1.0)
+        self.assertTrue(result["recommendation_changed"])
+
+        changes = build_material_changes([result])
+        change_types = {change["change_type"] for change in changes}
+        self.assertEqual(
+            change_types,
+            {"target_mean", "recommendation_mean", "recommendation_key"},
+        )
+
+    def test_build_analyst_changes_table_columns(self):
+        summary = {
+            "material_changes": [
+                {
+                    "ticker": "AAPL",
+                    "Endring": "Kursmål opp (+10.0%)",
+                    "Fra": 100.0,
+                    "Til": 110.0,
+                }
+            ]
+        }
+
+        table = build_analyst_changes_table(summary)
+
+        self.assertEqual(
+            list(table.columns),
+            ["Ticker", "Endring", "Fra", "Til"],
+        )
+        self.assertEqual(table.iloc[0]["Ticker"], "AAPL")
+        self.assertEqual(table.iloc[0]["Fra"], 100.0)
+        self.assertEqual(table.iloc[0]["Til"], 110.0)
+
+    @patch("src.analyst.get_analyst")
+    def test_build_analyst_summary_includes_material_changes(self, mock_get_analyst):
+        mock_get_analyst.return_value = {
+            "ticker": "NVDA",
+            "recommendation_key": "buy",
+            "recommendation_mean": 2.0,
+            "target_mean": 110.0,
+            "previous_target_mean": 100.0,
+            "previous_recommendation_mean": 3.0,
+            "previous_recommendation_key": "hold",
+            "target_mean_delta_pct": 10.0,
+            "recommendation_mean_delta": -1.0,
+            "recommendation_changed": True,
+            "analyst_count": 59,
+            "upside_pct": 45.9,
+            "source": SOURCE_YFINANCE,
+            "last_updated": "2026-06-12T08:00:00+00:00",
+        }
+
+        summary = build_analyst_summary(
+            portfolio=[{"ticker": "NVDA"}],
+            watchlist=[],
+            use_cache=False,
+            today=date(2026, 6, 12),
+        )
+
+        self.assertEqual(len(summary["material_changes"]), 3)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,8 @@
 
 ## 🔥 Neste opp
 
-* [ ] Analyst & Guidance v1
+* [ ] Analyst Consensus v1 steg 2 og 3
+* [ ] Guidance v1
 
 ## 💡 Ideer og fremtidige features
 
@@ -22,6 +23,9 @@
 * [ ] Sentiment v3 – Historikk, endringer og varsler
 * [ ] Sentiment v4 – FinBERT-evaluering
 * [ ] Sentiment videre – scoring, kjøp/salg-logikk og sosiale medier
+* [ ] Advisor v2 – watchlist/advisor for nye muligheter
+* [ ] Advisor v3 – historikk og endringer i advisor-vurdering
+* [ ] Advisor v4 – LLM-basert forklaring hvis regelbasert versjon ikke er nok
 * [ ] Deployment på Mac Mini / lokal server
 * [ ] Senere cloud/VPS
 
@@ -50,6 +54,8 @@
 
 ## ✅ Ferdig (siste)
 
+* [x] Analyst Advisor Layer v1
+* [x] Analyst Consensus v1
 * [x] Sentiment v1
 * [x] News v1
 * [x] Earnings v1 (datoer, kalender og varsler)
