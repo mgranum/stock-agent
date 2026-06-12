@@ -1,5 +1,6 @@
 from src.analysis import generate_text_report
 from src.ranking import ranking_table
+from src.advisor import build_advisor_details, format_advisor_detail_answer
 
 
 def format_buy_recommendation(recommendation):
@@ -148,6 +149,163 @@ def _get_earnings_summary(context):
         context.get("earnings_summary")
         or _get_dashboard(context).get("earnings_summary")
         or {}
+    )
+
+
+def _get_advisor_output(context):
+    return (
+        context.get("advisor_output")
+        or _get_dashboard(context).get("advisor_output")
+        or {}
+    )
+
+
+def _get_advisor_details(context):
+    details = context.get("advisor_details")
+    if details is not None:
+        return details
+
+    dashboard = _get_dashboard(context)
+    return build_advisor_details(
+        _get_advisor_output(context),
+        context.get("portfolio_report"),
+        analyst_summary=(
+            context.get("analyst_summary")
+            or dashboard.get("analyst_summary")
+        ),
+        sentiment_summary=(
+            context.get("sentiment_summary")
+            or dashboard.get("sentiment_summary")
+        ),
+        earnings_summary=_get_earnings_summary(context),
+        alerts=context.get("alerts") or [],
+    )
+
+
+def _is_advisor_question(question):
+    if any(
+        phrase in question
+        for phrase in [
+            "motstridende signal",
+            "advisor-signalet",
+            "advisor signalet",
+            "advisor-tolkning",
+            "advisor tolkning",
+            "konflikten i",
+            "konflikt i",
+            "hvorfor sier agenten",
+            "forklar advisor",
+        ]
+    ):
+        return True
+
+    if "advisor" in question and any(
+        word in question
+        for word in ["forklar", "konflikt", "hvorfor", "signal", "tolkning"]
+    ):
+        return True
+
+    return False
+
+
+def _is_advisor_list_question(question):
+    return any(
+        phrase in question
+        for phrase in [
+            "hvilke aksjer",
+            "motstridende signaler",
+            "motstridende signal",
+        ]
+    )
+
+
+def _advisor_tickers_for_matching(context):
+    tickers = set()
+
+    for item in (_get_advisor_output(context).get("items") or []):
+        ticker = str(item.get("ticker") or "").strip().upper()
+        if ticker:
+            tickers.add(ticker)
+
+    for ticker in context.get("watchlist") or []:
+        normalized = str(ticker).strip().upper()
+        if normalized:
+            tickers.add(normalized)
+
+    portfolio_report = context.get("portfolio_report")
+    if portfolio_report is not None and not portfolio_report.empty:
+        if "ticker" in portfolio_report.columns:
+            for ticker in portfolio_report["ticker"]:
+                normalized = str(ticker).strip().upper()
+                if normalized:
+                    tickers.add(normalized)
+
+    return sorted(tickers, key=len, reverse=True)
+
+
+def _extract_advisor_ticker(question, context):
+    for ticker in _advisor_tickers_for_matching(context):
+        if ticker.lower() in question:
+            return ticker
+
+    return None
+
+
+def _format_advisor_list_answer(context):
+    items = _get_advisor_output(context).get("items") or []
+    if not items:
+        return "Advisor: Ingen motstridende signaler i porteføljen akkurat nå."
+
+    lines = ["Aksjer med motstridende signaler:", ""]
+    for item in items:
+        headline = item.get("headline") or item.get("conflict_id") or "Konflikt"
+        lines.append(f"- {item['ticker']}: {headline}")
+
+    return "\n".join(lines)
+
+
+def _format_advisor_ticker_answer(context, ticker):
+    normalized = str(ticker or "").strip().upper()
+    detail = _get_advisor_details(context).get(normalized)
+    if not detail:
+        advisor_item = next(
+            (
+                item
+                for item in (_get_advisor_output(context).get("items") or [])
+                if str(item.get("ticker") or "").strip().upper() == normalized
+            ),
+            None,
+        )
+        if advisor_item:
+            return (
+                f"Advisor for {normalized}: {advisor_item.get('takeaway', '')}"
+            ).strip()
+
+        return (
+            f"Advisor for {normalized}: Ingen motstridende signaler identifisert."
+        )
+
+    return format_advisor_detail_answer(detail)
+
+
+def _format_advisor_answer(context, question):
+    if _is_advisor_list_question(question):
+        return _format_advisor_list_answer(context)
+
+    ticker = _extract_advisor_ticker(question, context)
+    if ticker:
+        return _format_advisor_ticker_answer(context, ticker)
+
+    items = _get_advisor_output(context).get("items") or []
+    if len(items) == 1:
+        return _format_advisor_ticker_answer(context, items[0]["ticker"])
+
+    if items:
+        return _format_advisor_list_answer(context)
+
+    return (
+        "Advisor: Ingen motstridende signaler i porteføljen. "
+        "Spesifiser ticker, for eksempel «Hvorfor sier agenten dette om NVDA?»."
     )
 
 
@@ -634,6 +792,9 @@ def ask_agent(question, context):
 
     if _is_earnings_question(question):
         return _format_earnings_answer(context, question=question)
+
+    if _is_advisor_question(question):
+        return _format_advisor_answer(context, question)
 
     if _is_daily_flow_question(question):
         return _format_daily_flow_answer(context)

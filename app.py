@@ -52,6 +52,13 @@ from src.daily_flow import (
     build_daily_agenda_table,
     build_whats_new_table,
 )
+from src.advisor import (
+    advisor_detail_tickers,
+    advisor_items_by_ticker,
+    build_advisor_details,
+    format_advisor_cell,
+)
+from src.analyst import DISCLAIMER as ANALYST_DISCLAIMER, build_analyst_table
 from src.earnings import build_earnings_table
 from src.news import build_news_table
 from src.research_ideas import (
@@ -404,6 +411,7 @@ PORTFOLIO_ACTION_COLUMNS = [
     "score",
     "anbefaling",
     "portefølje_råd",
+    "Advisor",
     "trend_regime",
     "relative_strength_20d",
 ]
@@ -435,13 +443,17 @@ def owned_tickers(portfolio_report, portfolio):
     return tickers
 
 
-def build_portfolio_actions_table(portfolio_report):
+def build_portfolio_actions_table(portfolio_report, advisor_output=None):
     df = valid_portfolio_rows(portfolio_report)
 
     if df.empty:
         return pd.DataFrame()
 
     df["company_name"] = df["ticker"].apply(get_company_name)
+    advisor_map = advisor_items_by_ticker(advisor_output)
+    df["Advisor"] = df["ticker"].astype(str).str.strip().str.upper().map(
+        lambda ticker: format_advisor_cell(advisor_map.get(ticker, {}))
+    )
     df["_sort"] = df["portefølje_råd"].map(
         lambda action: PORTFOLIO_ACTION_SORT.get(action, 99)
     )
@@ -449,6 +461,36 @@ def build_portfolio_actions_table(portfolio_report):
 
     columns = [col for col in PORTFOLIO_ACTION_COLUMNS if col in df.columns]
     return df[columns].reset_index(drop=True)
+
+
+def render_advisor_detail(detail):
+    if not detail:
+        return
+
+    advisor = detail.get("advisor") or {}
+    st.markdown("**Advisor**")
+    st.write(advisor.get("takeaway") or "")
+
+    st.markdown("**Taler for varsomhet**")
+    caution_signals = detail.get("caution_signals") or []
+    if caution_signals:
+        for signal in caution_signals:
+            st.markdown(f"- {signal}")
+    else:
+        st.markdown("- Ingen tydelige varsomhetssignaler identifisert.")
+
+    st.markdown("**Taler for å holde/vente**")
+    hold_signals = detail.get("hold_signals") or []
+    if hold_signals:
+        for signal in hold_signals:
+            st.markdown(f"- {signal}")
+    else:
+        st.markdown("- Ingen tydelige holde-/ventesignaler identifisert.")
+
+    interpretation = detail.get("practical_interpretation")
+    if interpretation:
+        st.markdown("**Praktisk tolkning**")
+        st.write(interpretation)
 
 
 def build_new_opportunities(watchlist_report, research_ideas, owned):
@@ -801,11 +843,35 @@ with tab_dashboard:
     show_portfolio_risk_section(dashboard.get("portfolio_risk"))
 
     st.markdown("### Mine posisjoner – hva bør jeg gjøre?")
-    actions_table = build_portfolio_actions_table(portfolio_report)
+    advisor_output = st.session_state.context.get("advisor_output") or {}
+    analyst_summary = st.session_state.context.get("analyst_summary") or {}
+    sentiment_summary = st.session_state.context.get("sentiment_summary") or {}
+    earnings_summary = st.session_state.context.get("earnings_summary") or {}
+    advisor_details = build_advisor_details(
+        advisor_output,
+        portfolio_report,
+        analyst_summary=analyst_summary,
+        sentiment_summary=sentiment_summary,
+        earnings_summary=earnings_summary,
+        alerts=dashboard_alerts,
+    )
+    actions_table = build_portfolio_actions_table(
+        portfolio_report,
+        advisor_output=advisor_output,
+    )
     if actions_table.empty:
         st.info("Ingen porteføljeposisjoner.")
     else:
         show_dataframe(actions_table)
+        advisor_tickers = advisor_detail_tickers(advisor_output)
+        for index, ticker in enumerate(advisor_tickers):
+            detail = advisor_details.get(ticker)
+            if not detail:
+                continue
+            with st.expander(f"Hvorfor sier agenten dette om {ticker}?"):
+                render_advisor_detail(detail)
+            if index < len(advisor_tickers) - 1:
+                st.markdown("")
 
     st.markdown("### Nye muligheter")
     opportunities = build_new_opportunities(
@@ -819,7 +885,6 @@ with tab_dashboard:
         show_dataframe(opportunities)
 
     st.markdown("### Kommende earnings")
-    earnings_summary = st.session_state.context.get("earnings_summary") or {}
     earnings_table = build_earnings_table(earnings_summary)
     if earnings_table.empty:
         st.info("Ingen earnings-data for portefølje eller watchlist.")
@@ -828,6 +893,17 @@ with tab_dashboard:
         last_updated = earnings_summary.get("last_updated")
         if last_updated:
             st.caption(f"Sist oppdatert: {last_updated}")
+
+    st.markdown("### Analytikerkonsensus")
+    analyst_table = build_analyst_table(analyst_summary)
+    if analyst_table.empty:
+        st.info("Ingen analytikerdata for portefølje eller watchlist.")
+    else:
+        show_dataframe(analyst_table)
+        st.caption(ANALYST_DISCLAIMER)
+        analyst_last_updated = analyst_summary.get("last_updated")
+        if analyst_last_updated:
+            st.caption(f"Sist oppdatert: {analyst_last_updated}")
 
     st.markdown("### Nyheter")
     news_summary = st.session_state.context.get("news_summary") or {}

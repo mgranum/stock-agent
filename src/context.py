@@ -1,5 +1,7 @@
+from src.advisor import build_advisor_details, build_advisor_output
 from src.alerts import build_alerts
 from src.analysis import analyze_watchlist
+from src.analyst import build_analyst_summary
 from src.dashboard import build_dashboard, build_portfolio_risk
 from src.daily_flow import build_daily_flow
 from src.earnings import build_earnings_summary
@@ -38,6 +40,10 @@ def build_agent_context(
         portfolio=portfolio,
         watchlist=watchlist,
     )
+    analyst_summary = build_analyst_summary(
+        portfolio=portfolio,
+        watchlist=watchlist,
+    )
     news_summary = build_news_summary(
         portfolio=portfolio,
         watchlist=watchlist,
@@ -52,13 +58,29 @@ def build_agent_context(
         research_ideas=research_ideas or [],
     )
     dashboard["earnings_summary"] = earnings_summary
+    dashboard["analyst_summary"] = analyst_summary
     dashboard["news_summary"] = news_summary
     dashboard["sentiment_summary"] = sentiment_summary
+    advisor_output = build_advisor_output(
+        portfolio_report=portfolio_report,
+        analyst_summary=analyst_summary,
+        sentiment_summary=sentiment_summary,
+        earnings_summary=earnings_summary,
+    )
+    dashboard["advisor_output"] = advisor_output
     alerts = build_alerts(
         portfolio_report,
         orders,
         research_ideas or [],
         earnings_summary=earnings_summary,
+    )
+    advisor_details = build_advisor_details(
+        advisor_output,
+        portfolio_report,
+        analyst_summary=analyst_summary,
+        sentiment_summary=sentiment_summary,
+        earnings_summary=earnings_summary,
+        alerts=alerts,
     )
     daily_flow = build_daily_flow(
         watchlist_report=watchlist_report,
@@ -76,8 +98,12 @@ def build_agent_context(
         "dashboard": dashboard,
         "daily_flow": daily_flow,
         "earnings_summary": earnings_summary,
+        "analyst_summary": analyst_summary,
         "news_summary": news_summary,
         "sentiment_summary": sentiment_summary,
+        "advisor_output": advisor_output,
+        "advisor_details": advisor_details,
+        "alerts": alerts,
     }
 
     return context

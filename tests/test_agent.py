@@ -105,5 +105,158 @@ class AgentEarningsTests(unittest.TestCase):
         self.assertIn("Ingen kommende rapporter innen 14 dager", answer)
 
 
+def _advisor_detail(ticker="NVDA", conflict_id="SELL_VS_ANALYST"):
+    return {
+        "ticker": ticker,
+        "advisor": {
+            "headline": "Analytikere positive, risiko peker mot reduksjon",
+            "takeaway": (
+                "Analytikere er positive, men trend/risiko peker mot reduksjon. "
+                "Prioriter risikostyring fremfor kursmål."
+            ),
+            "conflict_id": conflict_id,
+        },
+        "caution_signals": [
+            "Svak / negativ trend",
+            "Porteføljehandling: REDUSER / SELG",
+        ],
+        "hold_signals": [
+            "Analytikere er positive (Sterk kjøp)",
+            "Kursmål viser 22.0% oppside",
+        ],
+        "practical_interpretation": (
+            "Jeg ville fulgt kursutvikling og stop-nivå tettere enn analytikernes "
+            "kursmål akkurat nå."
+        ),
+    }
+
+
+def _advisor_context():
+    advisor_output = {
+        "items": [
+            {
+                "ticker": "NVDA",
+                "conflict_id": "SELL_VS_ANALYST",
+                "headline": "Analytikere positive, risiko peker mot reduksjon",
+                "takeaway": (
+                    "Analytikere er positive, men trend/risiko peker mot reduksjon. "
+                    "Prioriter risikostyring fremfor kursmål."
+                ),
+                "priority": 1,
+            },
+            {
+                "ticker": "GOOGL",
+                "conflict_id": "BUY_NEAR_EARNINGS",
+                "headline": "Kjøpssignal, rapport nær",
+                "takeaway": (
+                    "Kjøpssignal finnes, men kvartalsrapport er nær. "
+                    "Vurder om du vil ta rapport-risiko."
+                ),
+                "priority": 2,
+            },
+        ],
+        "secondary_items": [],
+    }
+    return {
+        "watchlist": ["NVDA", "GOOGL", "VOLV-B.ST"],
+        "watchlist_report": pd.DataFrame(
+            [
+                {"ticker": "NVDA", "score": 42, "anbefaling": "UNNGÅ / SELG"},
+                {"ticker": "GOOGL", "score": 75, "anbefaling": "KJØP / ØK"},
+            ]
+        ),
+        "portfolio_report": None,
+        "earnings_summary": {},
+        "advisor_output": advisor_output,
+        "advisor_details": {
+            "NVDA": _advisor_detail("NVDA"),
+            "GOOGL": {
+                **_advisor_detail("GOOGL", conflict_id="BUY_NEAR_EARNINGS"),
+                "advisor": {
+                    "headline": "Kjøpssignal, rapport nær",
+                    "takeaway": (
+                        "Kjøpssignal finnes, men kvartalsrapport er nær. "
+                        "Vurder om du vil ta rapport-risiko."
+                    ),
+                    "conflict_id": "BUY_NEAR_EARNINGS",
+                },
+            },
+        },
+        "dashboard": {},
+        "daily_flow": {},
+    }
+
+
+class AgentAdvisorTests(unittest.TestCase):
+    def test_why_does_agent_say_this_about_ticker(self):
+        answer = ask_agent(
+            "Hvorfor sier agenten dette om NVDA?",
+            _advisor_context(),
+        )
+
+        self.assertIn("NVDA", answer)
+        self.assertIn("Kort oppsummering:", answer)
+        self.assertIn("Taler for varsomhet:", answer)
+        self.assertIn("Taler for å holde/vente:", answer)
+        self.assertIn("Praktisk tolkning:", answer)
+        self.assertIn("Prioriter risikostyring", answer)
+
+    def test_what_is_conflict_in_ticker(self):
+        answer = ask_agent(
+            "Hva er konflikten i GOOGL?",
+            _advisor_context(),
+        )
+
+        self.assertIn("GOOGL", answer)
+        self.assertIn("Kort oppsummering:", answer)
+        self.assertIn("rapport-risiko", answer)
+
+    def test_list_conflicting_tickers(self):
+        answer = ask_agent(
+            "Hvilke aksjer har motstridende signaler?",
+            _advisor_context(),
+        )
+
+        self.assertIn("Aksjer med motstridende signaler:", answer)
+        self.assertIn("NVDA:", answer)
+        self.assertIn("GOOGL:", answer)
+
+    def test_explain_advisor_signal_for_ticker(self):
+        answer = ask_agent(
+            "Forklar advisor-signalet for VOLV-B.ST",
+            {
+                **_advisor_context(),
+                "advisor_output": {
+                    "items": [
+                        {
+                            "ticker": "VOLV-B.ST",
+                            "headline": "Gevinst høy, stop nær",
+                            "takeaway": "Test takeaway for VOLV.",
+                            "priority": 1,
+                        }
+                    ],
+                    "secondary_items": [],
+                },
+                "advisor_details": {
+                    "VOLV-B.ST": _advisor_detail(
+                        "VOLV-B.ST",
+                        conflict_id="GAIN_VS_STOP",
+                    ),
+                },
+            },
+        )
+
+        self.assertIn("VOLV-B.ST", answer)
+        self.assertIn("Kort oppsummering:", answer)
+
+    def test_no_conflicts_message(self):
+        answer = ask_agent(
+            "Hvilke aksjer har motstridende signaler?",
+            {**_advisor_context(), "advisor_output": {"items": []}, "advisor_details": {}},
+        )
+
+        self.assertIn("Ingen motstridende signaler", answer)
+
+
 if __name__ == "__main__":
     unittest.main()

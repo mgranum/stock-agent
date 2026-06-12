@@ -341,6 +341,9 @@ class BuildNewsTableSentimentTests(unittest.TestCase):
 class ContextIntegrationTests(unittest.TestCase):
     @patch("src.context.build_sentiment_summary")
     @patch("src.context.build_news_summary")
+    @patch("src.context.build_advisor_details", return_value={})
+    @patch("src.context.build_advisor_output", return_value={"items": [], "secondary_items": []})
+    @patch("src.context.build_analyst_summary", return_value={})
     @patch("src.context.build_earnings_summary", return_value={})
     @patch("src.context.build_dashboard", return_value={})
     @patch("src.context.build_alerts", return_value=[])
@@ -353,6 +356,9 @@ class ContextIntegrationTests(unittest.TestCase):
         _mock_alerts,
         _mock_dashboard,
         _mock_earnings,
+        _mock_analyst,
+        _mock_advisor_output,
+        _mock_advisor_details,
         mock_news_summary,
         mock_sentiment_summary,
     ):
