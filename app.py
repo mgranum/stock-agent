@@ -755,10 +755,6 @@ with st.sidebar:
         )
         st.success(f"Snapshot lagret: {path}")
 
-    if st.button("Tøm chat"):
-        st.session_state.messages = []
-        st.rerun()
-
 
 watchlist_report = st.session_state.context["watchlist_report"]
 portfolio_report = resolve_portfolio_report(
@@ -1634,9 +1630,22 @@ with tab_walk_forward:
 
 
 with tab_chat:
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+    chat_title_col, chat_clear_col = st.columns(
+        [5, 1],
+        vertical_alignment="center",
+    )
+    with chat_title_col:
+        st.subheader("Chat")
+    with chat_clear_col:
+        if st.button("Tøm chat", key="clear_chat", use_container_width=True):
+            st.session_state.messages = []
+            st.rerun()
+
+    chat_history = st.container(height=500, autoscroll=True)
+    with chat_history:
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
 
     question = st.chat_input(
         "Still et spørsmål om aksjene dine..."
@@ -1647,9 +1656,6 @@ with tab_chat:
             {"role": "user", "content": question}
         )
 
-        with st.chat_message("user"):
-            st.markdown(question)
-
         answer = ask_agent(
             question,
             st.session_state.context,
@@ -1659,5 +1665,5 @@ with tab_chat:
             {"role": "assistant", "content": answer}
         )
 
-        with st.chat_message("assistant"):
-            st.markdown(answer)
+        st.rerun()
+
