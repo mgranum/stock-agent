@@ -2,7 +2,11 @@ import unittest
 
 import pandas as pd
 
-from src.alerts import build_alerts
+from src.alerts import (
+    ALERT_EARNINGS_TODAY,
+    ALERT_EARNINGS_WITHIN_14_DAYS,
+    build_alerts,
+)
 from src.daily_flow import (
     DAILY_AGENDA_DISPLAY_LIMIT,
     WHATS_NEW_SUMMARY_LIMIT,
@@ -659,6 +663,57 @@ class DailyFlowPresentationTests(unittest.TestCase):
             table.iloc[1]["Begrunnelse"],
             "Score -8 poeng siden sist snapshot",
         )
+
+
+class EarningsDailyActionsTests(unittest.TestCase):
+    def test_earnings_agenda_prioritization(self):
+        earnings_summary = {
+            "items": [],
+            "upcoming_14_days": [
+                {
+                    "ticker": "FAR",
+                    "days_until": 12,
+                    "in_portfolio": False,
+                },
+                {
+                    "ticker": "SOON",
+                    "days_until": 1,
+                    "in_portfolio": True,
+                },
+                {
+                    "ticker": "TODAY",
+                    "days_until": 0,
+                    "in_portfolio": True,
+                },
+            ],
+            "unknown": [],
+            "last_updated": "2026-06-12T08:00:00+00:00",
+        }
+
+        alerts = build_alerts(
+            pd.DataFrame(),
+            [],
+            [],
+            earnings_summary=earnings_summary,
+        )
+        actions = build_daily_actions(alerts)
+
+        earnings_actions = [
+            action
+            for action in actions
+            if action["action_label"] == "Forbered kvartalsrapport"
+        ]
+        self.assertEqual(len(earnings_actions), 3)
+        self.assertEqual(earnings_actions[0]["ticker"], "TODAY")
+        self.assertEqual(earnings_actions[0]["priority"], 1)
+        self.assertEqual(earnings_actions[1]["ticker"], "SOON")
+        self.assertEqual(earnings_actions[1]["priority"], 1)
+        self.assertEqual(earnings_actions[2]["ticker"], "FAR")
+        self.assertEqual(earnings_actions[2]["priority"], 3)
+
+        alert_types = {alert["ticker"]: alert["alert_type"] for alert in alerts}
+        self.assertEqual(alert_types["TODAY"], ALERT_EARNINGS_TODAY)
+        self.assertEqual(alert_types["FAR"], ALERT_EARNINGS_WITHIN_14_DAYS)
 
 
 if __name__ == "__main__":

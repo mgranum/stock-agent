@@ -2,6 +2,10 @@ import pandas as pd
 
 from src.alerts import (
     ACTION_REVIEW_SELL,
+    ALERT_EARNINGS_TODAY,
+    ALERT_EARNINGS_TOMORROW,
+    ALERT_EARNINGS_WITHIN_7_DAYS,
+    ALERT_EARNINGS_WITHIN_14_DAYS,
     ALERT_PENDING_ORDER,
     ALERT_PROFIT_PROTECTION,
     _pending_order_message,
@@ -96,6 +100,21 @@ _ORDER_ACTION_LABEL = "Gjennomgå ordre"
 _ORDER_SELL_PRIORITY = 1
 _ORDER_BUY_PRIORITY = 2
 
+_EARNINGS_ACTION_SORT = {
+    ALERT_EARNINGS_TODAY: 0,
+    ALERT_EARNINGS_TOMORROW: 1,
+    ALERT_EARNINGS_WITHIN_7_DAYS: 2,
+    ALERT_EARNINGS_WITHIN_14_DAYS: 3,
+}
+
+
+def _daily_action_sort_key(item):
+    return (
+        item.get("priority", 3),
+        item.get("_sort_extra", 0),
+        item.get("ticker", ""),
+    )
+
 _ACTIONABLE_PORTFOLIO_RÅD = {
     "REDUSER / SELG",
     "VURDER REDUKSJON",
@@ -137,12 +156,10 @@ def daily_actions_from_alerts(alerts):
             "ticker": alert.get("ticker", ""),
             "action_label": alert.get("action_label", ""),
             "message": alert.get("message", ""),
+            "_sort_extra": _EARNINGS_ACTION_SORT.get(alert.get("alert_type"), 0),
         })
 
-    return sorted(
-        actions,
-        key=lambda item: (item["priority"], item.get("ticker", "")),
-    )
+    return sorted(actions, key=_daily_action_sort_key)
 
 
 def build_order_actions(pending_orders):
@@ -203,10 +220,7 @@ def build_daily_actions(alerts, pending_orders=None, portfolio_report=None):
             continue
         extra_actions.append(_public_portfolio_action(item))
 
-    return sorted(
-        alert_actions + extra_actions,
-        key=lambda item: (item["priority"], item.get("ticker", "")),
-    )
+    return sorted(alert_actions + extra_actions, key=_daily_action_sort_key)
 
 
 def _public_order_action(item):
@@ -960,7 +974,47 @@ def _build_summary_bullets(
             f"urealisert {gain_pct}%."
         )
 
+    bullets.extend(_earnings_summary_bullets(dashboard.get("earnings_summary")))
+
     return bullets[:8]
+
+
+def _earnings_summary_bullets(earnings_summary):
+    upcoming = (earnings_summary or {}).get("upcoming_14_days") or []
+    if not upcoming:
+        return []
+
+    bullets = []
+    today_tickers = [
+        item["ticker"]
+        for item in upcoming
+        if item.get("days_until") == 0 and item.get("ticker")
+    ]
+    tomorrow_tickers = [
+        item["ticker"]
+        for item in upcoming
+        if item.get("days_until") == 1 and item.get("ticker")
+    ]
+    within_7_count = sum(
+        1
+        for item in upcoming
+        if item.get("days_until") is not None and 2 <= item["days_until"] <= 7
+    )
+
+    if today_tickers:
+        bullets.append(
+            f"Kvartalsrapport i dag: {', '.join(today_tickers)}."
+        )
+    if tomorrow_tickers:
+        bullets.append(
+            f"Kvartalsrapport i morgen: {', '.join(tomorrow_tickers)}."
+        )
+    if within_7_count:
+        bullets.append(
+            f"{within_7_count} aksje(r) rapporterer innen 7 dager."
+        )
+
+    return bullets
 
 
 def _research_idea_bullets(research_summary):

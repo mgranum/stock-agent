@@ -2,6 +2,7 @@ from src.alerts import build_alerts
 from src.analysis import analyze_watchlist
 from src.dashboard import build_dashboard, build_portfolio_risk
 from src.daily_flow import build_daily_flow
+from src.earnings import build_earnings_summary
 from src.portfolio import analyze_portfolio, ensure_portfolio_report, summarize_portfolio
 
 
@@ -31,6 +32,10 @@ def build_agent_context(
         )
 
     orders = pending_orders or []
+    earnings_summary = build_earnings_summary(
+        portfolio=portfolio,
+        watchlist=watchlist,
+    )
     dashboard = build_dashboard(
         watchlist_report=watchlist_report,
         portfolio_report=portfolio_report,
@@ -38,10 +43,12 @@ def build_agent_context(
         watchlist_symbols=watchlist,
         research_ideas=research_ideas or [],
     )
+    dashboard["earnings_summary"] = earnings_summary
     alerts = build_alerts(
         portfolio_report,
         orders,
         research_ideas or [],
+        earnings_summary=earnings_summary,
     )
     daily_flow = build_daily_flow(
         watchlist_report=watchlist_report,
@@ -58,6 +65,7 @@ def build_agent_context(
         "portfolio_report": portfolio_report,
         "dashboard": dashboard,
         "daily_flow": daily_flow,
+        "earnings_summary": earnings_summary,
     }
 
     return context

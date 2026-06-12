@@ -143,6 +143,14 @@ def _get_daily_flow(context):
     return context.get("daily_flow") or {}
 
 
+def _get_earnings_summary(context):
+    return (
+        context.get("earnings_summary")
+        or _get_dashboard(context).get("earnings_summary")
+        or {}
+    )
+
+
 def _is_pending_orders_question(question):
     if any(
         phrase in question
@@ -391,6 +399,152 @@ def _format_trailing_stop_answer(context):
     return "\n".join(lines)
 
 
+def _is_earnings_question(question):
+    if any(
+        phrase in question
+        for phrase in [
+            "earnings",
+            "kvartalsrapport",
+            "rapporterer snart",
+            "kommende earnings",
+            "kommende rapport",
+            "før earnings",
+            "hvem rapporterer",
+            "porteføljeaksjer rapporterer",
+            "portefølje rapporterer",
+            "forbered kvartalsrapport",
+            "følge med på før earnings",
+        ]
+    ):
+        return True
+
+    if "denne uken" in question and any(
+        word in question
+        for word in ["earnings", "kvartalsrapport", "rapport", "rapporterer"]
+    ):
+        return True
+
+    if "har jeg" in question and any(
+        word in question
+        for word in ["earnings", "kvartalsrapport", "rapport"]
+    ):
+        return True
+
+    return False
+
+
+def _is_portfolio_earnings_question(question):
+    return any(
+        phrase in question
+        for phrase in [
+            "porteføljeaksjer rapporterer",
+            "portefølje rapporterer",
+            "min portefølje",
+            "har jeg earnings",
+            "i porteføljen",
+        ]
+    )
+
+
+def _format_earnings_when(days_until):
+    if days_until == 0:
+        return "i dag"
+    if days_until == 1:
+        return "i morgen"
+    return f"om {days_until} dager"
+
+
+def _format_earnings_item_line(item):
+    days_until = item.get("days_until")
+    when = _format_earnings_when(days_until)
+    return (
+        f"- {item['ticker']}: {item['earnings_date']} "
+        f"({when}, {item.get('status', 'unknown')})"
+    )
+
+
+def _upcoming_earnings_items(earnings_summary, question=""):
+    upcoming = [
+        item
+        for item in (earnings_summary.get("upcoming_14_days") or [])
+        if item.get("status") != "unknown" and item.get("earnings_date")
+    ]
+
+    if "denne uken" in question:
+        upcoming = [
+            item
+            for item in upcoming
+            if item.get("days_until") is not None and item["days_until"] <= 7
+        ]
+
+    if _is_portfolio_earnings_question(question):
+        upcoming = [item for item in upcoming if item.get("in_portfolio")]
+
+    return upcoming
+
+
+def _format_earnings_answer(context, question=""):
+    earnings_summary = _get_earnings_summary(context)
+    if not earnings_summary:
+        return "Earnings: Ingen data tilgjengelig. Oppdater analyser."
+
+    upcoming = _upcoming_earnings_items(earnings_summary, question=question)
+    portfolio_only = _is_portfolio_earnings_question(question)
+
+    if not upcoming:
+        if portfolio_only or "har jeg" in question:
+            return "Portefølje earnings: Ingen rapporter innen 14 dager."
+        if "denne uken" in question:
+            return "Earnings: Ingen rapporter denne uken."
+        return "Earnings: Ingen kommende rapporter innen 14 dager."
+
+    portfolio_items = [item for item in upcoming if item.get("in_portfolio")]
+    watchlist_items = [item for item in upcoming if not item.get("in_portfolio")]
+
+    lines = ["Kommende earnings (14 dager):", ""]
+
+    if portfolio_items:
+        lines.append("Portefølje:")
+        lines.extend(_format_earnings_item_line(item) for item in portfolio_items)
+        lines.append("")
+
+    if watchlist_items and not portfolio_only:
+        lines.append("Watchlist:")
+        lines.extend(_format_earnings_item_line(item) for item in watchlist_items)
+        lines.append("")
+
+    if any(
+        phrase in question
+        for phrase in [
+            "følge med",
+            "før earnings",
+            "forbered",
+        ]
+    ):
+        lines.append("Følg med på:")
+        within_7_portfolio = [
+            item
+            for item in portfolio_items
+            if item.get("days_until") is not None and item["days_until"] <= 7
+        ]
+        if within_7_portfolio:
+            tickers = ", ".join(item["ticker"] for item in within_7_portfolio)
+            lines.append(f"- Portefølje med rapport innen 7 dager: {tickers}")
+        lines.append(
+            "- Sjekk posisjonsstørrelse, trailing stop og porteføljeråd før rapport"
+        )
+        lines.append(
+            "- Vurder om du vil redusere eksponering før volatilitet"
+        )
+        lines.append("")
+
+    last_updated = earnings_summary.get("last_updated")
+    if last_updated:
+        lines.append(f"Sist oppdatert: {last_updated}")
+
+    return "\n".join(lines).strip()
+
+
 def _is_daily_flow_question(question):
     explicit_phrases = [
         "morning briefing",
@@ -477,6 +631,9 @@ def ask_agent(question, context):
     watchlist = context["watchlist"]
     watchlist_report = context["watchlist_report"]
     portfolio_report = context["portfolio_report"]
+
+    if _is_earnings_question(question):
+        return _format_earnings_answer(context, question=question)
 
     if _is_daily_flow_question(question):
         return _format_daily_flow_answer(context)
@@ -725,6 +882,10 @@ Trailing stop-loss:
         "- Største gevinst\n"
         "- Risikovarsler\n"
         "- Trailing stop\n"
+        "- Hvem rapporterer snart?\n"
+        "- Har jeg earnings denne uken?\n"
+        "- Hvilke porteføljeaksjer rapporterer?\n"
+        "- Hva bør jeg følge med på før earnings?\n"
         "- Er NVDA en kjøpskandidat?\n"
         "- Bør jeg holde NVDA?"
     )

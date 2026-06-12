@@ -18,6 +18,10 @@ ALERT_TRAILING_STOP_TRIGGERED = "TRAILING_STOP_TRIGGERED"
 ALERT_PENDING_ORDER = "PENDING_ORDER"
 ALERT_RESEARCH_ADD = "RESEARCH_ADD"
 ALERT_RESEARCH_ARCHIVE = "RESEARCH_ARCHIVE"
+ALERT_EARNINGS_TODAY = "EARNINGS_TODAY"
+ALERT_EARNINGS_TOMORROW = "EARNINGS_TOMORROW"
+ALERT_EARNINGS_WITHIN_7_DAYS = "EARNINGS_WITHIN_7_DAYS"
+ALERT_EARNINGS_WITHIN_14_DAYS = "EARNINGS_WITHIN_14_DAYS"
 
 ACTION_REVIEW_SELL = "REVIEW_SELL"
 ACTION_PROTECT_PROFIT = "PROTECT_PROFIT"
@@ -25,6 +29,7 @@ ACTION_PREPARE_SELL_ORDER = "PREPARE_SELL_ORDER"
 ACTION_REVIEW_ORDER = "REVIEW_ORDER"
 ACTION_ADD_TO_WATCHLIST = "ADD_TO_WATCHLIST"
 ACTION_ARCHIVE_RESEARCH = "ARCHIVE_RESEARCH"
+ACTION_PREPARE_EARNINGS = "PREPARE_EARNINGS"
 
 SEVERITY_HIGH = "HIGH"
 SEVERITY_MEDIUM = "MEDIUM"
@@ -54,6 +59,7 @@ _ACTION_LABELS = {
     ACTION_REVIEW_ORDER: "Gjennomgå ordre",
     ACTION_ADD_TO_WATCHLIST: "Legg til watchlist",
     ACTION_ARCHIVE_RESEARCH: "Arkiver idé",
+    ACTION_PREPARE_EARNINGS: "Forbered kvartalsrapport",
 }
 
 _ALERT_ACTIONS = {
@@ -64,10 +70,33 @@ _ALERT_ACTIONS = {
     ALERT_PENDING_ORDER: ACTION_REVIEW_ORDER,
     ALERT_RESEARCH_ADD: ACTION_ADD_TO_WATCHLIST,
     ALERT_RESEARCH_ARCHIVE: ACTION_ARCHIVE_RESEARCH,
+    ALERT_EARNINGS_TODAY: ACTION_PREPARE_EARNINGS,
+    ALERT_EARNINGS_TOMORROW: ACTION_PREPARE_EARNINGS,
+    ALERT_EARNINGS_WITHIN_7_DAYS: ACTION_PREPARE_EARNINGS,
+    ALERT_EARNINGS_WITHIN_14_DAYS: ACTION_PREPARE_EARNINGS,
+}
+
+_EARNINGS_ALERT_PRIORITY = {
+    ALERT_EARNINGS_TODAY: 1,
+    ALERT_EARNINGS_TOMORROW: 1,
+    ALERT_EARNINGS_WITHIN_7_DAYS: 2,
+    ALERT_EARNINGS_WITHIN_14_DAYS: 3,
+}
+
+_EARNINGS_ALERT_TITLES = {
+    ALERT_EARNINGS_TODAY: "Kvartalsrapport i dag",
+    ALERT_EARNINGS_TOMORROW: "Kvartalsrapport i morgen",
+    ALERT_EARNINGS_WITHIN_7_DAYS: "Kvartalsrapport innen 7 dager",
+    ALERT_EARNINGS_WITHIN_14_DAYS: "Kvartalsrapport innen 14 dager",
 }
 
 
-def build_alerts(portfolio_report, pending_orders, research_ideas):
+def build_alerts(
+    portfolio_report,
+    pending_orders,
+    research_ideas,
+    earnings_summary=None,
+):
     alerts = []
     now = _utc_now()
 
@@ -76,6 +105,7 @@ def build_alerts(portfolio_report, pending_orders, research_ideas):
     alerts.extend(_trailing_stop_triggered_alerts(portfolio_report, now))
     alerts.extend(_pending_order_alerts(pending_orders, now))
     alerts.extend(_research_alerts(research_ideas, now))
+    alerts.extend(_earnings_alerts(earnings_summary, now))
 
     alerts = _dedupe_alerts(alerts)
     alerts = _apply_alert_conflicts(alerts, pending_orders)
@@ -490,5 +520,68 @@ def _research_alerts(research_ideas, created_at):
                     or created_at,
                 )
             )
+
+    return alerts
+
+
+def _earnings_alert_type(days_until):
+    if days_until == 0:
+        return ALERT_EARNINGS_TODAY
+    if days_until == 1:
+        return ALERT_EARNINGS_TOMORROW
+    if 2 <= days_until <= 7:
+        return ALERT_EARNINGS_WITHIN_7_DAYS
+    if 8 <= days_until <= 14:
+        return ALERT_EARNINGS_WITHIN_14_DAYS
+    return None
+
+
+def _earnings_severity(alert_type, in_portfolio):
+    if alert_type in (ALERT_EARNINGS_TODAY, ALERT_EARNINGS_TOMORROW):
+        return SEVERITY_HIGH if in_portfolio else SEVERITY_MEDIUM
+
+    if alert_type == ALERT_EARNINGS_WITHIN_7_DAYS:
+        return SEVERITY_MEDIUM if in_portfolio else SEVERITY_LOW
+
+    return SEVERITY_LOW
+
+
+def _earnings_message(days_until):
+    if days_until == 0:
+        return "Kvartalsrapport i dag."
+    if days_until == 1:
+        return "Kvartalsrapport i morgen."
+    return f"Kvartalsrapport om {days_until} dager."
+
+
+def _earnings_alerts(earnings_summary, created_at):
+    alerts = []
+
+    for item in (earnings_summary or {}).get("upcoming_14_days") or []:
+        days_until = item.get("days_until")
+        if days_until is None:
+            continue
+
+        alert_type = _earnings_alert_type(days_until)
+        if alert_type is None:
+            continue
+
+        ticker = item.get("ticker", "")
+        in_portfolio = bool(item.get("in_portfolio"))
+        alerts.append(
+            _make_alert(
+                alert_type,
+                _earnings_severity(alert_type, in_portfolio),
+                ticker,
+                _EARNINGS_ALERT_TITLES[alert_type],
+                _earnings_message(days_until),
+                "EARNINGS",
+                created_at,
+                action=ACTION_PREPARE_EARNINGS,
+                action_label=_ACTION_LABELS[ACTION_PREPARE_EARNINGS],
+                priority=_EARNINGS_ALERT_PRIORITY[alert_type],
+                dedupe_key=f"EARNINGS:{ticker}",
+            )
+        )
 
     return alerts

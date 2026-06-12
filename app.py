@@ -52,6 +52,7 @@ from src.daily_flow import (
     build_daily_agenda_table,
     build_whats_new_table,
 )
+from src.earnings import build_earnings_table
 from src.research_ideas import (
     STATUS_WATCHLIST,
     load_research_ideas,
@@ -727,6 +728,7 @@ dashboard_alerts = build_alerts(
     portfolio_report,
     PENDING_ORDERS,
     RESEARCH_IDEAS,
+    earnings_summary=st.session_state.context.get("earnings_summary"),
 )
 ranked = rank_report(watchlist_report)
 
@@ -814,6 +816,17 @@ with tab_dashboard:
         st.info("Ingen nye kjøpskandidater utenfor porteføljen.")
     else:
         show_dataframe(opportunities)
+
+    st.markdown("### Kommende earnings")
+    earnings_summary = st.session_state.context.get("earnings_summary") or {}
+    earnings_table = build_earnings_table(earnings_summary)
+    if earnings_table.empty:
+        st.info("Ingen earnings-data for portefølje eller watchlist.")
+    else:
+        show_dataframe(earnings_table)
+        last_updated = earnings_summary.get("last_updated")
+        if last_updated:
+            st.caption(f"Sist oppdatert: {last_updated}")
 
     st.markdown("### Viktige varsler")
     st.caption("Full varslingsliste")
