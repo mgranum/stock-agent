@@ -2,7 +2,14 @@
 
 ## 🔥 Neste opp
 
-* [ ] Analyst Consensus v1 steg 2 og 3
+1. Screening Engine – Agent-chat
+2. Daily Refresh v1
+3. Daily Briefing v1
+4. Guidance v1
+5. Opportunity Advisor v2
+6. Agentisk overvåkning / endringsvarsler
+* [ ] Screening Engine v1
+* [ ] Opportunity Advisor (watchlist)
 * [ ] Guidance v1
 
 ## 💡 Ideer og fremtidige features
@@ -54,6 +61,7 @@
 
 ## ✅ Ferdig (siste)
 
+* [x] Analyst Consensus v1 steg 2 og 3
 * [x] Analyst Advisor Layer v1
 * [x] Analyst Consensus v1
 * [x] Sentiment v1

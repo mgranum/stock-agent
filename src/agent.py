@@ -1,6 +1,12 @@
+import pandas as pd
+
 from src.analysis import generate_text_report
 from src.ranking import ranking_table
 from src.advisor import build_advisor_details, format_advisor_detail_answer
+from src.config import load_watchlists
+from src.opportunity_advisor import build_opportunity_advisor
+from src.portfolio import valid_portfolio_rows
+from src.screener import screen_nordics, screen_obx, screen_us_large
 from src.analyst import (
     DISCLAIMER as ANALYST_DISCLAIMER,
     analyst_tickers,
@@ -574,6 +580,466 @@ def _format_trailing_stop_answer(context):
     return "\n".join(lines)
 
 
+SCREENING_TOP_LIMIT = 5
+SCREENING_PRESET = "Beste kandidater"
+SCREENING_ADVISOR_FALLBACK = (
+    "Ingen tydelig advisor-kommentar, men kandidaten scorer høyt i screeneren."
+)
+
+_SCREENING_REGIONS = {
+    "nordics": {
+        "title": "Topp 5 nordiske kandidater",
+        "markers": ("nordisk", "nordiske", "norden"),
+    },
+    "usa": {
+        "title": "Topp 5 amerikanske kandidater",
+        "markers": ("amerikansk", "amerikanske", " usa"),
+    },
+    "obx": {
+        "title": "Topp 5 OBX-kandidater",
+        "markers": ("obx",),
+    },
+}
+
+_SCREENING_ACTION_MARKERS = (
+    "beste",
+    "sterkest",
+    "sterke",
+    "best ut",
+    "sterkest ut",
+    "finn sterke",
+    "vis meg",
+    "kandidat",
+    "aksjer",
+)
+
+
+def _detect_screening_region(question):
+    if "obx" in question:
+        return "obx"
+
+    if any(marker in question for marker in _SCREENING_REGIONS["usa"]["markers"]):
+        return "usa"
+
+    if any(marker in question for marker in _SCREENING_REGIONS["nordics"]["markers"]):
+        return "nordics"
+
+    return None
+
+
+def _is_screening_question(question):
+    region = _detect_screening_region(question)
+    if region is None:
+        return False
+
+    return any(marker in question for marker in _SCREENING_ACTION_MARKERS)
+
+
+def _screening_function_for_region(region):
+    if region == "nordics":
+        return screen_nordics
+    if region == "usa":
+        return screen_us_large
+    if region == "obx":
+        return screen_obx
+    raise ValueError(f"Unknown screening region '{region}'")
+
+
+def _format_screening_relative_strength(value):
+    if value is None:
+        return "—"
+
+    try:
+        if pd.isna(value):
+            return "—"
+    except TypeError:
+        pass
+
+    return f"{round(float(value), 1)} %"
+
+
+def _format_screening_top5(results, title):
+    lines = [title, ""]
+
+    if results is None or results.empty:
+        lines.append(
+            'Ingen kandidater matchet filteret «Beste kandidater» akkurat nå.'
+        )
+        return "\n".join(lines)
+
+    for index, row in enumerate(results.itertuples(index=False), start=1):
+        lines.append(f"{index}. {row.ticker}")
+        lines.append(f"   Score: {int(row.score)}")
+        lines.append(f"   Trend: {row.trend_regime}")
+        lines.append(
+            "   Relativ styrke: "
+            f"{_format_screening_relative_strength(row.relative_strength_20d)}"
+        )
+        lines.append("")
+
+    return "\n".join(lines).rstrip()
+
+
+def _format_screening_advisor_bullet(line):
+    if line.startswith("Høy score"):
+        return "Sterk score"
+
+    if "relativ styrke" in line.lower():
+        return "Positiv relativ styrke"
+
+    return line
+
+
+def _format_screening_advisor_commentary(context, results):
+    if results is None or results.empty:
+        return ""
+
+    top_results = results.head(SCREENING_TOP_LIMIT)
+    dashboard = _get_dashboard(context)
+    advisor = build_opportunity_advisor(
+        top_results,
+        analyst_summary=_get_analyst_summary(context),
+        sentiment_summary=(
+            context.get("sentiment_summary")
+            or dashboard.get("sentiment_summary")
+        ),
+        earnings_summary=_get_earnings_summary(context),
+        news_summary=context.get("news_summary") or dashboard.get("news_summary"),
+        limit=SCREENING_TOP_LIMIT,
+        use_cache=True,
+    )
+
+    items_by_ticker = {
+        item["ticker"]: item
+        for item in advisor.get("items") or []
+        if item.get("ticker")
+    }
+
+    lines = ["", "Kort kommentar fra Opportunity Advisor", ""]
+
+    for row in top_results.itertuples(index=False):
+        ticker = row.ticker
+        item = items_by_ticker.get(ticker)
+
+        lines.append(ticker)
+
+        if item is None:
+            lines.append(f"- {SCREENING_ADVISOR_FALLBACK}")
+            lines.append("")
+            lines.append("Tolkning:")
+            lines.append(SCREENING_ADVISOR_FALLBACK)
+            lines.append("")
+            continue
+
+        for bullet in item.get("why_interesting") or []:
+            lines.append(f"- {_format_screening_advisor_bullet(bullet)}")
+
+        watch_out = item.get("watch_out_for") or []
+        if not watch_out:
+            lines.append("- Ingen tydelige forbehold")
+        else:
+            for bullet in watch_out:
+                lines.append(f"- {bullet}")
+
+        lines.append("")
+        lines.append("Tolkning:")
+        lines.append(item.get("takeaway") or SCREENING_ADVISOR_FALLBACK)
+        lines.append("")
+
+    return "\n".join(lines).rstrip()
+
+
+def _answer_screening_question(context, question):
+    region = _detect_screening_region(question)
+    config = _SCREENING_REGIONS[region]
+    screen_fn = _screening_function_for_region(region)
+
+    results = screen_fn(
+        preset=SCREENING_PRESET,
+        limit=SCREENING_TOP_LIMIT,
+        pause_seconds=0,
+        existing_watchlists=load_watchlists(),
+    )
+
+    answer = _format_screening_top5(results, config["title"])
+    if results is not None and not results.empty:
+        advisor_section = _format_screening_advisor_commentary(
+            context,
+            results,
+        )
+        if advisor_section:
+            answer = f"{answer}{advisor_section}"
+
+    return answer
+
+
+PORTFOLIO_COMPARISON_WEAK_LIMIT = 3
+PORTFOLIO_COMPARISON_SCORE_GAP = 10
+
+_PORTFOLIO_COMPARISON_MARKERS = (
+    "bedre ut enn det jeg eier",
+    "bedre ut enn det jeg har",
+    "sterkere kandidater enn mine svakeste",
+    "sterkere kandidater enn de svakeste",
+    "mest interessante kjøpskandidat",
+)
+
+_TREND_RANK = {
+    "STERK OPPTREND": 2,
+    "MODERAT OPPTREND": 1,
+    "SVAK / NEGATIV TREND": 0,
+}
+
+
+def _detect_portfolio_comparison_region(question):
+    if "obx" in question or "norsk" in question:
+        return "obx"
+
+    if any(
+        marker in question
+        for marker in _SCREENING_REGIONS["nordics"]["markers"]
+    ):
+        return "nordics"
+
+    return "usa"
+
+
+def _is_portfolio_comparison_question(question):
+    if any(marker in question for marker in _PORTFOLIO_COMPARISON_MARKERS):
+        return True
+
+    if "bedre ut enn" in question and any(
+        phrase in question for phrase in ("det jeg eier", "det jeg har")
+    ):
+        return True
+
+    if "sterkere" in question and "svakeste posisjon" in question:
+        return True
+
+    return False
+
+
+def _comparison_numeric(value):
+    if value is None:
+        return None
+
+    try:
+        if pd.isna(value):
+            return None
+    except TypeError:
+        pass
+
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _comparison_row_value(row, key):
+    if isinstance(row, dict):
+        return row.get(key)
+
+    if hasattr(row, key):
+        return getattr(row, key)
+
+    try:
+        return row[key]
+    except (KeyError, TypeError, IndexError):
+        return None
+
+
+def _trend_rank(value):
+    return _TREND_RANK.get(value, -1)
+
+
+def _weakest_portfolio_positions(portfolio_report, limit=PORTFOLIO_COMPARISON_WEAK_LIMIT):
+    df = valid_portfolio_rows(portfolio_report)
+    if df.empty:
+        return pd.DataFrame()
+
+    return (
+        df.sort_values(
+            by=["score", "relative_strength_20d"],
+            ascending=[True, True],
+            na_position="last",
+        )
+        .head(limit)
+        .reset_index(drop=True)
+    )
+
+
+def _candidate_stronger_than_holding(candidate, holding):
+    candidate_score = _comparison_numeric(_comparison_row_value(candidate, "score"))
+    holding_score = _comparison_numeric(_comparison_row_value(holding, "score"))
+    if candidate_score is None or holding_score is None:
+        return False
+
+    if candidate_score >= holding_score + PORTFOLIO_COMPARISON_SCORE_GAP:
+        return True
+
+    if holding_score <= candidate_score < holding_score + PORTFOLIO_COMPARISON_SCORE_GAP:
+        candidate_trend = _trend_rank(
+            _comparison_row_value(candidate, "trend_regime")
+        )
+        holding_trend = _trend_rank(
+            _comparison_row_value(holding, "trend_regime")
+        )
+        candidate_rs = _comparison_numeric(
+            _comparison_row_value(candidate, "relative_strength_20d")
+        )
+        if candidate_trend > holding_trend and candidate_rs is not None and candidate_rs > 0:
+            return True
+
+    return False
+
+
+def _holdings_beaten_by_candidate(candidate, weak_holdings):
+    beaten = []
+    for _, holding in weak_holdings.iterrows():
+        if _candidate_stronger_than_holding(candidate, holding):
+            beaten.append(holding)
+    return beaten
+
+
+def _portfolio_comparison_reasons(candidate, beaten_holdings):
+    reasons = []
+    candidate_score = _comparison_numeric(_comparison_row_value(candidate, "score"))
+    candidate_trend = _trend_rank(_comparison_row_value(candidate, "trend_regime"))
+    candidate_rs = _comparison_numeric(
+        _comparison_row_value(candidate, "relative_strength_20d")
+    )
+
+    if any(
+        candidate_score is not None
+        and _comparison_numeric(holding["score"]) is not None
+        and candidate_score > _comparison_numeric(holding["score"])
+        for holding in beaten_holdings
+    ):
+        reasons.append("høyere score")
+
+    if any(
+        candidate_trend > _trend_rank(holding.get("trend_regime"))
+        for holding in beaten_holdings
+    ):
+        reasons.append("sterkere trend")
+
+    if any(
+        candidate_rs is not None
+        and _comparison_numeric(holding.get("relative_strength_20d")) is not None
+        and candidate_rs > _comparison_numeric(holding.get("relative_strength_20d"))
+        for holding in beaten_holdings
+    ):
+        reasons.append("bedre relativ styrke")
+
+    return reasons
+
+
+def _portfolio_comparison_advisor_by_ticker(context, results):
+    if results is None or results.empty:
+        return {}
+
+    dashboard = _get_dashboard(context)
+    advisor = build_opportunity_advisor(
+        results,
+        analyst_summary=_get_analyst_summary(context),
+        sentiment_summary=(
+            context.get("sentiment_summary")
+            or dashboard.get("sentiment_summary")
+        ),
+        earnings_summary=_get_earnings_summary(context),
+        news_summary=context.get("news_summary") or dashboard.get("news_summary"),
+        limit=SCREENING_TOP_LIMIT,
+        use_cache=True,
+    )
+
+    return {
+        item["ticker"]: item
+        for item in advisor.get("items") or []
+    }
+
+
+def _format_portfolio_comparison_candidates(context, results, weak_holdings):
+    lines = ["Mest interessante kandidater akkurat nå", ""]
+
+    if results is None or results.empty:
+        lines.append(
+            'Ingen screener-kandidater matchet filteret «Beste kandidater» akkurat nå.'
+        )
+        return "\n".join(lines)
+
+    if weak_holdings.empty:
+        lines.append(
+            "Ingen porteføljeposisjoner å sammenligne med akkurat nå."
+        )
+        lines.append("")
+        lines.append(
+            "Legg til analyserte posisjoner i porteføljen for å sammenligne "
+            "screener-kandidater mot det du eier."
+        )
+        return "\n".join(lines)
+
+    interesting = []
+    for candidate in results.itertuples(index=False):
+        beaten = _holdings_beaten_by_candidate(candidate, weak_holdings)
+        if beaten:
+            interesting.append((candidate, beaten))
+
+    if not interesting:
+        lines.append(
+            "Ingen screener-kandidater ser tydelig sterkere ut enn de svakeste "
+            "porteføljeaksjene akkurat nå."
+        )
+        return "\n".join(lines)
+
+    advisor_by_ticker = _portfolio_comparison_advisor_by_ticker(
+        context,
+        results.head(SCREENING_TOP_LIMIT),
+    )
+
+    for index, (candidate, beaten) in enumerate(
+        interesting[:SCREENING_TOP_LIMIT],
+        start=1,
+    ):
+        lines.append(f"{index}. {candidate.ticker}")
+        lines.append(f"Score: {int(candidate.score)}")
+        lines.append("")
+        lines.append("Ser sterkere ut enn:")
+        for holding in beaten:
+            lines.append(
+                f"- {holding['ticker']} ({int(holding['score'])})"
+            )
+        lines.append("")
+        lines.append("Hvorfor:")
+        for reason in _portfolio_comparison_reasons(candidate, beaten):
+            lines.append(f"- {reason}")
+        lines.append("")
+        lines.append("Tolkning:")
+        advisor_item = advisor_by_ticker.get(candidate.ticker)
+        takeaway = advisor_item.get("takeaway") if advisor_item else None
+        lines.append(
+            takeaway
+            or "Kan være verdt nærmere analyse dersom du vurderer nye posisjoner."
+        )
+        lines.append("")
+
+    return "\n".join(lines).rstrip()
+
+
+def _answer_portfolio_comparison_question(context, question):
+    region = _detect_portfolio_comparison_region(question)
+    screen_fn = _screening_function_for_region(region)
+
+    results = screen_fn(
+        preset=SCREENING_PRESET,
+        limit=SCREENING_TOP_LIMIT,
+        pause_seconds=0,
+        existing_watchlists=load_watchlists(),
+    )
+
+    weak_holdings = _weakest_portfolio_positions(context.get("portfolio_report"))
+    return _format_portfolio_comparison_candidates(context, results, weak_holdings)
+
+
 def _is_earnings_question(question):
     if any(
         phrase in question
@@ -940,6 +1406,12 @@ def ask_agent(question, context):
 
     if _is_advisor_question(question):
         return _format_advisor_answer(context, question)
+
+    if _is_screening_question(question):
+        return _answer_screening_question(context, question)
+
+    if _is_portfolio_comparison_question(question):
+        return _answer_portfolio_comparison_question(context, question)
 
     if _is_daily_flow_question(question):
         return _format_daily_flow_answer(context)

@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import ANY, patch
 
 import pandas as pd
 
@@ -410,6 +411,411 @@ class AgentAnalystTests(unittest.TestCase):
         )
 
         self.assertIn("Analytikerkonsensus for EMPTY: Ingen data tilgjengelig", answer)
+
+
+def _screening_results():
+    return pd.DataFrame(
+        [
+            {
+                "ticker": "SUBC.OL",
+                "in_watchlist": "Nei",
+                "score": 94,
+                "recommendation": "KJØP / ØK",
+                "trend_regime": "STERK OPPTREND",
+                "relative_strength_20d": 12.3,
+                "fundamental_score": 80,
+                "fundamental_history_score": 78,
+            },
+            {
+                "ticker": "VOLV-B.ST",
+                "in_watchlist": "Ja",
+                "score": 88,
+                "recommendation": "KJØP / ØK",
+                "trend_regime": "MODERAT OPPTREND",
+                "relative_strength_20d": 6.5,
+                "fundamental_score": 72,
+                "fundamental_history_score": 70,
+            },
+        ]
+    )
+
+
+def _screening_results_five():
+    return pd.DataFrame(
+        [
+            {
+                "ticker": ticker,
+                "in_watchlist": "Nei",
+                "score": 95 - index,
+                "recommendation": "KJØP / ØK",
+                "trend_regime": "STERK OPPTREND",
+                "relative_strength_20d": 10.0 - index,
+                "fundamental_score": 80,
+                "fundamental_history_score": 78,
+            }
+            for index, ticker in enumerate(
+                ["AAA", "BBB", "CCC", "DDD", "EEE"]
+            )
+        ]
+    )
+
+
+class AgentScreeningTests(unittest.TestCase):
+    @patch("src.agent.build_opportunity_advisor")
+    @patch("src.agent.screen_nordics")
+    def test_nordics_question(self, mock_screen_nordics, mock_build_advisor):
+        mock_screen_nordics.return_value = _screening_results()
+        mock_build_advisor.return_value = {
+            "items": [
+                {
+                    "ticker": "SUBC.OL",
+                    "why_interesting": ["Høy score (94)", "Positiv relativ styrke (12.3%)"],
+                    "watch_out_for": [],
+                    "takeaway": "En av de sterkeste kandidatene i universet akkurat nå.",
+                }
+            ]
+        }
+
+        answer = ask_agent(
+            "Vis meg de beste nordiske kandidatene",
+            _mock_context(),
+        )
+
+        mock_screen_nordics.assert_called_once_with(
+            preset="Beste kandidater",
+            limit=5,
+            pause_seconds=0,
+            existing_watchlists=ANY,
+        )
+        self.assertIn("Topp 5 nordiske kandidater", answer)
+        self.assertIn("1. SUBC.OL", answer)
+        self.assertIn("Score: 94", answer)
+        self.assertIn("Relativ styrke: 12.3 %", answer)
+        self.assertIn("Kort kommentar fra Opportunity Advisor", answer)
+        self.assertIn("SUBC.OL", answer.split("Kort kommentar")[-1])
+
+    @patch("src.agent.screen_us_large")
+    def test_usa_question(self, mock_screen_us_large):
+        mock_screen_us_large.return_value = _screening_results()
+
+        answer = ask_agent(
+            "Finn sterke amerikanske aksjer",
+            _mock_context(),
+        )
+
+        mock_screen_us_large.assert_called_once()
+        self.assertIn("Topp 5 amerikanske kandidater", answer)
+
+    @patch("src.agent.screen_obx")
+    def test_obx_question(self, mock_screen_obx):
+        mock_screen_obx.return_value = _screening_results()
+
+        answer = ask_agent(
+            "Vis meg de beste OBX-kandidatene",
+            _mock_context(),
+        )
+
+        mock_screen_obx.assert_called_once()
+        self.assertIn("Topp 5 OBX-kandidater", answer)
+
+    @patch("src.agent.screen_nordics")
+    def test_empty_screener_result(self, mock_screen_nordics):
+        mock_screen_nordics.return_value = pd.DataFrame()
+
+        answer = ask_agent(
+            "Hvilke nordiske aksjer ser sterkest ut nå?",
+            _mock_context(),
+        )
+
+        self.assertIn("Ingen kandidater matchet filteret", answer)
+
+    @patch("src.agent.screen_nordics")
+    def test_top5_formatting(self, mock_screen_nordics):
+        mock_screen_nordics.return_value = _screening_results()
+
+        answer = ask_agent(
+            "Finn sterke nordiske aksjer",
+            _mock_context(),
+        )
+
+        self.assertIn("1. SUBC.OL", answer)
+        self.assertIn("2. VOLV-B.ST", answer)
+        self.assertIn("Trend: STERK OPPTREND", answer)
+        self.assertIn("Trend: MODERAT OPPTREND", answer)
+
+    @patch("src.agent.build_opportunity_advisor")
+    @patch("src.agent.screen_nordics")
+    def test_screening_chat_includes_advisor_for_all_top5(
+        self,
+        mock_screen_nordics,
+        mock_build_advisor,
+    ):
+        mock_screen_nordics.return_value = _screening_results_five()
+        mock_build_advisor.return_value = {
+            "items": [
+                {
+                    "ticker": ticker,
+                    "why_interesting": [f"Høy score ({95 - index})"],
+                    "watch_out_for": [],
+                    "takeaway": f"Tolkning for {ticker}.",
+                }
+                for index, ticker in enumerate(["AAA", "BBB", "CCC", "DDD", "EEE"])
+            ]
+        }
+
+        answer = ask_agent(
+            "Vis meg de beste nordiske kandidatene",
+            _mock_context(),
+        )
+
+        advisor_section = answer.split("Kort kommentar fra Opportunity Advisor", 1)[1]
+        for ticker in ["AAA", "BBB", "CCC", "DDD", "EEE"]:
+            self.assertIn(ticker, advisor_section)
+            self.assertIn(f"Tolkning for {ticker}.", advisor_section)
+
+        mock_build_advisor.assert_called_once()
+        self.assertEqual(
+            mock_build_advisor.call_args.kwargs["limit"],
+            5,
+        )
+
+    @patch("src.agent.build_opportunity_advisor")
+    @patch("src.agent.screen_nordics")
+    def test_screening_advisor_order_matches_top5(
+        self,
+        mock_screen_nordics,
+        mock_build_advisor,
+    ):
+        mock_screen_nordics.return_value = _screening_results_five()
+        mock_build_advisor.return_value = {
+            "items": [
+                {
+                    "ticker": ticker,
+                    "why_interesting": ["Sterk score"],
+                    "watch_out_for": [],
+                    "takeaway": f"Tolkning for {ticker}.",
+                }
+                for ticker in ["EEE", "DDD", "CCC", "BBB", "AAA"]
+            ]
+        }
+
+        answer = ask_agent(
+            "Vis meg de beste nordiske kandidatene",
+            _mock_context(),
+        )
+
+        advisor_section = answer.split("Kort kommentar fra Opportunity Advisor", 1)[1]
+        positions = [
+            advisor_section.index(ticker)
+            for ticker in ["AAA", "BBB", "CCC", "DDD", "EEE"]
+        ]
+        self.assertEqual(positions, sorted(positions))
+
+    @patch("src.agent.build_opportunity_advisor")
+    @patch("src.agent.screen_nordics")
+    def test_screening_advisor_fallback_when_item_missing(
+        self,
+        mock_screen_nordics,
+        mock_build_advisor,
+    ):
+        mock_screen_nordics.return_value = _screening_results_five()
+        mock_build_advisor.return_value = {
+            "items": [
+                {
+                    "ticker": "AAA",
+                    "why_interesting": ["Sterk score"],
+                    "watch_out_for": [],
+                    "takeaway": "Tolkning for AAA.",
+                }
+            ]
+        }
+
+        answer = ask_agent(
+            "Vis meg de beste nordiske kandidatene",
+            _mock_context(),
+        )
+
+        self.assertIn(
+            "Ingen tydelig advisor-kommentar, men kandidaten scorer høyt i screeneren.",
+            answer,
+        )
+        advisor_section = answer.split("Kort kommentar fra Opportunity Advisor", 1)[1]
+        self.assertIn("BBB", advisor_section)
+        self.assertIn("Tolkning for AAA.", answer)
+
+
+def _portfolio_report_rows():
+    return pd.DataFrame(
+        [
+            {
+                "ticker": "DNB.OL",
+                "score": 72,
+                "trend_regime": "MODERAT OPPTREND",
+                "relative_strength_20d": -2.0,
+                "market_value": 10000,
+                "unrealized_gain_pct": 5.0,
+                "current_price": 200,
+                "cost_value": 9500,
+                "portefølje_råd": "HOLD",
+                "anbefaling": "HOLD / OBSERVER",
+                "trailing_stop_loss": 180,
+            },
+            {
+                "ticker": "EQNR.OL",
+                "score": 75,
+                "trend_regime": "SVAK / NEGATIV TREND",
+                "relative_strength_20d": 1.0,
+                "market_value": 12000,
+                "unrealized_gain_pct": -3.0,
+                "current_price": 250,
+                "cost_value": 12300,
+                "portefølje_råd": "FØLG MED / IKKE ØK",
+                "anbefaling": "HOLD / OBSERVER",
+                "trailing_stop_loss": 220,
+            },
+            {
+                "ticker": "AAPL",
+                "score": 88,
+                "trend_regime": "STERK OPPTREND",
+                "relative_strength_20d": 8.0,
+                "market_value": 15000,
+                "unrealized_gain_pct": 12.0,
+                "current_price": 180,
+                "cost_value": 13400,
+                "portefølje_råd": "HOLD / LA VINNER LØPE",
+                "anbefaling": "KJØP / ØK",
+                "trailing_stop_loss": 160,
+            },
+        ]
+    )
+
+
+def _portfolio_comparison_screener_results():
+    return pd.DataFrame(
+        [
+            {
+                "ticker": "AVGO",
+                "in_watchlist": "Nei",
+                "score": 95,
+                "recommendation": "KJØP / ØK",
+                "trend_regime": "STERK OPPTREND",
+                "relative_strength_20d": 14.0,
+                "fundamental_score": 85,
+                "fundamental_history_score": 82,
+            },
+            {
+                "ticker": "MSFT",
+                "in_watchlist": "Ja",
+                "score": 80,
+                "recommendation": "KJØP / ØK",
+                "trend_regime": "MODERAT OPPTREND",
+                "relative_strength_20d": 3.0,
+                "fundamental_score": 78,
+                "fundamental_history_score": 76,
+            },
+        ]
+    )
+
+
+def _portfolio_comparison_context(portfolio_report=None):
+    context = _mock_context()
+    context["portfolio_report"] = portfolio_report
+    return context
+
+
+class AgentPortfolioComparisonTests(unittest.TestCase):
+    @patch("src.agent.build_opportunity_advisor")
+    @patch("src.agent.screen_us_large")
+    def test_question_is_recognized(self, mock_screen_us_large, mock_build_advisor):
+        mock_screen_us_large.return_value = _portfolio_comparison_screener_results()
+        mock_build_advisor.return_value = {
+            "items": [
+                {
+                    "ticker": "AVGO",
+                    "takeaway": "En av de sterkeste kandidatene i universet akkurat nå.",
+                }
+            ]
+        }
+
+        answer = ask_agent(
+            "Hvilke kandidater ser bedre ut enn det jeg eier?",
+            _portfolio_comparison_context(_portfolio_report_rows()),
+        )
+
+        mock_screen_us_large.assert_called_once_with(
+            preset="Beste kandidater",
+            limit=5,
+            pause_seconds=0,
+            existing_watchlists=ANY,
+        )
+        self.assertIn("Mest interessante kandidater akkurat nå", answer)
+        self.assertIn("1. AVGO", answer)
+        self.assertIn("Score: 95", answer)
+
+    @patch("src.agent.screen_us_large")
+    def test_top_candidates_and_weakest_portfolio_positions(
+        self,
+        mock_screen_us_large,
+    ):
+        mock_screen_us_large.return_value = _portfolio_comparison_screener_results()
+
+        answer = ask_agent(
+            "Finnes det sterkere kandidater enn mine svakeste posisjoner?",
+            _portfolio_comparison_context(_portfolio_report_rows()),
+        )
+
+        self.assertIn("Ser sterkere ut enn:", answer)
+        self.assertIn("DNB.OL (72)", answer)
+        self.assertIn("EQNR.OL (75)", answer)
+        self.assertNotIn("AAPL (88)", answer)
+        self.assertIn("høyere score", answer)
+        self.assertIn("sterkere trend", answer)
+        self.assertIn("bedre relativ styrke", answer)
+
+    @patch("src.agent.screen_nordics")
+    def test_nordics_region_for_portfolio_comparison(self, mock_screen_nordics):
+        mock_screen_nordics.return_value = _portfolio_comparison_screener_results()
+
+        ask_agent(
+            "Hvilke nordiske kandidater ser bedre ut enn det jeg eier?",
+            _portfolio_comparison_context(_portfolio_report_rows()),
+        )
+
+        mock_screen_nordics.assert_called_once()
+
+    @patch("src.agent.screen_obx")
+    def test_obx_region_for_norsk_question(self, mock_screen_obx):
+        mock_screen_obx.return_value = _portfolio_comparison_screener_results()
+
+        ask_agent(
+            "Finnes det sterkere norske kandidater enn mine svakeste posisjoner?",
+            _portfolio_comparison_context(_portfolio_report_rows()),
+        )
+
+        mock_screen_obx.assert_called_once()
+
+    @patch("src.agent.screen_us_large")
+    def test_empty_portfolio_handled(self, mock_screen_us_large):
+        mock_screen_us_large.return_value = _portfolio_comparison_screener_results()
+
+        answer = ask_agent(
+            "Hva er de mest interessante kjøpskandidatene akkurat nå?",
+            _portfolio_comparison_context(None),
+        )
+
+        self.assertIn("Ingen porteføljeposisjoner å sammenligne med", answer)
+        self.assertNotIn("Ser sterkere ut enn:", answer)
+
+    @patch("src.agent.screen_us_large")
+    def test_empty_screener_result_handled(self, mock_screen_us_large):
+        mock_screen_us_large.return_value = pd.DataFrame()
+
+        answer = ask_agent(
+            "Hvilke kandidater ser bedre ut enn det jeg eier?",
+            _portfolio_comparison_context(_portfolio_report_rows()),
+        )
+
+        self.assertIn("Ingen screener-kandidater matchet filteret", answer)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,10 @@
+import time
+
 import pandas as pd
 
-from src.analysis import analyze_watchlist
+from src.analysis import analyze_stock, analyze_watchlist
 from src.company_names import get_company_name
-from src.config import load_json_config
+from src.config import load_json_config, load_watchlists
 from src.ranking import rank_watchlist
 from src.strategy_classification import add_strategy_types
 
@@ -40,6 +42,42 @@ DIAGNOSTIC_KEYS = [
     "filtered_unnga_selg",
 ]
 
+SCREEN_OUTPUT_COLUMNS = [
+    "ticker",
+    "in_watchlist",
+    "score",
+    "recommendation",
+    "trend_regime",
+    "relative_strength_20d",
+    "fundamental_score",
+    "fundamental_history_score",
+]
+
+IN_WATCHLIST_YES = "Ja"
+IN_WATCHLIST_NO = "Nei"
+
+
+def _empty_screen_output():
+    return pd.DataFrame(columns=SCREEN_OUTPUT_COLUMNS)
+
+
+def _analysis_to_screen_row(result, watchlist_symbols=None):
+    ticker = str(result["ticker"]).strip().upper()
+    in_watchlist = IN_WATCHLIST_NO
+    if watchlist_symbols is not None and ticker in watchlist_symbols:
+        in_watchlist = IN_WATCHLIST_YES
+
+    return {
+        "ticker": result["ticker"],
+        "in_watchlist": in_watchlist,
+        "score": result["score"],
+        "recommendation": result["anbefaling"],
+        "trend_regime": result["trend_regime"],
+        "relative_strength_20d": result["relative_strength_20d"],
+        "fundamental_score": result["fundamental_score"],
+        "fundamental_history_score": result["fundamental_history_score"],
+    }
+
 
 def load_screening_universe():
     return load_json_config("screening_universe.json", {})
@@ -67,6 +105,15 @@ def _collect_existing_symbols(existing_watchlists):
         symbols.update(ticker.strip().upper() for ticker in tickers)
 
     return symbols
+
+
+def _watchlist_symbol_set(existing_watchlists=None):
+    watchlists = existing_watchlists or load_watchlists()
+    return _collect_existing_symbols(watchlists)
+
+
+def screening_universe_options():
+    return sorted(load_screening_universe())
 
 
 def _sort_candidates(df):
@@ -294,79 +341,183 @@ def suggest_watchlist_additions(
 
 def screen_stocks(
     symbols,
-    min_score=55,
-    min_fundamental_score=None,
-    min_fundamental_history_score=None,
+    min_score=None,
     min_relative_strength=None,
-    trend_regime=None,
-    recommendation=None,
+    trend_regimes=None,
+    limit=20,
     pause_seconds=1,
+    watchlist_symbols=None,
 ):
-    df = rank_watchlist(
-        symbols,
-        pause_seconds=pause_seconds,
-    )
+    if watchlist_symbols is None:
+        watchlist_symbols = _watchlist_symbol_set()
 
-    if df.empty:
-        return df
+    rows = []
+
+    for i, symbol in enumerate(symbols, start=1):
+        try:
+            result, _ = analyze_stock(symbol)
+            rows.append(
+                _analysis_to_screen_row(result, watchlist_symbols)
+            )
+        except Exception:
+            pass
+
+        if pause_seconds and i < len(symbols):
+            time.sleep(pause_seconds)
+
+    if not rows:
+        return _empty_screen_output()
+
+    df = pd.DataFrame(rows)
 
     if min_score is not None:
         df = df[df["score"] >= min_score]
 
-    if min_fundamental_score is not None:
-        df = df[df["fundamental_score"] >= min_fundamental_score]
-
-    if min_fundamental_history_score is not None:
-        df = df[
-            df["fundamental_history_score"]
-            >= min_fundamental_history_score
-        ]
-
     if min_relative_strength is not None:
         df = df[df["relative_strength_20d"] >= min_relative_strength]
 
-    if trend_regime is not None:
-        df = df[df["trend_regime"] == trend_regime]
+    if trend_regimes is not None:
+        allowed = (
+            {trend_regimes}
+            if isinstance(trend_regimes, str)
+            else set(trend_regimes)
+        )
+        df = df[df["trend_regime"].isin(allowed)]
 
-    if recommendation is not None:
-        df = df[df["anbefaling"] == recommendation]
+    df = df.sort_values(
+        by=[
+            "score",
+            "fundamental_history_score",
+            "fundamental_score",
+            "relative_strength_20d",
+        ],
+        ascending=[False, False, False, False],
+    )
 
-    return df.reset_index(drop=True)
+    if limit is not None:
+        df = df.head(limit)
+
+    return df[SCREEN_OUTPUT_COLUMNS].reset_index(drop=True)
+
+
+SCREEN_PRESETS = {
+    "Beste kandidater": {
+        "min_score": 70,
+    },
+    "Sterk trend": {
+        "trend_regimes": ["STERK OPPTREND"],
+    },
+    "Positiv relativ styrke": {
+        "min_relative_strength": 0,
+    },
+    "Høy kvalitet + trend": {
+        "min_score": 75,
+        "min_relative_strength": 0,
+    },
+}
+
+
+def get_preset_filters(preset_name):
+    if preset_name not in SCREEN_PRESETS:
+        known = ", ".join(sorted(SCREEN_PRESETS))
+        raise ValueError(
+            f"Unknown screening preset '{preset_name}'. "
+            f"Available: {known}"
+        )
+
+    return dict(SCREEN_PRESETS[preset_name])
+
+
+def screen_explore_universe(
+    universe_name,
+    preset=None,
+    limit=20,
+    pause_seconds=1,
+    existing_watchlists=None,
+):
+    symbols = _universe_symbols(universe_name)
+    watchlist_symbols = _watchlist_symbol_set(existing_watchlists)
+
+    kwargs = {
+        "limit": limit,
+        "pause_seconds": pause_seconds,
+        "watchlist_symbols": watchlist_symbols,
+    }
+
+    if preset is not None:
+        kwargs.update(get_preset_filters(preset))
+
+    return screen_stocks(symbols, **kwargs)
+
+
+def screen_nordics(**kwargs):
+    return screen_explore_universe("NORDICS", **kwargs)
+
+
+def screen_us_large(**kwargs):
+    return screen_explore_universe("US_LARGE_CAP", **kwargs)
+
+
+def screen_obx(**kwargs):
+    return screen_explore_universe("OBX", **kwargs)
+
+
+screen_watchlist_universe = screen_explore_universe
 
 
 def screen_quality_companies(symbols, pause_seconds=1):
-    return screen_stocks(
+    df = screen_stocks(
         symbols,
-        min_score=55,
-        min_fundamental_score=70,
-        min_fundamental_history_score=70,
+        limit=None,
         pause_seconds=pause_seconds,
     )
+    if df.empty:
+        return df
+
+    return df[
+        (df["score"] >= 55)
+        & (df["fundamental_score"] >= 70)
+        & (df["fundamental_history_score"] >= 70)
+    ].reset_index(drop=True)
 
 
 def screen_growth_with_trend(symbols, pause_seconds=1):
-    return screen_stocks(
+    df = screen_stocks(
         symbols,
         min_score=60,
-        min_fundamental_history_score=70,
         min_relative_strength=0,
-        trend_regime="STERK OPPTREND",
+        trend_regimes="STERK OPPTREND",
         pause_seconds=pause_seconds,
     )
+    if df.empty:
+        return df
+
+    return df[df["fundamental_history_score"] >= 70].reset_index(drop=True)
 
 
 def screen_buy_candidates(symbols, pause_seconds=1):
-    return screen_stocks(
+    df = screen_stocks(
         symbols,
-        recommendation="KJØP / ØK",
+        limit=None,
         pause_seconds=pause_seconds,
     )
+    if df.empty:
+        return df
+
+    return df[df["recommendation"] == "KJØP / ØK"].reset_index(drop=True)
 
 
 def screen_strong_fundamentals_weak_technical(symbols, pause_seconds=1):
-    return screen_stocks(
+    df = screen_stocks(
         symbols,
-        min_fundamental_score=70,
-        min_fundamental_history_score=70,
+        limit=None,
         pause_seconds=pause_seconds,
-    ).query("anbefaling != 'KJØP / ØK'")
+    )
+    if df.empty:
+        return df
+
+    return df[
+        (df["fundamental_score"] >= 70)
+        & (df["fundamental_history_score"] >= 70)
+        & (df["recommendation"] != "KJØP / ØK")
+    ].reset_index(drop=True)

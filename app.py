@@ -36,7 +36,15 @@ from src.config import (
 from src.strategy_classification import STRATEGY_TYPES, add_strategy_types
 from src.analysis import analyze_stock
 from src.company_names import get_company_name
-from src.screener import suggest_watchlist_additions, load_screening_universe
+from src.opportunity_advisor import build_opportunity_advisor
+from src.screener import (
+    SCREEN_OUTPUT_COLUMNS,
+    SCREEN_PRESETS,
+    load_screening_universe,
+    screen_explore_universe,
+    screening_universe_options,
+    suggest_watchlist_additions,
+)
 from src.alerts import (
     ACTION_ADD_TO_WATCHLIST,
     ACTION_ARCHIVE_RESEARCH,
@@ -984,15 +992,120 @@ with tab_ranking:
 
 with tab_screening:
     st.subheader("Screening")
+
+    st.markdown("### Utforsk univers")
+    st.caption(
+        "Screen hele universet. Aksjer du allerede følger markeres i tabellen."
+    )
+
+    explore_universe_options = screening_universe_options()
+    screener_cols = st.columns([2, 2, 1])
+    with screener_cols[0]:
+        if explore_universe_options:
+            explore_universe = st.selectbox(
+                "Univers",
+                explore_universe_options,
+                key="explore_screen_universe",
+            )
+        else:
+            explore_universe = None
+            st.warning(
+                "Ingen screening-univers konfigurert. "
+                "Legg til data/config/screening_universe.json."
+            )
+    with screener_cols[1]:
+        screen_preset = st.selectbox(
+            "Preset",
+            list(SCREEN_PRESETS),
+            key="watchlist_screen_preset",
+        )
+    with screener_cols[2]:
+        watchlist_screen_limit = st.number_input(
+            "Maks antall",
+            min_value=1,
+            value=20,
+            step=1,
+            key="watchlist_screen_limit",
+        )
+
+    if explore_universe_options and st.button(
+        "Kjør screening",
+        key="run_watchlist_screen",
+    ):
+        with st.spinner(f"Screener {explore_universe}..."):
+            st.session_state.watchlist_screen_results = (
+                screen_explore_universe(
+                    explore_universe,
+                    preset=screen_preset,
+                    limit=int(watchlist_screen_limit),
+                    pause_seconds=1,
+                    existing_watchlists=WATCHLISTS,
+                )
+            )
+
+    watchlist_screen_results = st.session_state.get(
+        "watchlist_screen_results"
+    )
+    if watchlist_screen_results is not None:
+        if watchlist_screen_results.empty:
+            st.info("Ingen aksjer matchet filteret.")
+        else:
+            display_columns = [
+                col
+                for col in SCREEN_OUTPUT_COLUMNS
+                if col in watchlist_screen_results.columns
+            ]
+            st.dataframe(
+                watchlist_screen_results[display_columns],
+                width="stretch",
+                hide_index=True,
+            )
+
+            opportunity_advisor = build_opportunity_advisor(
+                watchlist_screen_results,
+                analyst_summary=st.session_state.context.get(
+                    "analyst_summary"
+                ),
+                sentiment_summary=st.session_state.context.get(
+                    "sentiment_summary"
+                ),
+                earnings_summary=st.session_state.context.get(
+                    "earnings_summary"
+                ),
+                news_summary=st.session_state.context.get("news_summary"),
+                limit=5,
+            )
+            advisor_items = opportunity_advisor.get("items") or []
+            if advisor_items:
+                st.markdown("#### Tolkning")
+                for item in advisor_items:
+                    with st.expander(
+                        f"Hvorfor er {item['ticker']} interessant?"
+                    ):
+                        st.markdown(f"**{item['headline']}**")
+                        st.markdown("**Hvorfor interessant**")
+                        if item.get("why_interesting"):
+                            for line in item["why_interesting"]:
+                                st.markdown(f"- {line}")
+                        else:
+                            st.markdown("- Ingen tydelige styrker identifisert.")
+
+                        st.markdown("**Forbehold**")
+                        if item.get("watch_out_for"):
+                            for line in item["watch_out_for"]:
+                                st.markdown(f"- {line}")
+                        else:
+                            st.markdown("- Ingen tydelige forbehold identifisert.")
+
+                        st.markdown("**Tolkning**")
+                        st.write(item.get("takeaway") or "")
+                st.caption(opportunity_advisor.get("disclaimer") or "")
+
+    st.divider()
+    st.markdown("### Finn nye kandidater")
     st.caption(
         "Screen universer utenfor watchlistene dine, lagre idéer, "
         "eller legg kandidater direkte til watchlist."
-    )
-
-    st.markdown("### Finn nye kandidater")
-    st.caption(
-        "Analyserer hele universet, filtrerer bort symboler som allerede "
-        "ligger på watchlistene dine, og viser de beste forslagene."
     )
 
     external_feedback = st.session_state.pop("external_screen_feedback", None)
