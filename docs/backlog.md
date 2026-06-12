@@ -2,17 +2,12 @@
 
 ## 🔥 Neste opp
 
-* [ ] Full audit etter NaN-cache-fix
-* [ ] Commit/push bugfix hvis ikke gjort
-* [ ] Alerts v2: bedre handlingsvarsler
-* [ ] Daily Flow v2: tydeligere “hva bør jeg gjøre i dag?”
-* [ ] Porteføljerisiko v1: posisjonsstørrelse, konsentrasjon, sektor, USA/Norden/OBX
-* [ ] Cash-/kapitalallokering i dashboard
+
+* [ ] Sentiment v1
+* [ ] Analyst & Guidance v1
 
 ## 💡 Ideer og fremtidige features
 
-* [ ] Nyheter / earnings / sentiment
-* [ ] Earnings-datoer og varsler
 * [ ] Analytikerendringer og guidance
 * [ ] Historiske analyser og signalhistorikk
 * [ ] Porteføljehistorikk over tid
@@ -24,6 +19,7 @@
 * [ ] Flere screening-univers
 * [ ] Sektorbasert screening
 * [ ] AI-generert investeringsnotat per aksje
+* [ ] Koble Finnhub på som fallback i Earnings
 * [ ] Deployment på Mac Mini / lokal server
 * [ ] Senere cloud/VPS
 
@@ -52,6 +48,12 @@
 
 ## ✅ Ferdig (siste)
 
+* [x] News v1
+* [x] Earnings v1 (datoer, kalender og varsler)
+* [x] Porteføljerisiko v1: posisjonsstørrelse, konsentrasjon, sektor, USA/Norden/OBX
+* [x] Daily Flow v2: tydeligere “hva bør jeg gjøre i dag?”
+* [x] Alerts v2: bedre handlingsvarsler
+* [x] Full audit etter NaN-cache-fix
 * [x] Fundamental historikk og ranking
 * [x] Watchlist-ranking
 * [x] Screening-engine v1

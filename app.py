@@ -53,6 +53,7 @@ from src.daily_flow import (
     build_whats_new_table,
 )
 from src.earnings import build_earnings_table
+from src.news import build_news_table
 from src.research_ideas import (
     STATUS_WATCHLIST,
     load_research_ideas,
@@ -827,6 +828,17 @@ with tab_dashboard:
         last_updated = earnings_summary.get("last_updated")
         if last_updated:
             st.caption(f"Sist oppdatert: {last_updated}")
+
+    st.markdown("### Nyheter")
+    news_summary = st.session_state.context.get("news_summary") or {}
+    news_table = build_news_table(news_summary)
+    if news_table.empty:
+        st.info("Ingen nyheter for portefølje eller watchlist.")
+    else:
+        show_dataframe(news_table.drop(columns=["URL"], errors="ignore"))
+        news_last_updated = news_summary.get("last_updated")
+        if news_last_updated:
+            st.caption(f"Sist oppdatert: {news_last_updated}")
 
     st.markdown("### Viktige varsler")
     st.caption("Full varslingsliste")
