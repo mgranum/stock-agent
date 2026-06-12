@@ -47,6 +47,12 @@ from src.alerts import (
     ACTION_REVIEW_SELL,
     build_alerts,
 )
+from src.daily_flow import (
+    DAILY_AGENDA_DISPLAY_LIMIT,
+    build_daily_actions,
+    build_daily_agenda_table,
+    build_whats_new_table,
+)
 from src.research_ideas import (
     STATUS_WATCHLIST,
     load_research_ideas,
@@ -328,6 +334,29 @@ def show_research_ideas(ideas, target_watchlist):
                     st.error(str(exc))
 
 
+def show_daily_agenda(actions):
+    if not actions:
+        return
+
+    header_cols = st.columns([1, 1, 2])
+    for col, label in zip(
+        header_cols,
+        ["Prioritet", "Ticker", "Handling"],
+    ):
+        col.caption(f"**{label}**")
+
+    table = build_daily_agenda_table(actions)
+    for action, (_, row) in zip(actions, table.iterrows()):
+        cols = st.columns([1, 1, 2])
+        cols[0].write(row["Prioritet"])
+        cols[1].write(row["Ticker"])
+        cols[2].write(row["Handling"])
+
+        message = action.get("message", "")
+        if message:
+            st.caption(message)
+
+
 def show_dataframe(df):
     if df is None:
         st.info("Ingen data.")
@@ -403,14 +432,6 @@ def owned_tickers(portfolio_report, portfolio):
         )
 
     return tickers
-
-
-def morning_briefing_summary(daily_flow):
-    bullets = daily_flow.get("summary_bullets", [])
-    if not bullets:
-        return ""
-
-    return " · ".join(bullets[:3])
 
 
 def resolve_portfolio_report(context):
@@ -642,6 +663,11 @@ watchlist_report = st.session_state.context["watchlist_report"]
 portfolio_report = resolve_portfolio_report(st.session_state.context)
 dashboard = st.session_state.context["dashboard"]
 daily_flow = st.session_state.context["daily_flow"]
+dashboard_alerts = build_alerts(
+    portfolio_report,
+    PENDING_ORDERS,
+    RESEARCH_IDEAS,
+)
 ranked = rank_report(watchlist_report)
 
 
@@ -664,9 +690,27 @@ tab_dashboard, tab_ranking, tab_screening, tab_watchlists, tab_allocation, tab_o
 
 
 with tab_dashboard:
-    briefing = morning_briefing_summary(daily_flow)
-    if briefing:
-        st.caption(briefing)
+    st.markdown("### Dagens agenda")
+    st.caption("Hva krever oppmerksomhet først?")
+    agenda = build_daily_actions(
+        dashboard_alerts,
+        PENDING_ORDERS,
+        portfolio_report,
+    )[:DAILY_AGENDA_DISPLAY_LIMIT]
+    if not agenda:
+        st.caption("Ingen prioriterte handlinger akkurat nå.")
+    else:
+        show_daily_agenda(agenda)
+
+    st.markdown("### Nytt i dag")
+    st.caption("Siden sist lagrede snapshot")
+    whats_new = daily_flow.get("whats_new_today") or {}
+    if not whats_new.get("available"):
+        st.caption("Lagre snapshot for å spore endringer.")
+    elif not whats_new.get("has_changes"):
+        st.caption("Ingen vesentlige endringer siden sist snapshot.")
+    else:
+        show_dataframe(build_whats_new_table(daily_flow))
 
     current_portfolio = load_portfolio([])
     portfolio_summary = summarize_portfolio(portfolio_report)
@@ -710,12 +754,8 @@ with tab_dashboard:
         show_dataframe(opportunities)
 
     st.markdown("### Viktige varsler")
-    alerts = build_alerts(
-        portfolio_report,
-        load_pending_orders([]),
-        RESEARCH_IDEAS,
-    )
-    show_alerts_compact(alerts)
+    st.caption("Full varslingsliste")
+    show_alerts_compact(dashboard_alerts)
 
 
 with tab_ranking:

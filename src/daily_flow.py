@@ -1,5 +1,11 @@
 import pandas as pd
 
+from src.alerts import (
+    ACTION_REVIEW_SELL,
+    ALERT_PENDING_ORDER,
+    ALERT_PROFIT_PROTECTION,
+    _pending_order_message,
+)
 from src.orders import analyze_pending_orders
 from src.portfolio import valid_portfolio_rows
 from src.strategy_classification import add_strategy_types
@@ -9,6 +15,20 @@ NEAR_TRAILING_STOP_PCT = 3.0
 LARGE_DRAWDOWN_PCT = -15.0
 CONCENTRATION_TOP_POSITION_PCT = 25.0
 CONCENTRATION_TOP3_PCT = 60.0
+DAILY_AGENDA_DISPLAY_LIMIT = 3
+WHATS_NEW_SUMMARY_LIMIT = 5
+
+_AGENDA_PRIORITY_LABELS = {
+    1: "Høy",
+    2: "Medium",
+    3: "Lav",
+}
+
+_RECOMMENDATION_SHORT_LABELS = {
+    "HOLD / OBSERVER": "HOLD",
+    "UNNGÅ / SELG": "UNNGÅ/SELG",
+    "KJØP / ØK": "KJØP/ØK",
+}
 
 _OPPORTUNITY_COLUMNS = [
     "ticker",
@@ -27,11 +47,15 @@ def build_daily_flow(
     portfolio_report,
     dashboard,
     pending_orders=None,
+    alerts=None,
+    portfolio=None,
 ):
     market_regime = _build_market_regime(watchlist_report, dashboard)
     key_opportunities = _build_key_opportunities(
         watchlist_report,
         dashboard,
+        portfolio_report,
+        portfolio,
     )
     risk_alerts = _build_risk_alerts(portfolio_report, dashboard)
     pending_summary = _build_pending_order_summary(
@@ -39,6 +63,14 @@ def build_daily_flow(
         watchlist_report,
         dashboard,
     )
+    order_actions = build_order_actions(pending_orders)
+    portfolio_actions = build_portfolio_actions(portfolio_report)
+    daily_actions = build_daily_actions(
+        alerts,
+        pending_orders,
+        portfolio_report,
+    )
+    whats_new_today = _build_whats_new_today(dashboard)
     summary_bullets = _build_summary_bullets(
         market_regime,
         key_opportunities,
@@ -52,8 +84,452 @@ def build_daily_flow(
         "key_opportunities": key_opportunities,
         "risk_alerts": risk_alerts,
         "pending_orders": pending_summary,
+        "order_actions": order_actions,
+        "portfolio_actions": portfolio_actions,
+        "daily_actions": daily_actions,
+        "whats_new_today": whats_new_today,
         "summary_bullets": summary_bullets,
     }
+
+
+_ORDER_ACTION_LABEL = "Gjennomgå ordre"
+_ORDER_SELL_PRIORITY = 1
+_ORDER_BUY_PRIORITY = 2
+
+_ACTIONABLE_PORTFOLIO_RÅD = {
+    "REDUSER / SELG",
+    "VURDER REDUKSJON",
+    "VURDER GEVINSTSIKRING",
+    "FØLG MED / IKKE ØK",
+}
+
+_PORTFOLIO_ACTION_LABELS = {
+    "REDUSER / SELG": "Vurder salg",
+    "VURDER REDUKSJON": "Vurder reduksjon",
+    "VURDER GEVINSTSIKRING": "Sikre gevinst",
+    "FØLG MED / IKKE ØK": "Følg med",
+}
+
+_PORTFOLIO_ACTION_PRIORITY = {
+    "REDUSER / SELG": 1,
+    "VURDER REDUKSJON": 1,
+    "VURDER GEVINSTSIKRING": 2,
+    "FØLG MED / IKKE ØK": 3,
+}
+
+_PORTFOLIO_ACTION_SORT = {
+    "REDUSER / SELG": 0,
+    "VURDER REDUKSJON": 1,
+    "VURDER GEVINSTSIKRING": 2,
+    "FØLG MED / IKKE ØK": 3,
+}
+
+
+def daily_actions_from_alerts(alerts):
+    if not alerts:
+        return []
+
+    actions = []
+    for alert in alerts:
+        actions.append({
+            "priority": alert.get("priority", 3),
+            "category": alert.get("source", ""),
+            "ticker": alert.get("ticker", ""),
+            "action_label": alert.get("action_label", ""),
+            "message": alert.get("message", ""),
+        })
+
+    return sorted(
+        actions,
+        key=lambda item: (item["priority"], item.get("ticker", "")),
+    )
+
+
+def build_order_actions(pending_orders):
+    return [
+        _public_order_action(item)
+        for item in _build_order_action_items(pending_orders)
+    ]
+
+
+def build_portfolio_actions(portfolio_report):
+    return [
+        _public_portfolio_action(item)
+        for item in _build_portfolio_action_items(portfolio_report)
+    ]
+
+
+def build_daily_actions(alerts, pending_orders=None, portfolio_report=None):
+    alert_actions = daily_actions_from_alerts(alerts)
+    covered_order_keys = {
+        alert.get("dedupe_key")
+        for alert in (alerts or [])
+        if alert.get("alert_type") == ALERT_PENDING_ORDER
+    }
+    review_sell_tickers = {
+        alert.get("ticker")
+        for alert in (alerts or [])
+        if alert.get("action") == ACTION_REVIEW_SELL
+    }
+    profit_protection_tickers = {
+        alert.get("ticker")
+        for alert in (alerts or [])
+        if alert.get("alert_type") == ALERT_PROFIT_PROTECTION
+    }
+
+    extra_actions = []
+    for item in _build_order_action_items(pending_orders):
+        if item["_dedupe_key"] in covered_order_keys:
+            continue
+        extra_actions.append(_public_order_action(item))
+
+    for item in _build_portfolio_action_items(portfolio_report):
+        ticker = item["ticker"]
+        portefølje_råd = item["_portefølje_råd"]
+        if (
+            portefølje_råd == "REDUSER / SELG"
+            and ticker in review_sell_tickers
+        ):
+            continue
+        if (
+            portefølje_råd == "VURDER GEVINSTSIKRING"
+            and ticker in profit_protection_tickers
+        ):
+            continue
+        if (
+            portefølje_råd == "VURDER REDUKSJON"
+            and ticker in review_sell_tickers
+        ):
+            continue
+        extra_actions.append(_public_portfolio_action(item))
+
+    return sorted(
+        alert_actions + extra_actions,
+        key=lambda item: (item["priority"], item.get("ticker", "")),
+    )
+
+
+def _public_order_action(item):
+    return {
+        "priority": item["priority"],
+        "ticker": item["ticker"],
+        "action_label": item["action_label"],
+        "message": item["message"],
+    }
+
+
+def _public_portfolio_action(item):
+    return {
+        "priority": item["priority"],
+        "ticker": item["ticker"],
+        "action_label": item["action_label"],
+        "message": item["message"],
+        "source": item["source"],
+        "dedupe_key": item["dedupe_key"],
+    }
+
+
+def _build_portfolio_action_items(portfolio_report):
+    df = valid_portfolio_rows(portfolio_report)
+    if df.empty:
+        return []
+
+    actionable = df[
+        df["portefølje_råd"].isin(_ACTIONABLE_PORTFOLIO_RÅD)
+    ].copy()
+    if actionable.empty:
+        return []
+
+    actionable["_sort"] = actionable["portefølje_råd"].map(
+        lambda action: _PORTFOLIO_ACTION_SORT.get(action, 99)
+    )
+    actionable = actionable.sort_values(
+        by=["_sort", "ticker"],
+    ).drop(columns="_sort")
+
+    items = []
+    for _, row in actionable.iterrows():
+        portefølje_råd = row["portefølje_råd"]
+        ticker = row["ticker"]
+        items.append({
+            "priority": _PORTFOLIO_ACTION_PRIORITY[portefølje_råd],
+            "ticker": ticker,
+            "action_label": _PORTFOLIO_ACTION_LABELS[portefølje_råd],
+            "message": _portfolio_action_message(row),
+            "source": "PORTFOLIO",
+            "dedupe_key": _portfolio_action_dedupe_key(ticker, portefølje_råd),
+            "_portefølje_råd": portefølje_råd,
+        })
+
+    return items
+
+
+def _portfolio_action_dedupe_key(ticker, portefølje_råd):
+    return f"PORTFOLIO_ACTION:{ticker}:{portefølje_råd}"
+
+
+def _portfolio_action_message(row):
+    parts = []
+
+    begrunnelse = row.get("begrunnelse")
+    if begrunnelse is not None and pd.notna(begrunnelse) and str(begrunnelse).strip():
+        parts.append(str(begrunnelse).strip())
+
+    gain = row.get("unrealized_gain_pct")
+    if gain is not None and not pd.isna(gain):
+        rounded = round(float(gain), 1)
+        sign = "+" if rounded > 0 else ""
+        parts.append(f"gevinst/tap {sign}{rounded} %")
+
+    score = row.get("score")
+    if score is not None and not pd.isna(score):
+        parts.append(f"score {int(score)}")
+
+    anbefaling = row.get("anbefaling")
+    if anbefaling is not None and not pd.isna(anbefaling):
+        parts.append(str(anbefaling).strip())
+
+    if parts:
+        return " · ".join(parts)
+
+    return str(row.get("portefølje_råd", ""))
+
+
+def _build_order_action_items(pending_orders):
+    sells = []
+    buys = []
+    other = []
+
+    for order in pending_orders or []:
+        item = _order_to_action_item(order)
+        action = str(order.get("action", "")).upper()
+        if action == "SELL":
+            sells.append(item)
+        elif action == "BUY":
+            buys.append(item)
+        else:
+            other.append(item)
+
+    sort_key = lambda item: item.get("ticker", "")
+    return (
+        sorted(sells, key=sort_key)
+        + sorted(buys, key=sort_key)
+        + sorted(other, key=sort_key)
+    )
+
+
+def _order_to_action_item(order):
+    action = str(order.get("action", "")).upper()
+    return {
+        "priority": (
+            _ORDER_SELL_PRIORITY
+            if action == "SELL"
+            else _ORDER_BUY_PRIORITY
+        ),
+        "ticker": order.get("ticker", ""),
+        "action_label": _ORDER_ACTION_LABEL,
+        "message": _pending_order_message(order),
+        "_dedupe_key": _order_action_dedupe_key(order),
+    }
+
+
+def _order_action_dedupe_key(order):
+    action = str(order.get("action", "")).upper()
+    shares = order.get("shares")
+    limit_price = order.get("limit_price")
+    order_key = order.get("id") or f"{action}:{shares}:{limit_price or ''}"
+    ticker = order.get("ticker", "")
+    return f"{ALERT_PENDING_ORDER}:{ticker}:{order_key}"
+
+
+def daily_agenda_items(daily_flow, limit=DAILY_AGENDA_DISPLAY_LIMIT):
+    actions = daily_flow.get("daily_actions") or []
+    return actions[:limit]
+
+
+def daily_agenda_from_alerts(alerts, limit=DAILY_AGENDA_DISPLAY_LIMIT):
+    return daily_actions_from_alerts(alerts)[:limit]
+
+
+def format_daily_agenda_item(action):
+    priority = _AGENDA_PRIORITY_LABELS.get(action.get("priority"), "Lav")
+    ticker = action.get("ticker") or "—"
+    action_label = action.get("action_label") or ""
+    message = action.get("message") or ""
+    return f"{priority} · {ticker} · {action_label} — {message}"
+
+
+def build_daily_agenda_table(actions):
+    columns = ["Prioritet", "Ticker", "Handling"]
+    if not actions:
+        return pd.DataFrame(columns=columns)
+
+    rows = []
+    for action in actions:
+        rows.append({
+            "Prioritet": _AGENDA_PRIORITY_LABELS.get(
+                action.get("priority"),
+                "Lav",
+            ),
+            "Ticker": action.get("ticker", ""),
+            "Handling": action.get("action_label", ""),
+        })
+
+    return pd.DataFrame(rows, columns=columns)
+
+
+def explain_snapshot_change_begrunnelse(row):
+    score_change = row.get("score_change")
+    if score_change is not None and not pd.isna(score_change):
+        score_change = int(score_change)
+        if score_change != 0:
+            sign = "+" if score_change > 0 else ""
+            return f"Score {sign}{score_change} poeng siden sist snapshot"
+
+    previous = row.get("previous_recommendation")
+    current = row.get("current_recommendation")
+    if (
+        previous is not None
+        and current is not None
+        and not pd.isna(previous)
+        and not pd.isna(current)
+        and previous != current
+    ):
+        return _recommendation_change_begrunnelse(previous, current)
+
+    return "Endring siden sist snapshot"
+
+
+def _recommendation_change_begrunnelse(previous_recommendation, current_recommendation):
+    ranks = {
+        "KJØP / ØK": 3,
+        "HOLD / OBSERVER": 2,
+        "UNNGÅ / SELG": 1,
+    }
+    previous_rank = ranks.get(previous_recommendation, 0)
+    current_rank = ranks.get(current_recommendation, 0)
+
+    if current_rank < previous_rank:
+        return "Anbefaling nedgradert etter svakere total score"
+    if current_rank > previous_rank:
+        return "Anbefaling oppgradert etter sterkere total score"
+    return "Anbefaling endret siden sist snapshot"
+
+
+def _short_recommendation_label(recommendation):
+    return _RECOMMENDATION_SHORT_LABELS.get(
+        recommendation,
+        recommendation,
+    )
+
+
+def whats_new_display_items(
+    daily_flow,
+    limit=WHATS_NEW_SUMMARY_LIMIT,
+):
+    whats_new = daily_flow.get("whats_new_today") or {}
+    items = whats_new.get("summary_items") or []
+    return items[:limit]
+
+
+def format_whats_new_item(item):
+    ticker = item.get("ticker") or "—"
+    message = item.get("message") or ""
+    return f"{ticker} · {message}"
+
+
+def build_whats_new_table(daily_flow, limit=WHATS_NEW_SUMMARY_LIMIT):
+    columns = ["Ticker", "Fra", "Til", "Begrunnelse"]
+    items = whats_new_display_items(daily_flow, limit=limit)
+    if not items:
+        return pd.DataFrame(columns=columns)
+
+    rows = []
+    for item in items:
+        rows.append({
+            "Ticker": item.get("ticker", ""),
+            "Fra": item.get("fra", ""),
+            "Til": item.get("til", ""),
+            "Begrunnelse": item.get("begrunnelse", ""),
+        })
+
+    return pd.DataFrame(rows, columns=columns)
+
+
+def _build_whats_new_today(dashboard):
+    empty = {
+        "available": False,
+        "has_changes": False,
+        "recommendation_changed": pd.DataFrame(),
+        "large_score_changes": pd.DataFrame(),
+        "summary_items": [],
+    }
+
+    changes = dashboard.get("changes_since_last_snapshot")
+    if changes is None:
+        return empty
+
+    recommendation_changed = changes.get("recommendation_changed")
+    if recommendation_changed is None:
+        recommendation_changed = pd.DataFrame()
+
+    large_score_changes = changes.get("large_score_changes")
+    if large_score_changes is None:
+        large_score_changes = pd.DataFrame()
+
+    summary_items = _whats_new_summary_items(
+        recommendation_changed,
+        large_score_changes,
+    )
+
+    return {
+        "available": True,
+        "has_changes": (
+            not recommendation_changed.empty
+            or not large_score_changes.empty
+        ),
+        "recommendation_changed": recommendation_changed,
+        "large_score_changes": large_score_changes,
+        "summary_items": summary_items,
+    }
+
+
+def _whats_new_summary_items(
+    recommendation_changed,
+    large_score_changes,
+    limit=WHATS_NEW_SUMMARY_LIMIT,
+):
+    items = []
+
+    if recommendation_changed is not None and not recommendation_changed.empty:
+        for _, row in recommendation_changed.iterrows():
+            previous = row["previous_recommendation"]
+            current = row["current_recommendation"]
+            items.append({
+                "ticker": row["ticker"],
+                "change_type": "recommendation",
+                "fra": _short_recommendation_label(previous),
+                "til": _short_recommendation_label(current),
+                "begrunnelse": explain_snapshot_change_begrunnelse(row),
+            })
+            if len(items) >= limit:
+                return items
+
+    if large_score_changes is not None and not large_score_changes.empty:
+        for _, row in large_score_changes.iterrows():
+            previous = row["previous_recommendation"]
+            current = row["current_recommendation"]
+            items.append({
+                "ticker": row["ticker"],
+                "change_type": "score",
+                "fra": _short_recommendation_label(previous),
+                "til": _short_recommendation_label(current),
+                "begrunnelse": explain_snapshot_change_begrunnelse(row),
+            })
+            if len(items) >= limit:
+                return items
+
+    return items
 
 
 def _build_market_regime(watchlist_report, dashboard):
@@ -120,9 +596,15 @@ def _build_market_regime(watchlist_report, dashboard):
     }
 
 
-def _build_key_opportunities(watchlist_report, dashboard):
+def _build_key_opportunities(
+    watchlist_report,
+    dashboard,
+    portfolio_report=None,
+    portfolio=None,
+):
     empty = {
         "new_buy_candidates": pd.DataFrame(),
+        "existing_positions_to_increase": pd.DataFrame(),
         "strongest_momentum": pd.DataFrame(),
         "strongest_quality_compounders": pd.DataFrame(),
     }
@@ -132,7 +614,19 @@ def _build_key_opportunities(watchlist_report, dashboard):
 
     classified = add_strategy_types(watchlist_report)
 
-    new_buys = _new_buy_candidates(classified, dashboard)
+    buy_candidates = _new_buy_candidates(classified, dashboard)
+    owned = _owned_tickers(portfolio_report, portfolio)
+    if buy_candidates.empty:
+        new_buys = buy_candidates
+        increase_buys = pd.DataFrame()
+    else:
+        tickers_upper = (
+            buy_candidates["ticker"].astype(str).str.strip().str.upper()
+        )
+        owned_mask = tickers_upper.isin(owned)
+        new_buys = buy_candidates[~owned_mask]
+        increase_buys = buy_candidates[owned_mask]
+
     momentum = _top_by_strategy(
         classified,
         "MOMENTUM",
@@ -150,12 +644,34 @@ def _build_key_opportunities(watchlist_report, dashboard):
 
     return {
         "new_buy_candidates": _select_opportunity_columns(new_buys, limit=5),
+        "existing_positions_to_increase": _select_opportunity_columns(
+            increase_buys,
+            limit=5,
+        ),
         "strongest_momentum": _select_opportunity_columns(momentum, limit=5),
         "strongest_quality_compounders": _select_opportunity_columns(
             quality,
             limit=5,
         ),
     }
+
+
+def _owned_tickers(portfolio_report, portfolio=None):
+    owned = set()
+
+    for position in portfolio or []:
+        ticker = position.get("ticker")
+        if ticker:
+            owned.add(str(ticker).strip().upper())
+
+    if portfolio_report is None or portfolio_report.empty:
+        return owned
+
+    df = valid_portfolio_rows(portfolio_report)
+    for ticker in df["ticker"]:
+        owned.add(str(ticker).strip().upper())
+
+    return owned
 
 
 def _new_buy_candidates(classified, dashboard):

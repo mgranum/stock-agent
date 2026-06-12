@@ -1,3 +1,4 @@
+from src.alerts import build_alerts
 from src.analysis import analyze_watchlist
 from src.portfolio import analyze_portfolio
 from src.dashboard import build_dashboard
@@ -37,11 +38,18 @@ def build_agent_context(
         watchlist_symbols=watchlist,
         research_ideas=research_ideas or [],
     )
+    alerts = build_alerts(
+        portfolio_report,
+        orders,
+        research_ideas or [],
+    )
     daily_flow = build_daily_flow(
         watchlist_report=watchlist_report,
         portfolio_report=portfolio_report,
         dashboard=dashboard,
         pending_orders=orders,
+        alerts=alerts,
+        portfolio=portfolio,
     )
 
     context = {
