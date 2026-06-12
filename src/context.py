@@ -5,6 +5,7 @@ from src.daily_flow import build_daily_flow
 from src.earnings import build_earnings_summary
 from src.news import build_news_summary
 from src.portfolio import analyze_portfolio, ensure_portfolio_report, summarize_portfolio
+from src.sentiment import build_sentiment_summary, merge_sentiment_into_news_summary
 
 
 def build_agent_context(
@@ -41,6 +42,8 @@ def build_agent_context(
         portfolio=portfolio,
         watchlist=watchlist,
     )
+    sentiment_summary = build_sentiment_summary(news_summary)
+    news_summary = merge_sentiment_into_news_summary(news_summary, sentiment_summary)
     dashboard = build_dashboard(
         watchlist_report=watchlist_report,
         portfolio_report=portfolio_report,
@@ -50,6 +53,7 @@ def build_agent_context(
     )
     dashboard["earnings_summary"] = earnings_summary
     dashboard["news_summary"] = news_summary
+    dashboard["sentiment_summary"] = sentiment_summary
     alerts = build_alerts(
         portfolio_report,
         orders,
@@ -73,6 +77,7 @@ def build_agent_context(
         "daily_flow": daily_flow,
         "earnings_summary": earnings_summary,
         "news_summary": news_summary,
+        "sentiment_summary": sentiment_summary,
     }
 
     return context

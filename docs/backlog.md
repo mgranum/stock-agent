@@ -2,8 +2,6 @@
 
 ## 🔥 Neste opp
 
-
-* [ ] Sentiment v1
 * [ ] Analyst & Guidance v1
 
 ## 💡 Ideer og fremtidige features
@@ -20,6 +18,10 @@
 * [ ] Sektorbasert screening
 * [ ] AI-generert investeringsnotat per aksje
 * [ ] Koble Finnhub på som fallback i Earnings
+* [ ] Sentiment v2 – Aggregert ticker-sentiment og Agent-chat
+* [ ] Sentiment v3 – Historikk, endringer og varsler
+* [ ] Sentiment v4 – FinBERT-evaluering
+* [ ] Sentiment videre – scoring, kjøp/salg-logikk og sosiale medier
 * [ ] Deployment på Mac Mini / lokal server
 * [ ] Senere cloud/VPS
 
@@ -48,6 +50,7 @@
 
 ## ✅ Ferdig (siste)
 
+* [x] Sentiment v1
 * [x] News v1
 * [x] Earnings v1 (datoer, kalender og varsler)
 * [x] Porteføljerisiko v1: posisjonsstørrelse, konsentrasjon, sektor, USA/Norden/OBX

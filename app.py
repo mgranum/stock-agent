@@ -836,6 +836,7 @@ with tab_dashboard:
         st.info("Ingen nyheter for portefølje eller watchlist.")
     else:
         show_dataframe(news_table.drop(columns=["URL"], errors="ignore"))
+        st.caption("Sentiment er basert på overskrifter og påvirker ikke anbefalingene.")
         news_last_updated = news_summary.get("last_updated")
         if news_last_updated:
             st.caption(f"Sist oppdatert: {news_last_updated}")

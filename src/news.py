@@ -7,6 +7,7 @@ import pandas as pd
 import yfinance as yf
 
 from src.company_names import get_company_name
+from src.sentiment import format_sentiment_label
 
 SOURCE_YFINANCE = "yfinance"
 DEFAULT_MAX_ITEMS = 8
@@ -647,14 +648,16 @@ def build_news_summary(
 def build_news_table(news_summary, max_items=DEFAULT_MAX_ITEMS):
     rows = []
     for item in (news_summary.get("items") or [])[:max_items]:
-        rows.append(
-            {
-                "Ticker": item.get("ticker", ""),
-                "Overskrift": item.get("headline", ""),
-                "Kilde": item.get("publisher") or "—",
-                "Tidspunkt": item.get("published_at") or "—",
-                "URL": item.get("url") or "",
-            }
-        )
+        row = {
+            "Ticker": item.get("ticker", ""),
+            "Overskrift": item.get("headline", ""),
+            "Sentiment": format_sentiment_label(item.get("sentiment"))
+            if item.get("sentiment")
+            else "—",
+            "Kilde": item.get("publisher") or "—",
+            "Tidspunkt": item.get("published_at") or "—",
+            "URL": item.get("url") or "",
+        }
+        rows.append(row)
 
     return pd.DataFrame(rows)
