@@ -1,7 +1,7 @@
 import json
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,8 +9,10 @@ import pandas as pd
 
 from src.context import (
     CONTEXT_SNAPSHOT_VERSION,
+    get_context_snapshot_metadata,
     load_context_snapshot,
     load_or_build_agent_context,
+    reload_context_from_snapshot,
     resolve_portfolio_report,
     save_context_snapshot,
 )
@@ -225,6 +227,61 @@ class ContextSnapshotTests(unittest.TestCase):
         )
 
         self.assertIsNone(load_context_snapshot())
+
+    def test_get_context_snapshot_metadata(self):
+        with patch(
+            "src.context._utc_now_iso",
+            return_value="2026-06-12T08:00:00+00:00",
+        ):
+            save_context_snapshot(_sample_context(), today=date(2026, 6, 12))
+
+        metadata = get_context_snapshot_metadata()
+
+        self.assertIsNotNone(metadata)
+        assert metadata is not None
+        self.assertEqual(metadata["date"], "2026-06-12")
+        self.assertEqual(metadata["built_at"], "2026-06-12T08:00:00+00:00")
+
+    def test_reload_context_from_snapshot_without_reanalysis(self):
+        original = _sample_context()
+        with patch(
+            "src.context._utc_now_iso",
+            return_value="2026-06-12T08:00:00+00:00",
+        ):
+            save_context_snapshot(original)
+
+        with patch("src.context.build_agent_context") as mock_build:
+            result = reload_context_from_snapshot(
+                now=datetime(2026, 6, 12, 9, 0, tzinfo=timezone.utc),
+            )
+
+        mock_build.assert_not_called()
+        self.assertTrue(result["loaded"])
+        self.assertFalse(result["expired"])
+        self.assertEqual(result["context"]["watchlist"], ["AAPL"])
+
+    def test_reload_context_from_snapshot_warns_when_expired(self):
+        save_context_snapshot(_sample_context())
+        with open(self.snapshot_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+
+        payload["built_at"] = "2026-06-10T08:00:00+00:00"
+        with open(self.snapshot_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+
+        result = reload_context_from_snapshot(
+            now=datetime(2026, 6, 12, 8, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertTrue(result["loaded"])
+        self.assertTrue(result["expired"])
+        self.assertEqual(result["context"]["watchlist"], ["AAPL"])
+
+    def test_reload_context_from_snapshot_missing(self):
+        result = reload_context_from_snapshot()
+
+        self.assertFalse(result["loaded"])
+        self.assertEqual(result["reason"], "missing")
 
     @patch("src.context.build_agent_context")
     def test_load_or_build_falls_back_when_snapshot_missing(self, mock_build):

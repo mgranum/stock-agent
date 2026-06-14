@@ -164,10 +164,7 @@ def save_context_snapshot(
     return path
 
 
-def load_context_snapshot(
-    max_age_hours: float = 24,
-    now: datetime | None = None,
-) -> dict[str, Any] | None:
+def _load_context_snapshot_payload() -> dict[str, Any] | None:
     path = context_snapshot_path()
 
     if not path.exists():
@@ -182,6 +179,14 @@ def load_context_snapshot(
     if not isinstance(payload, dict):
         return None
 
+    return payload
+
+
+def get_context_snapshot_metadata() -> dict[str, Any] | None:
+    payload = _load_context_snapshot_payload()
+    if payload is None:
+        return None
+
     if payload.get("version") != CONTEXT_SNAPSHOT_VERSION:
         return None
 
@@ -189,13 +194,37 @@ def load_context_snapshot(
     if built_at is None:
         return None
 
-    reference = now or datetime.now(timezone.utc)
-    if reference.tzinfo is None:
-        reference = reference.replace(tzinfo=timezone.utc)
+    return {
+        "version": payload.get("version"),
+        "built_at": payload.get("built_at"),
+        "date": payload.get("date"),
+    }
 
-    age_hours = (reference - built_at).total_seconds() / 3600
-    if age_hours > max_age_hours:
+
+def load_context_snapshot(
+    max_age_hours: float = 24,
+    now: datetime | None = None,
+    check_max_age: bool = True,
+) -> dict[str, Any] | None:
+    payload = _load_context_snapshot_payload()
+    if payload is None:
         return None
+
+    if payload.get("version") != CONTEXT_SNAPSHOT_VERSION:
+        return None
+
+    built_at = _parse_iso_datetime(payload.get("built_at"))
+    if built_at is None:
+        return None
+
+    if check_max_age:
+        reference = now or datetime.now(timezone.utc)
+        if reference.tzinfo is None:
+            reference = reference.replace(tzinfo=timezone.utc)
+
+        age_hours = (reference - built_at).total_seconds() / 3600
+        if age_hours > max_age_hours:
+            return None
 
     context_payload = payload.get("context")
     if not isinstance(context_payload, dict):
@@ -205,6 +234,52 @@ def load_context_snapshot(
         return _deserialize_context(context_payload)
     except (ValueError, TypeError, json.JSONDecodeError):
         return None
+
+
+def reload_context_from_snapshot(
+    max_age_hours: float = 24,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    metadata = get_context_snapshot_metadata()
+    if metadata is None:
+        return {
+            "loaded": False,
+            "reason": "missing",
+            "context": None,
+            "metadata": None,
+            "expired": False,
+        }
+
+    context = load_context_snapshot(
+        max_age_hours=max_age_hours,
+        now=now,
+        check_max_age=False,
+    )
+    if context is None:
+        return {
+            "loaded": False,
+            "reason": "invalid",
+            "context": None,
+            "metadata": metadata,
+            "expired": False,
+        }
+
+    expired = False
+    built_at = _parse_iso_datetime(metadata.get("built_at"))
+    if built_at is not None:
+        reference = now or datetime.now(timezone.utc)
+        if reference.tzinfo is None:
+            reference = reference.replace(tzinfo=timezone.utc)
+        age_hours = (reference - built_at).total_seconds() / 3600
+        expired = age_hours > max_age_hours
+
+    return {
+        "loaded": True,
+        "reason": "loaded",
+        "context": context,
+        "metadata": metadata,
+        "expired": expired,
+    }
 
 
 def load_or_build_agent_context(

@@ -5,9 +5,11 @@ from src.agent import ask_agent
 from src.context import (
     build_agent_context,
     load_context_snapshot,
+    reload_context_from_snapshot,
     resolve_portfolio_report,
     save_context_snapshot,
 )
+from src.daily_refresh import format_refresh_panel_status, load_refresh_state
 from src.ranking import ranking_table
 from src.model_backtest import save_model_snapshot, compare_snapshots
 from src.signal_backtest import backtest_signal_watchlist
@@ -752,9 +754,17 @@ def show_portfolio_risk_section(portfolio_risk):
         show_dataframe(_geo_buckets_table(buckets))
 
 
+def reload_context_from_disk():
+    return reload_context_from_snapshot()
+
+
 with st.sidebar:
     st.header("Kontrollpanel")
     st.caption(environment_label())
+
+    refresh_status = format_refresh_panel_status(load_refresh_state())
+    st.markdown(f"**Sist oppdatert:** {refresh_status['updated_at']}")
+    st.caption(f"Status: {refresh_status['status_label']}")
 
     selected = st.selectbox(
         "Watchlist",
@@ -772,6 +782,24 @@ with st.sidebar:
     if st.button("Oppdater analyser"):
         refresh_context()
         st.success("Analyser oppdatert.")
+
+    if st.button("Les inn snapshot på nytt"):
+        reload_result = reload_context_from_disk()
+        if not reload_result["loaded"]:
+            st.warning(
+                "Fant ikke gyldig context snapshot. "
+                "Kjør Daily Refresh eller «Oppdater analyser» først."
+            )
+        elif reload_result["expired"]:
+            st.session_state.context = reload_result["context"]
+            st.warning(
+                "Snapshot lastet, men data er eldre enn 24 timer."
+            )
+            st.rerun()
+        else:
+            st.session_state.context = reload_result["context"]
+            st.success("Snapshot lastet på nytt.")
+            st.rerun()
 
     if st.button("Lagre snapshot"):
         _, path = save_model_snapshot(

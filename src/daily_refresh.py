@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+import argparse
+import fcntl
+import json
+import os
 import time
 from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from src.analyst import get_analyst
 from src.config import load_watchlists
-from src.context import build_agent_context, save_context_snapshot
+from src.context import (
+    _parse_iso_datetime,
+    build_agent_context,
+    get_context_snapshot_metadata,
+    save_context_snapshot,
+)
 from src.data import get_daily_prices
 from src.earnings import get_earnings
 from src.fundamental_history import analyze_fundamental_history
@@ -20,9 +30,201 @@ from src.sentiment import build_sentiment_summary
 from src.storage import load_pending_orders, load_portfolio
 from src.technicals import analyze_technicals, get_benchmark_for_symbol
 
+REFRESH_STATE_FILENAME = "daily_refresh_state.json"
+REFRESH_LOCK_FILENAME = "daily_refresh.lock"
+
+_lock_file_handle: Any | None = None
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def _cache_dir() -> Path:
+    cache_dir = _project_root() / "cache"
+    cache_dir.mkdir(exist_ok=True)
+    return cache_dir
+
+
+def refresh_state_path() -> Path:
+    return _cache_dir() / REFRESH_STATE_FILENAME
+
+
+def refresh_lock_path() -> Path:
+    return _cache_dir() / REFRESH_LOCK_FILENAME
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _format_display_datetime(value: Any) -> str | None:
+    parsed = _parse_iso_datetime(value)
+    if parsed is None:
+        return None
+    return parsed.astimezone().strftime("%Y-%m-%d %H:%M")
+
+
+def load_refresh_state() -> dict[str, Any] | None:
+    path = refresh_state_path()
+    if not path.exists():
+        return None
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    return payload
+
+
+def save_refresh_state(state: dict[str, Any]) -> Path:
+    path = refresh_state_path()
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=2, ensure_ascii=False)
+    return path
+
+
+def should_run_refresh(
+    today: date | None = None,
+    force: bool = False,
+) -> bool:
+    if force:
+        return True
+
+    today = today or date.today()
+    state = load_refresh_state()
+    if state is None:
+        return True
+
+    last_successful_date = state.get("last_successful_date")
+    last_status = state.get("last_status")
+
+    if (
+        last_successful_date == today.isoformat()
+        and last_status == "success"
+    ):
+        return False
+
+    return True
+
+
+def acquire_refresh_lock() -> bool:
+    global _lock_file_handle
+
+    path = refresh_lock_path()
+    handle = open(path, "w", encoding="utf-8")
+
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return False
+
+    handle.seek(0)
+    handle.write(str(os.getpid()))
+    handle.truncate()
+    handle.flush()
+    _lock_file_handle = handle
+    return True
+
+
+def release_refresh_lock() -> None:
+    global _lock_file_handle
+
+    if _lock_file_handle is None:
+        return
+
+    try:
+        fcntl.flock(_lock_file_handle.fileno(), fcntl.LOCK_UN)
+        _lock_file_handle.close()
+    finally:
+        _lock_file_handle = None
+
+
+def format_refresh_panel_status(
+    refresh_state: dict[str, Any] | None = None,
+    snapshot_metadata: dict[str, Any] | None = None,
+    today: date | None = None,
+) -> dict[str, str]:
+    today = today or date.today()
+    today_iso = today.isoformat()
+
+    if refresh_state is None:
+        refresh_state = load_refresh_state()
+    if snapshot_metadata is None:
+        snapshot_metadata = get_context_snapshot_metadata()
+
+    updated_at = None
+    updated_at_source = "unknown"
+
+    if refresh_state and refresh_state.get("last_finished_at"):
+        updated_at = _format_display_datetime(refresh_state.get("last_finished_at"))
+        updated_at_source = "refresh_state"
+    elif snapshot_metadata and snapshot_metadata.get("built_at"):
+        updated_at = _format_display_datetime(snapshot_metadata.get("built_at"))
+        updated_at_source = "snapshot"
+
+    status = "unknown"
+    status_label = "Ukjent"
+
+    if refresh_state:
+        last_status = refresh_state.get("last_status")
+        last_successful_date = refresh_state.get("last_successful_date")
+
+        if (
+            last_successful_date == today_iso
+            and last_status == "success"
+        ):
+            status = "ok"
+            status_label = "OK"
+        elif last_status == "failed":
+            status = "failed"
+            status_label = "Feilet"
+        elif last_successful_date != today_iso:
+            status = "stale"
+            status_label = "Ikke oppdatert i dag"
+    elif snapshot_metadata:
+        snapshot_date = snapshot_metadata.get("date")
+        if snapshot_date == today_iso:
+            status = "ok"
+            status_label = "OK"
+        else:
+            status = "stale"
+            status_label = "Ikke oppdatert i dag"
+
+    return {
+        "updated_at": updated_at or "–",
+        "updated_at_source": updated_at_source,
+        "status": status,
+        "status_label": status_label,
+    }
+
+
+def _build_refresh_state(
+    *,
+    last_successful_date: str | None = None,
+    last_started_at: str | None = None,
+    last_finished_at: str | None = None,
+    last_status: str,
+    last_error_count: int = 0,
+    duration_seconds: float | None = None,
+    previous: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    previous = previous or {}
+
+    return {
+        "last_successful_date": last_successful_date,
+        "last_started_at": last_started_at,
+        "last_finished_at": last_finished_at,
+        "last_status": last_status,
+        "last_error_count": last_error_count,
+        "duration_seconds": duration_seconds,
+    }
 
 
 def _record_error(
@@ -241,6 +443,9 @@ def run_daily_refresh(
 
 
 def build_refresh_summary(result: dict[str, Any]) -> str:
+    if result.get("skipped"):
+        return str(result.get("message") or "Daily Refresh hoppet over.")
+
     lines = [
         "Daily Refresh Fullført",
         "",
@@ -290,9 +495,158 @@ def _print_refresh_errors(result: dict[str, Any]) -> None:
         print(f"- {symbol} ({step}): {message}")
 
 
-def main() -> int:
-    result = run_daily_refresh()
+def _save_running_state(previous: dict[str, Any] | None, started_at: str) -> None:
+    previous = previous or {}
+    save_refresh_state(_build_refresh_state(
+        last_successful_date=previous.get("last_successful_date"),
+        last_started_at=started_at,
+        last_finished_at=previous.get("last_finished_at"),
+        last_status="running",
+        last_error_count=previous.get("last_error_count", 0),
+        duration_seconds=previous.get("duration_seconds"),
+    ))
+
+
+def _save_finished_state(
+    result: dict[str, Any],
+    *,
+    today: date,
+    previous: dict[str, Any] | None,
+) -> None:
+    previous = previous or {}
+    error_count = len(result.get("errors") or [])
+    success = bool(result.get("success"))
+
+    save_refresh_state(_build_refresh_state(
+        last_successful_date=(
+            today.isoformat()
+            if success
+            else previous.get("last_successful_date")
+        ),
+        last_started_at=result.get("started_at"),
+        last_finished_at=result.get("finished_at"),
+        last_status="success" if success else "failed",
+        last_error_count=error_count,
+        duration_seconds=result.get("duration_seconds"),
+    ))
+
+
+def _save_skipped_state(
+    *,
+    reason: str,
+    previous: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    previous = previous or {}
+    finished_at = _utc_now_iso()
+    save_refresh_state(_build_refresh_state(
+        last_successful_date=previous.get("last_successful_date"),
+        last_started_at=previous.get("last_started_at"),
+        last_finished_at=finished_at,
+        last_status="skipped",
+        last_error_count=previous.get("last_error_count", 0),
+        duration_seconds=previous.get("duration_seconds"),
+    ))
+    return {
+        "success": True,
+        "skipped": True,
+        "reason": reason,
+        "message": reason,
+        "finished_at": finished_at,
+        "errors": [],
+    }
+
+
+def execute_daily_refresh(
+    *,
+    force: bool = False,
+    dry_run: bool = False,
+    today: date | None = None,
+) -> dict[str, Any]:
+    today = today or date.today()
+    previous = load_refresh_state()
+
+    if not should_run_refresh(today=today, force=force):
+        reason = "Daily Refresh hoppet over: allerede kjørt i dag."
+        if dry_run:
+            return {
+                "success": True,
+                "skipped": True,
+                "dry_run": True,
+                "reason": reason,
+                "message": reason,
+                "errors": [],
+            }
+        return _save_skipped_state(reason=reason, previous=previous)
+
+    if not acquire_refresh_lock():
+        reason = "Daily Refresh hoppet over: kjøring pågår allerede."
+        if dry_run:
+            return {
+                "success": True,
+                "skipped": True,
+                "dry_run": True,
+                "reason": reason,
+                "message": reason,
+                "errors": [],
+            }
+        return _save_skipped_state(reason=reason, previous=previous)
+
+    if dry_run:
+        release_refresh_lock()
+        message = "Daily Refresh dry-run: ville kjørt refresh nå."
+        return {
+            "success": True,
+            "skipped": True,
+            "dry_run": True,
+            "reason": message,
+            "message": message,
+            "errors": [],
+        }
+
+    started_at = _utc_now_iso()
+    _save_running_state(previous, started_at)
+
+    try:
+        result = run_daily_refresh(today=today)
+        _save_finished_state(result, today=today, previous=previous)
+        return result
+    except Exception:
+        finished_at = _utc_now_iso()
+        save_refresh_state(_build_refresh_state(
+            last_successful_date=previous.get("last_successful_date"),
+            last_started_at=started_at,
+            last_finished_at=finished_at,
+            last_status="failed",
+            last_error_count=0,
+            duration_seconds=None,
+        ))
+        raise
+    finally:
+        release_refresh_lock()
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Kjør daglig dataoppdatering.")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Kjør refresh selv om dagens kjøring allerede er fullført.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Vis om refresh ville kjørt uten å hente data.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    result = execute_daily_refresh(force=args.force, dry_run=args.dry_run)
     print(build_refresh_summary(result))
+
+    if result.get("skipped"):
+        return 0
 
     if not result.get("success"):
         _print_refresh_errors(result)
