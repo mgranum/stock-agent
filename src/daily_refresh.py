@@ -274,3 +274,32 @@ def build_refresh_summary(result: dict[str, Any]) -> str:
         ])
 
     return "\n".join(lines)
+
+
+def _print_refresh_errors(result: dict[str, Any]) -> None:
+    errors = result.get("errors") or []
+    if not errors:
+        return
+
+    print("")
+    print("Feil:")
+    for error in errors:
+        symbol = error.get("symbol") or "-"
+        step = error.get("step") or "unknown"
+        message = error.get("error") or "ukjent feil"
+        print(f"- {symbol} ({step}): {message}")
+
+
+def main() -> int:
+    result = run_daily_refresh()
+    print(build_refresh_summary(result))
+
+    if not result.get("success"):
+        _print_refresh_errors(result)
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

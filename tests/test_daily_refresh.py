@@ -1,10 +1,12 @@
+import io
 import unittest
 from datetime import date
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 import pandas as pd
 
-from src.daily_refresh import build_refresh_summary, run_daily_refresh
+from src.daily_refresh import build_refresh_summary, main, run_daily_refresh
 
 
 def _success_result(**overrides):
@@ -262,6 +264,45 @@ class RunDailyRefreshTests(unittest.TestCase):
             research_ideas=[],
             pause_seconds=0,
         )
+
+
+class DailyRefreshMainTests(unittest.TestCase):
+    @patch("src.daily_refresh.run_daily_refresh")
+    def test_main_runs_refresh_and_prints_summary(self, mock_run):
+        mock_run.return_value = _success_result(symbols_processed=21, portfolio_positions=5)
+
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        mock_run.assert_called_once_with()
+        output = buffer.getvalue()
+        self.assertIn("Daily Refresh Fullført", output)
+        self.assertIn("- 21 symboler analysert", output)
+        self.assertIn("- 5 porteføljeposisjoner", output)
+        self.assertIn("- Dashboard/context snapshot oppdatert", output)
+
+    @patch("src.daily_refresh.run_daily_refresh")
+    def test_main_returns_non_zero_exit_code_on_failure(self, mock_run):
+        mock_run.return_value = _success_result(
+            success=False,
+            errors=[{
+                "symbol": "BAD",
+                "step": "fundamentals",
+                "error": "fundamentals failed",
+            }],
+        )
+
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            exit_code = main()
+
+        self.assertEqual(exit_code, 1)
+        output = buffer.getvalue()
+        self.assertIn("- 1 feil under oppdatering", output)
+        self.assertIn("Feil:", output)
+        self.assertIn("BAD (fundamentals): fundamentals failed", output)
 
 
 if __name__ == "__main__":
