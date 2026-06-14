@@ -132,6 +132,16 @@ def _sample_context():
         "advisor_output": {"items": []},
         "advisor_details": {},
         "alerts": [],
+        "daily_briefing": {
+            "generated_at": "2026-06-12T08:00:00+00:00",
+            "date": "2026-06-12",
+            "portfolio_items": [],
+            "earnings_items": [],
+            "analyst_items": [],
+            "candidate_items": [],
+            "news_items": [],
+            "summary_items": [],
+        },
     }
 
 
@@ -172,6 +182,11 @@ class ContextSnapshotTests(unittest.TestCase):
         self.assertEqual(loaded["watchlist"], ["AAPL"])
         self.assertIsNone(loaded["portfolio_report"])
         self.assertEqual(loaded["daily_flow"]["summary_bullets"], ["Test"])
+        self.assertEqual(
+            loaded["daily_briefing"]["generated_at"],
+            "2026-06-12T08:00:00+00:00",
+        )
+        self.assertEqual(loaded["daily_briefing"]["portfolio_items"], [])
 
     def test_old_snapshot_is_ignored(self):
         save_context_snapshot(_sample_context())
@@ -241,6 +256,63 @@ class ContextSnapshotTests(unittest.TestCase):
 
         mock_build.assert_not_called()
         self.assertEqual(result["watchlist"], ["AAPL"])
+
+
+class BuildAgentContextDailyBriefingTests(unittest.TestCase):
+    @patch("src.context.build_daily_briefing")
+    @patch("src.context.build_advisor_details", return_value={})
+    @patch("src.context.build_advisor_output", return_value={"items": []})
+    @patch("src.context.build_analyst_summary", return_value={})
+    @patch("src.context.build_earnings_summary", return_value={})
+    @patch("src.context.build_dashboard", return_value={})
+    @patch("src.context.build_alerts", return_value=[])
+    @patch("src.context.build_daily_flow", return_value={})
+    @patch("src.context.build_sentiment_summary", return_value={"items": []})
+    @patch("src.context.build_news_summary", return_value={"items": []})
+    @patch("src.context.analyze_watchlist")
+    def test_build_agent_context_includes_daily_briefing(
+        self,
+        mock_analyze_watchlist,
+        _mock_news,
+        _mock_sentiment,
+        _mock_daily_flow,
+        _mock_alerts,
+        _mock_dashboard,
+        _mock_earnings,
+        _mock_analyst,
+        _mock_advisor_output,
+        _mock_advisor_details,
+        mock_build_daily_briefing,
+    ):
+        from src.context import build_agent_context
+
+        mock_analyze_watchlist.return_value = pd.DataFrame()
+        mock_build_daily_briefing.return_value = {
+            "generated_at": "2026-06-12T08:00:00+00:00",
+            "date": "2026-06-12",
+            "portfolio_items": [],
+            "earnings_items": [],
+            "analyst_items": [],
+            "candidate_items": [],
+            "news_items": [],
+            "summary_items": [],
+        }
+
+        context = build_agent_context(
+            watchlist=["AAPL"],
+            portfolio=[],
+            pause_seconds=0,
+        )
+
+        mock_build_daily_briefing.assert_called_once()
+        passed_context = mock_build_daily_briefing.call_args.args[0]
+        self.assertIn("advisor_output", passed_context)
+        self.assertIn("daily_flow", passed_context)
+        self.assertIn("daily_briefing", context)
+        self.assertEqual(
+            context["daily_briefing"]["generated_at"],
+            "2026-06-12T08:00:00+00:00",
+        )
 
 
 class AppStartupContextTests(unittest.TestCase):

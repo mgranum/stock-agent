@@ -65,6 +65,7 @@ from src.daily_flow import (
     build_daily_agenda_table,
     build_whats_new_table,
 )
+from src.daily_briefing import format_daily_briefing, resolve_daily_briefing
 from src.advisor import (
     advisor_detail_tickers,
     advisor_items_by_ticker,
@@ -814,6 +815,16 @@ tab_dashboard, tab_ranking, tab_screening, tab_watchlists, tab_allocation, tab_o
 
 
 with tab_dashboard:
+    daily_briefing = resolve_daily_briefing(st.session_state.context)
+    formatted_briefing = format_daily_briefing(daily_briefing)
+
+    st.markdown("### Dagens briefing")
+    if formatted_briefing.strip() == "Dagens briefing":
+        st.caption("Ingen prioriterte punkter akkurat nå.")
+    else:
+        with st.container(border=True):
+            st.text(formatted_briefing)
+
     st.markdown("### Dagens agenda")
     st.caption("Hva krever oppmerksomhet først?")
     agenda = build_daily_actions(

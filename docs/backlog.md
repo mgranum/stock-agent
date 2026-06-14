@@ -2,8 +2,6 @@
 
 ## 🔥 Neste opp
 
-1. Screening Engine – Agent-chat
-2. Daily Refresh v1
 3. Daily Briefing v1
 4. Guidance v1
 5. Opportunity Advisor v2
@@ -61,6 +59,8 @@
 
 ## ✅ Ferdig (siste)
 
+* [x] Daily Refresh v1
+* [x] Screening Engine – Agent-chat
 * [x] Analyst Consensus v1 steg 2 og 3
 * [x] Analyst Advisor Layer v1
 * [x] Analyst Consensus v1
