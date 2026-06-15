@@ -1,3 +1,5 @@
+import re
+
 import pandas as pd
 
 from src.analysis import generate_text_report
@@ -6,6 +8,16 @@ from src.advisor import build_advisor_details, format_advisor_detail_answer
 from src.config import load_watchlists
 from src.opportunity_advisor import build_opportunity_advisor
 from src.portfolio import valid_portfolio_rows
+from src.watchlist_advisor import (
+    ACTION_AVVENT_EARNINGS,
+    ACTION_FJERN_FRA_WATCHLIST,
+    ACTION_FLYTT_TIL_RESEARCH,
+    ACTION_FOLG_MED,
+    ACTION_VENT,
+    ACTION_VURDER_KJOP,
+    format_watchlist_action_label,
+    format_watchlist_advisor_detail,
+)
 from src.screener import screen_nordics, screen_obx, screen_us_large
 from src.analyst import (
     DISCLAIMER as ANALYST_DISCLAIMER,
@@ -330,6 +342,261 @@ def _format_advisor_answer(context, question):
         "Advisor: Ingen motstridende signaler i porteføljen. "
         "Spesifiser ticker, for eksempel «Hvorfor sier agenten dette om NVDA?»."
     )
+
+
+_WATCHLIST_ADVISOR_GROUP_ORDER = (
+    (ACTION_VURDER_KJOP, "Vurder kjøp"),
+    (ACTION_AVVENT_EARNINGS, "Avvent earnings"),
+    (ACTION_FOLG_MED, "Følg med"),
+    (ACTION_VENT, "Vent"),
+    (ACTION_FJERN_FRA_WATCHLIST, "Fjern fra watchlist"),
+    (ACTION_FLYTT_TIL_RESEARCH, "Flytt til research"),
+)
+
+
+def _get_watchlist_advisor_output(context):
+    return context.get("watchlist_advisor_output") or {}
+
+
+def _watchlist_advisor_items_by_ticker(context):
+    return {
+        str(item.get("ticker") or "").strip().upper(): item
+        for item in (_get_watchlist_advisor_output(context).get("items") or [])
+        if item.get("ticker")
+    }
+
+
+def _watchlist_advisor_tickers_for_matching(context):
+    return sorted(
+        _watchlist_advisor_items_by_ticker(context).keys(),
+        key=len,
+        reverse=True,
+    )
+
+
+def _is_watchlist_advisor_question(question):
+    if any(
+        phrase in question
+        for phrase in [
+            "watchlist-advisor",
+            "watchlist advisor",
+            "watchlist-råd",
+            "watchlist råd",
+        ]
+    ):
+        return True
+
+    if any(
+        phrase in question
+        for phrase in [
+            "hvilke aksjer bør jeg vurdere å kjøpe fra watchlist",
+            "hvilke aksjer bør jeg vente med",
+            "hvilke aksjer bør fjernes fra watchlist",
+            "hvilke aksjer avventer earnings",
+        ]
+    ):
+        return True
+
+    if "hvorfor sier agenten at jeg skal" in question:
+        return True
+
+    if "watchlist" in question and any(
+        phrase in question
+        for phrase in [
+            "vurdere å kjøpe",
+            "fjernes",
+            "fjern fra",
+            "avventer earnings",
+        ]
+    ):
+        return True
+
+    return False
+
+
+def _is_watchlist_advisor_list_question(question):
+    return "hvilke aksjer" in question
+
+
+def _watchlist_advisor_filter_action(question):
+    if any(
+        phrase in question
+        for phrase in [
+            "vurdere å kjøpe",
+            "vurdere a kjope",
+            "kjøpe fra watchlist",
+            "kjope fra watchlist",
+        ]
+    ):
+        return ACTION_VURDER_KJOP
+
+    if "avventer earnings" in question or "avvent earnings" in question:
+        return ACTION_AVVENT_EARNINGS
+
+    if (
+        "fjernes fra watchlist" in question
+        or "fjern fra watchlist" in question
+    ):
+        return ACTION_FJERN_FRA_WATCHLIST
+
+    if "vente med" in question or "bør jeg vente" in question:
+        return ACTION_VENT
+
+    if "følg med" in question or "folg med" in question:
+        return ACTION_FOLG_MED
+
+    if "flytt til research" in question:
+        return ACTION_FLYTT_TIL_RESEARCH
+
+    return None
+
+
+def _extract_explicit_watchlist_ticker(question):
+    patterns = (
+        r"\bom\s+([a-z0-9.\-]+)\b",
+        r"\bvente med\s+([a-z0-9.\-]+)\b",
+        r"\bvent med\s+([a-z0-9.\-]+)\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, question)
+        if match:
+            return str(match.group(1)).strip().upper()
+
+    return None
+
+
+def _extract_watchlist_advisor_ticker(question, context):
+    for ticker in _watchlist_advisor_tickers_for_matching(context):
+        if ticker.lower() in question:
+            return ticker
+
+    return _extract_explicit_watchlist_ticker(question)
+
+
+def _is_watchlist_advisor_ticker_question(question):
+    return any(
+        phrase in question
+        for phrase in [
+            "watchlist-advisor",
+            "watchlist advisor",
+            "watchlist-råd",
+            "watchlist råd",
+            "hvorfor sier agenten at jeg skal",
+            "hva sier",
+        ]
+    )
+
+
+def _format_watchlist_advisor_grouped_answer(context, action_filter=None):
+    items = _get_watchlist_advisor_output(context).get("items") or []
+    if action_filter:
+        items = [
+            item
+            for item in items
+            if item.get("watchlist_action") == action_filter
+        ]
+
+    if action_filter:
+        label = format_watchlist_action_label(action_filter)
+        lines = ["Watchlist-råd", "", f"{label}:"]
+        if not items:
+            lines.append("- Ingen aksjer akkurat nå.")
+            return "\n".join(lines)
+
+        for item in items:
+            lines.append(
+                f"- {item['ticker']}: {item.get('takeaway', '')}"
+            )
+        return "\n".join(lines)
+
+    if not items:
+        return (
+            "Watchlist-råd\n\n"
+            "Ingen tydelige watchlist-råd akkurat nå."
+        )
+
+    by_action = {}
+    for item in items:
+        by_action.setdefault(item.get("watchlist_action"), []).append(item)
+
+    lines = ["Watchlist-råd", ""]
+    for action, label in _WATCHLIST_ADVISOR_GROUP_ORDER:
+        lines.append(f"{label}:")
+        group = by_action.get(action) or []
+        if group:
+            for item in group:
+                lines.append(
+                    f"- {item['ticker']}: {item.get('takeaway', '')}"
+                )
+        else:
+            lines.append("- Ingen")
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+def _format_watchlist_advisor_ticker_answer(context, ticker):
+    normalized = str(ticker or "").strip().upper()
+    item = _watchlist_advisor_items_by_ticker(context).get(normalized)
+    if not item:
+        return (
+            f"Watchlist-advisor for {normalized}: "
+            "Ingen watchlist-råd identifisert. "
+            "Aksjen kan være eid, ikke på watchlist, eller uten tydelig råd."
+        )
+
+    detail = format_watchlist_advisor_detail(item) or {}
+    label = format_watchlist_action_label(item.get("watchlist_action"))
+
+    lines = [
+        normalized,
+        "",
+        "Handling:",
+        label,
+        "",
+        "Hvorfor:",
+    ]
+    why = detail.get("why") or []
+    if why:
+        lines.extend(f"- {line}" for line in why)
+    else:
+        lines.append("- Ingen tydelige årsaker identifisert.")
+
+    lines.extend(["", "Forbehold:"])
+    watch_out_for = detail.get("watch_out_for") or []
+    if watch_out_for:
+        lines.extend(f"- {line}" for line in watch_out_for)
+    else:
+        lines.append("- Ingen tydelige forbehold identifisert.")
+
+    lines.extend(["", "Tolkning:", detail.get("takeaway") or ""])
+    return "\n".join(lines)
+
+
+def _answer_watchlist_advisor_question(context, question):
+    items = _get_watchlist_advisor_output(context).get("items") or []
+    action_filter = _watchlist_advisor_filter_action(question)
+    ticker = _extract_watchlist_advisor_ticker(question, context)
+
+    if ticker and _is_watchlist_advisor_ticker_question(question):
+        return _format_watchlist_advisor_ticker_answer(context, ticker)
+
+    if _is_watchlist_advisor_list_question(question) or action_filter:
+        return _format_watchlist_advisor_grouped_answer(
+            context,
+            action_filter=action_filter,
+        )
+
+    if ticker:
+        return _format_watchlist_advisor_ticker_answer(context, ticker)
+
+    if len(items) == 1:
+        return _format_watchlist_advisor_ticker_answer(
+            context,
+            items[0]["ticker"],
+        )
+
+    return _format_watchlist_advisor_grouped_answer(context)
 
 
 def _is_pending_orders_question(question):
@@ -1403,6 +1670,9 @@ def ask_agent(question, context):
 
     if _is_analyst_question(question):
         return _format_analyst_answer(context, question)
+
+    if _is_watchlist_advisor_question(question):
+        return _answer_watchlist_advisor_question(context, question)
 
     if _is_advisor_question(question):
         return _format_advisor_answer(context, question)

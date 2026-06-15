@@ -2,17 +2,16 @@
 
 ## 🔥 Neste opp
 
-3. Daily Briefing v1
-4. Guidance v1
-5. Opportunity Advisor v2
-6. Agentisk overvåkning / endringsvarsler
-* [ ] Screening Engine v1
-* [ ] Opportunity Advisor (watchlist)
-* [ ] Guidance v1
+* [ ] Agent Chat v2 – Watchlist Advisor
+* [ ] Daily Briefing v2
+* [ ] Opportunity Advisor v2
+* [ ] Daily Refresh v2.1 – Network preflight og retry
+* [ ] Agentisk overvåkning / endringsvarsler
 
 ## 💡 Ideer og fremtidige features
 
 * [ ] Analytikerendringer og guidance
+* [ ] Guidance v1
 * [ ] Historiske analyser og signalhistorikk
 * [ ] Porteføljehistorikk over tid
 * [ ] Bedre grafer i UI
@@ -28,7 +27,6 @@
 * [ ] Sentiment v3 – Historikk, endringer og varsler
 * [ ] Sentiment v4 – FinBERT-evaluering
 * [ ] Sentiment videre – scoring, kjøp/salg-logikk og sosiale medier
-* [ ] Advisor v2 – watchlist/advisor for nye muligheter
 * [ ] Advisor v3 – historikk og endringer i advisor-vurdering
 * [ ] Advisor v4 – LLM-basert forklaring hvis regelbasert versjon ikke er nok
 * [ ] Deployment på Mac Mini / lokal server
@@ -59,6 +57,9 @@
 
 ## ✅ Ferdig (siste)
 
+* [x] Screening Engine v1
+* [x] Opportunity Advisor (watchlist)
+* [x] Daily Briefing v1
 * [x] Daily Refresh v1
 * [x] Screening Engine – Agent-chat
 * [x] Analyst Consensus v1 steg 2 og 3

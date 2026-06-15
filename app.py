@@ -18,7 +18,11 @@ from src.walk_forward import rolling_walk_forward
 from src.walk_forward_report import summarize_rolling_walk_forward
 from src.portfolio_allocation import build_portfolio_allocation
 from src.orders import analyze_pending_orders, analyze_order_history
-from src.environment import environment_label, is_prod
+from src.environment import (
+    environment_caption,
+    environment_label,
+    should_show_test_banner,
+)
 from src.storage import (
     load_portfolio,
     load_pending_orders,
@@ -81,6 +85,10 @@ from src.analyst import (
 )
 from src.earnings import build_earnings_table
 from src.news import build_news_table
+from src.watchlist_advisor import (
+    build_watchlist_advisor_table,
+    format_watchlist_advisor_detail,
+)
 from src.research_ideas import (
     STATUS_WATCHLIST,
     load_research_ideas,
@@ -104,10 +112,8 @@ st.set_page_config(
 st.title("📈 Aksjeagent")
 st.caption("Beslutningsstøtte for aksjer – ikke automatisk handel.")
 
-if is_prod():
-    st.error(environment_label())
-else:
-    st.info(environment_label())
+if should_show_test_banner():
+    st.warning(f"⚠️ {environment_label()}")
 
 
 PORTFOLIO = load_portfolio([])
@@ -489,6 +495,55 @@ def build_portfolio_actions_table(portfolio_report, advisor_output=None):
     return df[columns].reset_index(drop=True)
 
 
+def render_watchlist_advisor_detail(detail):
+    if not detail:
+        st.caption("Ingen detaljer tilgjengelig.")
+        return
+
+    st.markdown("**Hvorfor**")
+    why = detail.get("why") or []
+    if why:
+        for line in why:
+            st.markdown(f"- {line}")
+    else:
+        st.markdown("- Ingen tydelige årsaker identifisert.")
+
+    st.markdown("**Forbehold**")
+    watch_out_for = detail.get("watch_out_for") or []
+    if watch_out_for:
+        for line in watch_out_for:
+            st.markdown(f"- {line}")
+    else:
+        st.markdown("- Ingen tydelige forbehold identifisert.")
+
+    st.markdown("**Tolkning**")
+    st.write(detail.get("takeaway") or "")
+
+
+def show_watchlist_advisor_section(watchlist_advisor_output):
+    output = watchlist_advisor_output or {}
+    items = output.get("items") or []
+    table = build_watchlist_advisor_table(output)
+
+    if table.empty:
+        st.info("Ingen tydelige watchlist-råd akkurat nå.")
+        return
+
+    show_dataframe(table)
+
+    disclaimer = output.get("disclaimer")
+    if disclaimer:
+        st.caption(disclaimer)
+
+    for index, item in enumerate(items):
+        ticker = item.get("ticker") or ""
+        detail = format_watchlist_advisor_detail(item)
+        with st.expander(f"Hvorfor sier agenten dette om {ticker}?"):
+            render_watchlist_advisor_detail(detail)
+        if index < len(items) - 1:
+            st.markdown("")
+
+
 def render_advisor_detail(detail):
     if not detail:
         return
@@ -760,7 +815,7 @@ def reload_context_from_disk():
 
 with st.sidebar:
     st.header("Kontrollpanel")
-    st.caption(environment_label())
+    st.caption(environment_caption())
 
     refresh_status = format_refresh_panel_status(load_refresh_state())
     st.markdown(f"**Sist oppdatert:** {refresh_status['updated_at']}")
@@ -987,6 +1042,11 @@ with tab_dashboard:
 with tab_ranking:
     st.subheader("Rangert watchlist")
     show_ranking_table(ranked)
+
+    st.markdown("### Watchlist-tolkning")
+    show_watchlist_advisor_section(
+        st.session_state.context.get("watchlist_advisor_output"),
+    )
 
     market = dashboard["market_summary"]
     m1, m2, m3, m4 = st.columns(4)

@@ -11,6 +11,10 @@ from typing import Any
 
 from src.analyst import get_analyst
 from src.config import load_watchlists
+from src.environment import (
+    daily_refresh_lock_filename,
+    daily_refresh_state_filename,
+)
 from src.context import (
     _parse_iso_datetime,
     build_agent_context,
@@ -30,9 +34,6 @@ from src.sentiment import build_sentiment_summary
 from src.storage import load_pending_orders, load_portfolio
 from src.technicals import analyze_technicals, get_benchmark_for_symbol
 
-REFRESH_STATE_FILENAME = "daily_refresh_state.json"
-REFRESH_LOCK_FILENAME = "daily_refresh.lock"
-
 _lock_file_handle: Any | None = None
 
 
@@ -47,11 +48,11 @@ def _cache_dir() -> Path:
 
 
 def refresh_state_path() -> Path:
-    return _cache_dir() / REFRESH_STATE_FILENAME
+    return _cache_dir() / daily_refresh_state_filename()
 
 
 def refresh_lock_path() -> Path:
-    return _cache_dir() / REFRESH_LOCK_FILENAME
+    return _cache_dir() / daily_refresh_lock_filename()
 
 
 def _utc_now_iso() -> str:

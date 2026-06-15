@@ -818,5 +818,159 @@ class AgentPortfolioComparisonTests(unittest.TestCase):
         self.assertIn("Ingen screener-kandidater matchet filteret", answer)
 
 
+def _watchlist_advisor_context(**overrides):
+    context = {
+        "watchlist": ["NVDA", "MSFT", "INTC", "AAPL"],
+        "watchlist_report": pd.DataFrame(),
+        "portfolio_report": pd.DataFrame(
+            [
+                {
+                    "ticker": "AAPL",
+                    "shares": 10,
+                    "buy_price": 100.0,
+                    "current_price": 150.0,
+                    "cost_value": 1000.0,
+                    "market_value": 1500.0,
+                    "unrealized_profit_loss": 500.0,
+                    "unrealized_gain_pct": 50.0,
+                    "score": 75,
+                    "anbefaling": "HOLD / OBSERVER",
+                    "trend_regime": "MODERAT OPPTREND",
+                    "relative_strength_20d": 2.0,
+                    "portefølje_råd": "HOLD",
+                    "trailing_stop_loss": 120.0,
+                }
+            ]
+        ),
+        "watchlist_advisor_output": {
+            "items": [
+                {
+                    "ticker": "NVDA",
+                    "watchlist_action": "VURDER_KJØP",
+                    "headline": "Vurder kjøp",
+                    "why": ["Modellanbefaling: KJØP / ØK", "Sterk opptrend"],
+                    "watch_out_for": [],
+                    "takeaway": "Sterk kandidat med god trend.",
+                    "priority": 1,
+                },
+                {
+                    "ticker": "MSFT",
+                    "watchlist_action": "VENT",
+                    "headline": "Vent",
+                    "why": ["Modellanbefaling: HOLD / OBSERVER"],
+                    "watch_out_for": ["Negativ nyhetstone"],
+                    "takeaway": "Ikke prioritet nå.",
+                    "priority": 3,
+                },
+                {
+                    "ticker": "INTC",
+                    "watchlist_action": "FJERN_FRA_WATCHLIST",
+                    "headline": "Fjern fra watchlist",
+                    "why": ["Modellanbefaling: UNNGÅ / SELG"],
+                    "watch_out_for": [],
+                    "takeaway": "Modellen og trendbildet er svakt.",
+                    "priority": 1,
+                },
+            ],
+            "method": "rule_v1",
+            "disclaimer": "Tolkningslag for watchlist.",
+        },
+        "dashboard": {},
+        "daily_flow": {},
+    }
+    context.update(overrides)
+    return context
+
+
+class AgentWatchlistAdvisorTests(unittest.TestCase):
+    def test_list_vurder_kjop_from_watchlist(self):
+        answer = ask_agent(
+            "Hvilke aksjer bør jeg vurdere å kjøpe fra watchlist?",
+            _watchlist_advisor_context(),
+        )
+
+        self.assertIn("Watchlist-råd", answer)
+        self.assertIn("Vurder kjøp:", answer)
+        self.assertIn("NVDA: Sterk kandidat med god trend.", answer)
+        self.assertNotIn("AAPL:", answer)
+
+    def test_list_fjern_fra_watchlist(self):
+        answer = ask_agent(
+            "Hvilke aksjer bør fjernes fra watchlist?",
+            _watchlist_advisor_context(),
+        )
+
+        self.assertIn("Fjern fra watchlist:", answer)
+        self.assertIn("INTC: Modellen og trendbildet er svakt.", answer)
+        self.assertNotIn("AAPL:", answer)
+
+    def test_ticker_question_about_watchlist_advisor(self):
+        answer = ask_agent(
+            "Hva sier watchlist-advisor om NVDA?",
+            _watchlist_advisor_context(),
+        )
+
+        self.assertIn("NVDA", answer)
+        self.assertIn("Handling:", answer)
+        self.assertIn("Vurder kjøp", answer)
+        self.assertIn("Hvorfor:", answer)
+        self.assertIn("Modellanbefaling: KJØP / ØK", answer)
+        self.assertIn("Tolkning:", answer)
+        self.assertIn("Sterk kandidat med god trend.", answer)
+
+    def test_why_wait_with_ticker(self):
+        answer = ask_agent(
+            "Hvorfor sier agenten at jeg skal vente med MSFT?",
+            _watchlist_advisor_context(),
+        )
+
+        self.assertIn("MSFT", answer)
+        self.assertIn("Handling:", answer)
+        self.assertIn("Vent", answer)
+        self.assertIn("Negativ nyhetstone", answer)
+        self.assertIn("Ikke prioritet nå.", answer)
+
+    def test_unknown_ticker_returns_no_advice_message(self):
+        answer = ask_agent(
+            "Hva sier watchlist-advisor om UNKNOWN?",
+            _watchlist_advisor_context(),
+        )
+
+        self.assertIn("Watchlist-advisor for UNKNOWN:", answer)
+        self.assertIn("Ingen watchlist-råd identifisert", answer)
+
+    def test_empty_watchlist_advisor_output(self):
+        answer = ask_agent(
+            "Hvilke aksjer bør jeg vente med?",
+            _watchlist_advisor_context(
+                watchlist_advisor_output={"items": []},
+            ),
+        )
+
+        self.assertIn("Watchlist-råd", answer)
+        self.assertIn("Vent:", answer)
+        self.assertIn("Ingen aksjer akkurat nå.", answer)
+
+    def test_owned_ticker_not_in_advisor_lists(self):
+        answer = ask_agent(
+            "Hvilke aksjer bør jeg vurdere å kjøpe fra watchlist?",
+            _watchlist_advisor_context(
+                watchlist_advisor_output={
+                    "items": [
+                        {
+                            "ticker": "NVDA",
+                            "watchlist_action": "VURDER_KJØP",
+                            "takeaway": "Sterk kandidat.",
+                            "priority": 1,
+                        }
+                    ]
+                },
+            ),
+        )
+
+        self.assertIn("NVDA:", answer)
+        self.assertNotIn("AAPL:", answer)
+
+
 if __name__ == "__main__":
     unittest.main()

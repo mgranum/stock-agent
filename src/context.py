@@ -19,10 +19,11 @@ from src.daily_flow import build_daily_flow
 from src.earnings import build_earnings_summary
 from src.news import build_news_summary
 from src.portfolio import analyze_portfolio, ensure_portfolio_report, summarize_portfolio
+from src.environment import context_snapshot_filename
 from src.sentiment import build_sentiment_summary, merge_sentiment_into_news_summary
+from src.watchlist_advisor import build_watchlist_advisor
 
 CONTEXT_SNAPSHOT_VERSION = 1
-CONTEXT_SNAPSHOT_FILENAME = "context_snapshot.json"
 _DATAFRAME_MARKER = "__type__"
 _DATAFRAME_TYPE = "dataframe"
 
@@ -34,7 +35,7 @@ def _project_root() -> Path:
 def context_snapshot_path() -> Path:
     cache_dir = _project_root() / "cache"
     cache_dir.mkdir(exist_ok=True)
-    return cache_dir / CONTEXT_SNAPSHOT_FILENAME
+    return cache_dir / context_snapshot_filename()
 
 
 def _utc_now_iso() -> str:
@@ -384,6 +385,15 @@ def build_agent_context(
         alerts=alerts,
         portfolio=portfolio,
     )
+    watchlist_advisor_output = build_watchlist_advisor(
+        watchlist_report=watchlist_report,
+        portfolio_report=portfolio_report,
+        portfolio=portfolio,
+        analyst_summary=analyst_summary,
+        sentiment_summary=sentiment_summary,
+        earnings_summary=earnings_summary,
+        snapshot_changes=dashboard.get("changes_since_last_snapshot"),
+    )
 
     context = {
         "watchlist": watchlist,
@@ -397,6 +407,7 @@ def build_agent_context(
         "sentiment_summary": sentiment_summary,
         "advisor_output": advisor_output,
         "advisor_details": advisor_details,
+        "watchlist_advisor_output": watchlist_advisor_output,
         "alerts": alerts,
     }
     context["daily_briefing"] = build_daily_briefing(context)

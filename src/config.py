@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+from src.storage import load_json, save_json
+
 
 def _project_root():
     return Path(__file__).resolve().parent.parent
@@ -97,7 +99,7 @@ DEFAULT_BACKTEST_CONFIG = {
 
 
 def _load_editable_watchlists():
-    return load_json_config(
+    return load_json(
         "watchlists.json",
         DEFAULT_WATCHLISTS,
     )
@@ -132,7 +134,7 @@ def add_symbol_to_watchlist(list_name, symbol):
 
     if symbol not in watchlists[list_name]:
         watchlists[list_name].append(symbol)
-        save_json_config("watchlists.json", watchlists)
+        save_json("watchlists.json", watchlists)
 
     return load_watchlists()
 
@@ -151,7 +153,7 @@ def remove_symbol_from_watchlist(list_name, symbol):
         s for s in watchlists[list_name]
         if s != symbol
     ]
-    save_json_config("watchlists.json", watchlists)
+    save_json("watchlists.json", watchlists)
 
     return load_watchlists()
 
