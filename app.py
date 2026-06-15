@@ -35,6 +35,7 @@ from src.order_editor import (
     cancel_order,
 )
 from src.portfolio import (
+    build_portfolio_display_table,
     summarize_portfolio,
     valid_portfolio_rows,
 )
@@ -1705,7 +1706,7 @@ with tab_portfolio:
         st.markdown("### Posisjoner")
 
         st.dataframe(
-            valid_portfolio_rows(portfolio_report),
+            build_portfolio_display_table(portfolio_report),
             width="stretch",
             hide_index=True,
         )

@@ -2,10 +2,10 @@
 
 ## 🔥 Neste opp
 
-* [ ] Agent Chat v2 – Watchlist Advisor
 * [ ] Daily Briefing v2
 * [ ] Opportunity Advisor v2
 * [ ] Daily Refresh v2.1 – Network preflight og retry
+* [ ] Strategy Profiles v2
 * [ ] Agentisk overvåkning / endringsvarsler
 
 ## 💡 Ideer og fremtidige features
@@ -57,6 +57,8 @@
 
 ## ✅ Ferdig (siste)
 
+* [x] Portefølje snapshot - average cost
+* [x] Agent Chat v2 – Watchlist Advisor
 * [x] Screening Engine v1
 * [x] Opportunity Advisor (watchlist)
 * [x] Daily Briefing v1

@@ -16,6 +16,74 @@ PORTFOLIO_ACTION_FIELDS = (
     "trailing_stop_loss",
 )
 
+PORTFOLIO_DISPLAY_COLUMNS = (
+    "ticker",
+    "shares",
+    "cost_per_share",
+    "current_price",
+    "market_value",
+    "unrealized_profit_loss",
+    "unrealized_gain_pct",
+)
+
+
+def position_cost_per_share(position):
+    """Return per-share cost basis: average_cost when set, else buy_price."""
+    average_cost = position.get("average_cost")
+    if average_cost is not None:
+        return float(average_cost)
+
+    buy_price = position.get("buy_price")
+    if buy_price is not None:
+        return float(buy_price)
+
+    ticker = position.get("ticker", "?")
+    raise ValueError(
+        f"Position {ticker} must have average_cost or buy_price"
+    )
+
+
+def compute_position_metrics(position, current_price):
+    """Compute cost and unrealized gain/loss for one portfolio position."""
+    cost_per_share = position_cost_per_share(position)
+    shares = float(position["shares"])
+    current_price = float(current_price)
+
+    market_value = current_price * shares
+    cost_value = cost_per_share * shares
+    profit_loss = market_value - cost_value
+    gain_pct = ((current_price - cost_per_share) / cost_per_share) * 100
+
+    return {
+        "shares": shares,
+        "cost_per_share": round(cost_per_share, 2),
+        "current_price": round(current_price, 2),
+        "cost_value": round(cost_value, 2),
+        "market_value": round(market_value, 2),
+        "unrealized_profit_loss": round(profit_loss, 2),
+        "unrealized_gain_pct": round(gain_pct, 2),
+    }
+
+
+def build_portfolio_display_table(portfolio_report):
+    df = valid_portfolio_rows(portfolio_report)
+
+    if df.empty:
+        return pd.DataFrame()
+
+    columns = [column for column in PORTFOLIO_DISPLAY_COLUMNS if column in df.columns]
+    display = df[columns].copy()
+
+    return display.rename(
+        columns={
+            "cost_per_share": "Gjennomsnittlig kostpris",
+            "current_price": "Nåværende kurs",
+            "market_value": "Markedsverdi",
+            "unrealized_profit_loss": "Gevinst/tap",
+            "unrealized_gain_pct": "Gevinst/tap %",
+        }
+    )
+
 
 def analyze_portfolio(portfolio, pause_seconds=1):
     rows = []
@@ -31,26 +99,20 @@ def analyze_portfolio(portfolio, pause_seconds=1):
         try:
             result, df = analyze_stock(symbol)
 
-            current_price = float(result["kurs"])
-            buy_price = float(position["buy_price"])
-            shares = float(position["shares"])
-
-            market_value = current_price * shares
-            cost_value = buy_price * shares
-            profit_loss = market_value - cost_value
-            gain_pct = ((current_price - buy_price) / buy_price) * 100
+            metrics = compute_position_metrics(position, result["kurs"])
+            gain_pct = metrics["unrealized_gain_pct"]
 
             row = {
                 "position_id": position.get("position_id"),
                 "ticker": symbol,
-                "shares": shares,
-                "buy_price": round(buy_price, 2),
+                "shares": metrics["shares"],
+                "cost_per_share": metrics["cost_per_share"],
                 "buy_datetime": position.get("buy_datetime"),
-                "current_price": round(current_price, 2),
-                "cost_value": round(cost_value, 2),
-                "market_value": round(market_value, 2),
-                "unrealized_profit_loss": round(profit_loss, 2),
-                "unrealized_gain_pct": round(gain_pct, 2),
+                "current_price": metrics["current_price"],
+                "cost_value": metrics["cost_value"],
+                "market_value": metrics["market_value"],
+                "unrealized_profit_loss": metrics["unrealized_profit_loss"],
+                "unrealized_gain_pct": metrics["unrealized_gain_pct"],
 
                 "score": result["score"],
                 "anbefaling": result["anbefaling"],
@@ -77,6 +139,12 @@ def analyze_portfolio(portfolio, pause_seconds=1):
                 "trailing_stop_loss": result["trailing_stop_loss"],
                 "tidshorisont": result["tidshorisont"],
             }
+
+            if position.get("average_cost") is not None:
+                row["average_cost"] = round(float(position["average_cost"]), 2)
+
+            if position.get("buy_price") is not None:
+                row["buy_price"] = round(float(position["buy_price"]), 2)
 
             rows.append(row)
 
