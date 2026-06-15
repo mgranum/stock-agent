@@ -20,20 +20,37 @@ from src.watchlist_advisor import (
     ACTION_VURDER_KJOP,
 )
 
-BRIEFING_ITEM_LIMIT = 3
-STRONG_CANDIDATE_SCORE = 80
-EARNINGS_CRITICAL_DAYS = 3
+CRITICAL_ITEM_LIMIT = 3
+IMPORTANT_ITEM_LIMIT = 2
+TOTAL_CONCRETE_ITEM_LIMIT = 5
+WATCHLIST_ITEM_LIMIT = 2
+CANDIDATE_ITEM_LIMIT = 2
+EARNINGS_OWNED_CRITICAL_DAYS = 1
+EARNINGS_AVVENT_DAYS = 3
 STRONG_NEGATIVE_SENTIMENT_SCORE = -0.5
+SUMMARY_ITEM_LIMIT = 2
 
 _CRITICAL_PORTFOLIO_ACTIONS = {
     "REDUSER / SELG",
     "VURDER REDUKSJON",
 }
 
-_TRAILING_STOP_ALERT_TYPES = {
-    ALERT_NEAR_TRAILING_STOP,
-    ALERT_TRAILING_STOP_TRIGGERED,
+_BRIEFING_WATCHLIST_ACTIONS = {
+    ACTION_VURDER_KJOP,
+    ACTION_AVVENT_EARNINGS,
 }
+
+_PRIORITY_SELL_ORDER = 1
+_PRIORITY_TRAILING_STOP_TRIGGERED = 2
+_PRIORITY_REDUSER = 3
+_PRIORITY_VURDER_REDUKTION = 4
+_PRIORITY_EARNINGS_OWNED = 5
+_PRIORITY_ANALYST_NEGATIVE = 6
+_PRIORITY_NEAR_TRAILING_STOP = 7
+_PRIORITY_STRONG_NEGATIVE_SENTIMENT = 8
+_PRIORITY_WATCHLIST_ACTION = 9
+_PRIORITY_CANDIDATE = 10
+_PRIORITY_ANALYST_MAJOR = 11
 
 
 def _utc_now_iso() -> str:
@@ -69,6 +86,13 @@ def _display_ticker(ticker: str) -> str:
     return normalized
 
 
+def _owned_ticker_set(portfolio_report) -> set[str]:
+    df = valid_portfolio_rows(portfolio_report)
+    if df.empty:
+        return set()
+    return {_display_ticker(ticker) for ticker in df["ticker"]}
+
+
 def _briefing_item(ticker, text, *, category=None, rule=None, **extra):
     item = {
         "ticker": _display_ticker(ticker),
@@ -82,24 +106,72 @@ def _briefing_item(ticker, text, *, category=None, rule=None, **extra):
     return item
 
 
-def _item_key(item) -> tuple:
+def _item_priority(item) -> int:
+    rule = item.get("rule")
+    if rule == "sell_order":
+        return _PRIORITY_SELL_ORDER
+    if rule == "trailing_stop_triggered":
+        return _PRIORITY_TRAILING_STOP_TRIGGERED
+    if rule == "portfolio_reduser":
+        if item.get("portfolio_action") == "REDUSER / SELG":
+            return _PRIORITY_REDUSER
+        return _PRIORITY_VURDER_REDUKTION
+    if rule == "earnings_critical":
+        return _PRIORITY_EARNINGS_OWNED
+    if rule == "analyst_negative":
+        return _PRIORITY_ANALYST_NEGATIVE
+    if rule == "trailing_stop_near":
+        return _PRIORITY_NEAR_TRAILING_STOP
+    if rule == "strong_negative_sentiment":
+        return _PRIORITY_STRONG_NEGATIVE_SENTIMENT
+    if rule in {"avvent_earnings", "vurder_kjop"}:
+        return _PRIORITY_WATCHLIST_ACTION
+    if rule == "candidate":
+        return _PRIORITY_CANDIDATE
+    if rule == "analyst_major":
+        return _PRIORITY_ANALYST_MAJOR
+    return 99
+
+
+def _item_sort_key(item) -> tuple:
+    days = _safe_int(item.get("days_until"))
     return (
-        item.get("category", ""),
+        _item_priority(item),
+        days if days is not None else 99,
         item.get("ticker", ""),
-        item.get("text", ""),
     )
 
 
-def _dedupe_items(items):
-    seen = set()
-    deduped = []
+def _sort_section_items(section_key, items):
+    if section_key == "watchlist_items":
+        return sorted(
+            items,
+            key=lambda item: (
+                item.get("priority", 99),
+                item.get("ticker", ""),
+            ),
+        )
+    if section_key == "candidate_items":
+        return sorted(
+            items,
+            key=lambda item: (
+                item.get("priority", 99),
+                item.get("ticker", ""),
+            ),
+        )
+    return sorted(items, key=_item_sort_key)
+
+
+def _dedupe_items_by_ticker(items):
+    best_by_ticker: dict[str, dict] = {}
     for item in items:
-        key = _item_key(item)
-        if key in seen:
+        ticker = item.get("ticker", "")
+        if not ticker:
             continue
-        seen.add(key)
-        deduped.append(item)
-    return deduped
+        existing = best_by_ticker.get(ticker)
+        if existing is None or _item_sort_key(item) < _item_sort_key(existing):
+            best_by_ticker[ticker] = item
+    return sorted(best_by_ticker.values(), key=_item_sort_key)
 
 
 def _earnings_briefing_text(item) -> str:
@@ -115,6 +187,16 @@ def _earnings_briefing_text(item) -> str:
         timing = f"om {days_until} dager"
 
     return f"{name} rapporterer {timing}"
+
+
+def _earnings_days_by_ticker(earnings_summary) -> dict[str, int]:
+    days_by_ticker = {}
+    for item in (earnings_summary or {}).get("items") or []:
+        ticker = _display_ticker(item.get("ticker", ""))
+        days_until = _safe_int(item.get("days_until"))
+        if ticker and days_until is not None:
+            days_by_ticker[ticker] = days_until
+    return days_by_ticker
 
 
 def _is_negative_analyst_change(change) -> bool:
@@ -150,8 +232,8 @@ def _critical_from_alerts(alerts):
         ticker = alert.get("ticker", "")
         message = str(alert.get("message") or alert.get("title") or "").strip()
 
-        if alert_type in _TRAILING_STOP_ALERT_TYPES:
-            title = str(alert.get("title") or "Trailing stop").strip()
+        if alert_type == ALERT_TRAILING_STOP_TRIGGERED:
+            title = str(alert.get("title") or "Trailing stop trigget").strip()
             text = f"{_display_ticker(ticker)}: {title}"
             if message and message not in text:
                 text = f"{text} – {message}"
@@ -160,7 +242,7 @@ def _critical_from_alerts(alerts):
                     ticker,
                     text,
                     category="trailing_stop",
-                    rule="trailing_stop",
+                    rule="trailing_stop_triggered",
                 )
             )
             continue
@@ -177,6 +259,31 @@ def _critical_from_alerts(alerts):
                 message,
                 category="sell",
                 rule="sell_order",
+            )
+        )
+
+    return items
+
+
+def _important_from_alerts(alerts):
+    items = []
+    for alert in alerts or []:
+        alert_type = alert.get("alert_type")
+        if alert_type != ALERT_NEAR_TRAILING_STOP:
+            continue
+
+        ticker = alert.get("ticker", "")
+        message = str(alert.get("message") or alert.get("title") or "").strip()
+        title = str(alert.get("title") or "Nær trailing stop").strip()
+        text = f"{_display_ticker(ticker)}: {title}"
+        if message and message not in text:
+            text = f"{text} – {message}"
+        items.append(
+            _briefing_item(
+                ticker,
+                text,
+                category="trailing_stop",
+                rule="trailing_stop_near",
             )
         )
 
@@ -202,20 +309,26 @@ def _critical_from_portfolio(portfolio_report):
                 f"{_display_ticker(ticker)}: {label}",
                 category="reduser",
                 rule="portfolio_reduser",
+                portfolio_action=action,
             )
         )
 
     return items
 
 
-def _critical_from_earnings(earnings_summary, limit_days=EARNINGS_CRITICAL_DAYS):
+def _critical_from_earnings(earnings_summary, owned_tickers):
     items = []
     for item in (earnings_summary or {}).get("items") or []:
         days_until = _safe_int(item.get("days_until"))
-        if days_until is None or days_until < 0 or days_until > limit_days:
+        if days_until is None or days_until < 0 or days_until > EARNINGS_OWNED_CRITICAL_DAYS:
+            continue
+        if not item.get("in_portfolio"):
             continue
 
         ticker = item.get("ticker", "")
+        if _display_ticker(ticker) not in owned_tickers:
+            continue
+
         items.append(
             _briefing_item(
                 ticker,
@@ -223,21 +336,20 @@ def _critical_from_earnings(earnings_summary, limit_days=EARNINGS_CRITICAL_DAYS)
                 category="earnings",
                 rule="earnings_critical",
                 days_until=days_until,
-                in_portfolio=bool(item.get("in_portfolio")),
+                in_portfolio=True,
             )
         )
 
     items.sort(
         key=lambda entry: (
             entry.get("days_until", 99),
-            0 if entry.get("in_portfolio") else 1,
             entry.get("ticker", ""),
         ),
     )
     return items
 
 
-def _critical_from_analyst(analyst_summary):
+def _critical_from_analyst(analyst_summary, owned_tickers):
     items = []
     for change in (analyst_summary or {}).get("material_changes") or []:
         if not _is_negative_analyst_change(change):
@@ -247,6 +359,8 @@ def _critical_from_analyst(analyst_summary):
         endring = str(change.get("Endring") or "").strip()
         if not ticker or not endring:
             continue
+        if _display_ticker(ticker) not in owned_tickers:
+            continue
 
         items.append(
             _briefing_item(
@@ -255,31 +369,6 @@ def _critical_from_analyst(analyst_summary):
                 category="analyst",
                 rule="analyst_negative",
                 change_type=change.get("change_type"),
-            )
-        )
-
-    return items
-
-
-def _important_from_watchlist(watchlist_advisor_output):
-    items = []
-    for item in (watchlist_advisor_output or {}).get("items") or []:
-        action = item.get("watchlist_action")
-        if action != ACTION_AVVENT_EARNINGS:
-            continue
-
-        ticker = item.get("ticker", "")
-        headline = str(item.get("headline") or "").strip()
-        if not ticker or not headline:
-            continue
-
-        items.append(
-            _briefing_item(
-                ticker,
-                f"{_display_ticker(ticker)}: {headline[0].lower()}{headline[1:]}",
-                category="watchlist",
-                rule="avvent_earnings",
-                watchlist_action=action,
             )
         )
 
@@ -346,7 +435,21 @@ def _important_from_analyst(analyst_summary):
     return items
 
 
-def _watchlist_briefing_items(watchlist_advisor_output, limit=BRIEFING_ITEM_LIMIT):
+def _watchlist_headline_text(ticker, headline) -> str:
+    headline = str(headline or "").strip()
+    if not headline:
+        return _display_ticker(ticker)
+    return f"{_display_ticker(ticker)}: {headline[0].lower()}{headline[1:]}"
+
+
+def _watchlist_briefing_items(
+    watchlist_advisor_output,
+    earnings_summary=None,
+    *,
+    only_avvent_within_days=False,
+    limit=WATCHLIST_ITEM_LIMIT,
+):
+    earnings_days = _earnings_days_by_ticker(earnings_summary)
     items = list((watchlist_advisor_output or {}).get("items") or [])
     items.sort(
         key=lambda item: (
@@ -356,26 +459,48 @@ def _watchlist_briefing_items(watchlist_advisor_output, limit=BRIEFING_ITEM_LIMI
     )
 
     briefing_items = []
-    for item in items[:limit]:
+    for item in items:
+        action = item.get("watchlist_action")
+        if action not in _BRIEFING_WATCHLIST_ACTIONS:
+            continue
+
         ticker = item.get("ticker", "")
         headline = str(item.get("headline") or "").strip()
         if not ticker or not headline:
             continue
 
+        display_ticker = _display_ticker(ticker)
+        if only_avvent_within_days:
+            if action != ACTION_AVVENT_EARNINGS:
+                continue
+            days_until = earnings_days.get(display_ticker)
+            if days_until is None or days_until > EARNINGS_AVVENT_DAYS:
+                continue
+
+        rule = (
+            "avvent_earnings"
+            if action == ACTION_AVVENT_EARNINGS
+            else "vurder_kjop"
+        )
         briefing_items.append(
             _briefing_item(
                 ticker,
-                f"{_display_ticker(ticker)}: {headline[0].lower()}{headline[1:]}",
+                _watchlist_headline_text(ticker, headline),
                 category="watchlist",
-                watchlist_action=item.get("watchlist_action"),
+                rule=rule,
+                watchlist_action=action,
                 priority=item.get("priority"),
+                days_until=earnings_days.get(display_ticker),
             )
         )
+
+        if len(briefing_items) >= limit:
+            break
 
     return briefing_items
 
 
-def _candidate_briefing_items(opportunity_advisor, limit=BRIEFING_ITEM_LIMIT):
+def _candidate_briefing_items(opportunity_advisor, limit=CANDIDATE_ITEM_LIMIT):
     items = list((opportunity_advisor or {}).get("items") or [])
     items.sort(
         key=lambda item: (
@@ -401,6 +526,7 @@ def _candidate_briefing_items(opportunity_advisor, limit=BRIEFING_ITEM_LIMIT):
                 ticker,
                 text,
                 category="candidate",
+                rule="candidate",
                 headline=headline,
                 priority=item.get("priority"),
             )
@@ -409,16 +535,116 @@ def _candidate_briefing_items(opportunity_advisor, limit=BRIEFING_ITEM_LIMIT):
     return briefing_items
 
 
-def _has_earnings_today(critical_items) -> bool:
-    return any(item.get("days_until") == 0 for item in critical_items)
+def _partition_items(items):
+    critical = []
+    important = []
+    watchlist = []
+    candidates = []
+
+    for item in items:
+        rule = item.get("rule")
+        if rule in {
+            "sell_order",
+            "trailing_stop_triggered",
+            "portfolio_reduser",
+            "earnings_critical",
+            "analyst_negative",
+        }:
+            critical.append(item)
+        elif rule in {
+            "trailing_stop_near",
+            "strong_negative_sentiment",
+            "analyst_major",
+        }:
+            important.append(item)
+        elif rule in {"avvent_earnings", "vurder_kjop"}:
+            watchlist.append(item)
+        elif rule == "candidate":
+            candidates.append(item)
+
+    return {
+        "critical_items": critical,
+        "important_items": important,
+        "watchlist_items": watchlist,
+        "candidate_items": candidates,
+    }
 
 
-def _has_earnings_within_days(critical_items, days=EARNINGS_CRITICAL_DAYS) -> bool:
+def _apply_section_caps(sections):
+    return {
+        "critical_items": sections["critical_items"][:CRITICAL_ITEM_LIMIT],
+        "important_items": sections["important_items"][:IMPORTANT_ITEM_LIMIT],
+        "watchlist_items": sections["watchlist_items"][:WATCHLIST_ITEM_LIMIT],
+        "candidate_items": sections["candidate_items"][:CANDIDATE_ITEM_LIMIT],
+    }
+
+
+def _apply_total_concrete_cap(sections, limit=TOTAL_CONCRETE_ITEM_LIMIT):
+    combined = []
+    for section_key in (
+        "critical_items",
+        "important_items",
+        "watchlist_items",
+        "candidate_items",
+    ):
+        for item in sections[section_key]:
+            combined.append((item, section_key))
+
+    combined.sort(key=lambda entry: _item_sort_key(entry[0]))
+    kept = combined[:limit]
+    kept_keys = {(section_key, item.get("ticker")) for item, section_key in kept}
+
+    trimmed = {
+        section_key: []
+        for section_key in (
+            "critical_items",
+            "important_items",
+            "watchlist_items",
+            "candidate_items",
+        )
+    }
+    for item, section_key in combined:
+        if (section_key, item.get("ticker")) in kept_keys:
+            trimmed[section_key].append(item)
+
+    return trimmed
+
+
+def _apply_watchlist_and_candidate_visibility(sections, has_critical):
+    watchlist_items = list(sections["watchlist_items"])
+    candidate_items = list(sections["candidate_items"])
+
+    if has_critical:
+        candidate_items = []
+        watchlist_items = [
+            item
+            for item in watchlist_items
+            if item.get("rule") == "avvent_earnings"
+            and _safe_int(item.get("days_until")) is not None
+            and _safe_int(item.get("days_until")) <= EARNINGS_AVVENT_DAYS
+        ]
+
+    return {
+        **sections,
+        "watchlist_items": watchlist_items,
+        "candidate_items": candidate_items,
+    }
+
+
+def _has_earnings_today(items) -> bool:
     return any(
-        item.get("category") == "earnings"
+        item.get("rule") == "earnings_critical"
+        and _safe_int(item.get("days_until")) == 0
+        for item in items
+    )
+
+
+def _has_earnings_within_days(items, days=EARNINGS_AVVENT_DAYS) -> bool:
+    return any(
+        item.get("rule") == "earnings_critical"
         and _safe_int(item.get("days_until")) is not None
         and _safe_int(item.get("days_until")) <= days
-        for item in critical_items
+        for item in items
     )
 
 
@@ -434,11 +660,31 @@ def _has_strong_candidates(candidate_items) -> bool:
     return len(candidate_items) >= 2
 
 
-def _build_headline(critical_items, important_items, candidate_items):
+def _has_owned_earnings_within_days(earnings_summary, days=EARNINGS_AVVENT_DAYS) -> bool:
+    for item in (earnings_summary or {}).get("items") or []:
+        days_until = _safe_int(item.get("days_until"))
+        if (
+            item.get("in_portfolio")
+            and days_until is not None
+            and 0 <= days_until <= days
+        ):
+            return True
+    return False
+
+
+def _build_headline(
+    critical_items,
+    important_items,
+    candidate_items,
+    *,
+    earnings_summary=None,
+):
     has_critical = bool(critical_items)
     has_important = bool(important_items)
     earnings_today = _has_earnings_today(critical_items)
-    earnings_soon = _has_earnings_within_days(critical_items)
+    earnings_soon = _has_earnings_within_days(critical_items) or _has_owned_earnings_within_days(
+        earnings_summary,
+    )
     strong_candidates = _has_strong_candidates(candidate_items)
 
     if strong_candidates and earnings_soon and not earnings_today:
@@ -447,7 +693,7 @@ def _build_headline(critical_items, important_items, candidate_items):
     if earnings_today or (
         earnings_soon
         and not any(
-            item.get("category") not in {"earnings"}
+            item.get("rule") != "earnings_critical"
             for item in critical_items
         )
     ):
@@ -459,17 +705,27 @@ def _build_headline(critical_items, important_items, candidate_items):
     return "Handlingspunkter krever oppmerksomhet i dag."
 
 
+def _headline_implies_portfolio_risk(headline: str) -> bool:
+    normalized = headline.lower()
+    return (
+        "handlingspunkter krever oppmerksomhet" in normalized
+        or "risikostyring" in normalized
+    )
+
+
 def _summary_briefing_items(
     critical_items,
     important_items,
     candidate_items,
+    *,
+    headline="",
 ):
     summary_items = []
 
     if _has_earnings_today(critical_items):
         summary_items.append(
             {
-                "text": "Kvartalsrapporter krever oppfølging i dag",
+                "text": "Sjekk posisjoner med rapport i dag",
                 "rule": "earnings_today",
             }
         )
@@ -479,7 +735,7 @@ def _summary_briefing_items(
         for item in critical_items
         if item.get("category") in {"reduser", "sell", "trailing_stop"}
     ]
-    if portfolio_critical:
+    if portfolio_critical and not _headline_implies_portfolio_risk(headline):
         summary_items.append(
             {
                 "text": "Porteføljen har signaler som krever risikostyring",
@@ -487,10 +743,10 @@ def _summary_briefing_items(
             }
         )
 
-    if _has_strong_candidates(candidate_items):
+    if _has_strong_candidates(candidate_items) and not critical_items:
         summary_items.append(
             {
-                "text": "Markedet tilbyr flere interessante kandidater",
+                "text": "Markedet tilbyr interessante kandidater",
                 "rule": "strong_candidates",
             }
         )
@@ -498,12 +754,12 @@ def _summary_briefing_items(
     if important_items and not summary_items:
         summary_items.append(
             {
-                "text": "Det finnes støttende signaler å følge med på",
+                "text": "Støttende signaler er verdt et raskt blikk",
                 "rule": "supporting_signals",
             }
         )
 
-    return summary_items
+    return summary_items[:SUMMARY_ITEM_LIMIT]
 
 
 def build_daily_briefing(context, today=None):
@@ -517,26 +773,49 @@ def build_daily_briefing(context, today=None):
     sentiment_summary = context.get("sentiment_summary")
     watchlist_advisor_output = context.get("watchlist_advisor_output")
     opportunity_advisor = context.get("opportunity_advisor")
+    owned_tickers = _owned_ticker_set(portfolio_report)
 
-    critical_items = _dedupe_items(
+    raw_items = (
         _critical_from_alerts(alerts)
+        + _important_from_alerts(alerts)
         + _critical_from_portfolio(portfolio_report)
-        + _critical_from_earnings(earnings_summary)
-        + _critical_from_analyst(analyst_summary)
-    )
-    important_items = _dedupe_items(
-        _important_from_watchlist(watchlist_advisor_output)
+        + _critical_from_earnings(earnings_summary, owned_tickers)
+        + _critical_from_analyst(analyst_summary, owned_tickers)
         + _important_from_sentiment(sentiment_summary)
         + _important_from_analyst(analyst_summary)
+        + _watchlist_briefing_items(
+            watchlist_advisor_output,
+            earnings_summary,
+            limit=WATCHLIST_ITEM_LIMIT,
+        )
+        + _candidate_briefing_items(opportunity_advisor)
     )
-    watchlist_items = _watchlist_briefing_items(watchlist_advisor_output)
-    candidate_items = _candidate_briefing_items(opportunity_advisor)
+
+    deduped_items = _dedupe_items_by_ticker(raw_items)
+    sections = _partition_items(deduped_items)
+    sections = _apply_section_caps(sections)
+    sections = _apply_watchlist_and_candidate_visibility(
+        sections,
+        has_critical=bool(sections["critical_items"]),
+    )
+    sections = _apply_total_concrete_cap(sections)
+
+    critical_items = _sort_section_items("critical_items", sections["critical_items"])
+    important_items = _sort_section_items("important_items", sections["important_items"])
+    watchlist_items = _sort_section_items("watchlist_items", sections["watchlist_items"])
+    candidate_items = _sort_section_items("candidate_items", sections["candidate_items"])
+    headline = _build_headline(
+        critical_items,
+        important_items,
+        candidate_items,
+        earnings_summary=earnings_summary,
+    )
     summary = _summary_briefing_items(
         critical_items,
         important_items,
         candidate_items,
+        headline=headline,
     )
-    headline = _build_headline(critical_items, important_items, candidate_items)
 
     return {
         "generated_at": _utc_now_iso(),
