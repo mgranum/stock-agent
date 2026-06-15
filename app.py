@@ -98,6 +98,10 @@ from src.research_ideas import (
     update_research_ideas,
     research_idea_status,
 )
+from src.score_explainability import (
+    build_score_explanation,
+    format_score_explanation,
+)
 
 
 WATCHLISTS = load_watchlists()
@@ -880,10 +884,11 @@ dashboard_alerts = build_alerts(
 ranked = rank_report(watchlist_report)
 
 
-tab_dashboard, tab_ranking, tab_screening, tab_watchlists, tab_allocation, tab_orders, tab_portfolio, tab_history, tab_snapshots, tab_backtest, tab_walk_forward, tab_chat = st.tabs(
+tab_dashboard, tab_ranking, tab_technical, tab_screening, tab_watchlists, tab_allocation, tab_orders, tab_portfolio, tab_history, tab_snapshots, tab_backtest, tab_walk_forward, tab_chat = st.tabs(
     [
         "Dashboard",
         "Rangering",
+        "Teknisk analyse",
         "Screening",
         "Watchlists",
         "Allocation",
@@ -1099,6 +1104,39 @@ with tab_ranking:
                 "Snitt relativ styrke",
                 f"{kpis['avg_relative_strength']}%",
             )
+
+
+with tab_technical:
+    st.subheader("Teknisk analyse")
+
+    if watchlist_report is None or watchlist_report.empty:
+        st.info("Ingen analyserte aksjer. Oppdater analyser først.")
+    else:
+        technical_tickers = watchlist_report["ticker"].tolist()
+        selected_ticker = st.selectbox(
+            "Velg aksje",
+            technical_tickers,
+            key="technical_analysis_ticker",
+        )
+        stock_row = watchlist_report[
+            watchlist_report["ticker"] == selected_ticker
+        ].iloc[0]
+        score_explanation = build_score_explanation(stock_row)
+
+        t1, t2, t3, t4 = st.columns(4)
+        t1.metric("Total score", score_explanation["score"])
+        t2.metric("Teknisk", score_explanation["technical"]["total"])
+        t3.metric(
+            "Fundamental snapshot",
+            score_explanation["fundamental"]["snapshot_score"],
+        )
+        t4.metric(
+            "Fundamental historikk",
+            score_explanation["fundamental"]["history_score"],
+        )
+
+        with st.expander("Forklar score", expanded=False):
+            st.markdown(format_score_explanation(score_explanation))
 
 
 with tab_screening:

@@ -28,6 +28,13 @@ from src.analyst import (
     format_portfolio_analyst_upside_answer,
     format_weakest_analyst_consensus_answer,
 )
+from src.score_explainability import (
+    build_score_explanation,
+    extract_score_explanation_ticker,
+    find_stock_analysis,
+    format_score_explanation,
+    is_score_explanation_question,
+)
 
 
 def format_buy_recommendation(recommendation):
@@ -1703,6 +1710,28 @@ def ask_agent(question, context):
 
     if _is_portfolio_summary_question(question):
         return _format_portfolio_summary_answer(context)
+
+    if is_score_explanation_question(question):
+        ticker = extract_score_explanation_ticker(question, context)
+        if ticker:
+            stock = find_stock_analysis(
+                ticker,
+                watchlist_report,
+                portfolio_report,
+            )
+            if stock is not None:
+                explanation = build_score_explanation(stock)
+                return format_score_explanation(explanation)
+
+            return f"Fant ikke analysedata for {ticker}."
+
+        return (
+            "Spesifiser ticker, for eksempel:\n"
+            "- Hvorfor scorer BRK-B 100?\n"
+            "- Forklar scoren til NVDA\n"
+            "- Hvordan er BRK-B satt sammen?\n"
+            "- Vis score-forklaring for MSFT"
+        )
 
     is_portfolio_question = any(
         phrase in question
