@@ -3,22 +3,45 @@ from datetime import date
 
 import pandas as pd
 
-from src.advisor import CONFLICT_GAIN_VS_STOP, CONFLICT_SELL_VS_ANALYST
+from src.alerts import (
+    ALERT_NEAR_TRAILING_STOP,
+    ALERT_PENDING_ORDER,
+)
 from src.daily_briefing import (
     build_daily_briefing,
     format_daily_briefing,
     resolve_daily_briefing,
 )
-from src.sentiment import SENTIMENT_NEGATIVE, SENTIMENT_POSITIVE
+from src.sentiment import SENTIMENT_NEGATIVE
+from src.watchlist_advisor import (
+    ACTION_AVVENT_EARNINGS,
+    ACTION_VURDER_KJOP,
+)
 
 
-def _advisor_item(ticker, conflict_id, headline, priority=1):
+def _portfolio_row(**overrides):
+    base = {
+        "ticker": "AAPL",
+        "market_value": 2905.5,
+        "unrealized_gain_pct": 62.32,
+        "current_price": 290.55,
+        "cost_value": 1790.0,
+        "portefølje_råd": "HOLD",
+        "anbefaling": "HOLD / OBSERVER",
+        "trailing_stop_loss": 250.0,
+        "trailing_stop_triggered": False,
+    }
+    base.update(overrides)
+    return base
+
+
+def _alert(alert_type, ticker, *, title="", message="", action=""):
     return {
+        "alert_type": alert_type,
         "ticker": ticker,
-        "conflict_id": conflict_id,
-        "headline": headline,
-        "takeaway": "Test takeaway",
-        "priority": priority,
+        "title": title,
+        "message": message,
+        "action": action,
     }
 
 
@@ -26,43 +49,21 @@ class BuildDailyBriefingTests(unittest.TestCase):
     def test_empty_briefing_handled(self):
         briefing = build_daily_briefing({})
 
-        self.assertEqual(briefing["portfolio_items"], [])
-        self.assertEqual(briefing["earnings_items"], [])
-        self.assertEqual(briefing["analyst_items"], [])
+        self.assertEqual(briefing["critical_items"], [])
+        self.assertEqual(briefing["important_items"], [])
+        self.assertEqual(briefing["watchlist_items"], [])
         self.assertEqual(briefing["candidate_items"], [])
-        self.assertEqual(briefing["news_items"], [])
-        self.assertEqual(briefing["summary_items"], [])
-        self.assertEqual(format_daily_briefing(briefing), "Dagens briefing")
+        self.assertEqual(briefing["summary"], [])
+        self.assertEqual(
+            briefing["headline"],
+            "Rolig dag – ingen kritiske hendelser.",
+        )
+        self.assertIn(
+            "Rolig dag – ingen kritiske hendelser.",
+            format_daily_briefing(briefing),
+        )
 
-    def test_advisor_items_sorted_by_priority(self):
-        context = {
-            "advisor_output": {
-                "items": [
-                    _advisor_item(
-                        "EQNR.OL",
-                        CONFLICT_SELL_VS_ANALYST,
-                        "Analytikere positive, risiko peker mot reduksjon",
-                        priority=1,
-                    ),
-                    _advisor_item(
-                        "NVDA",
-                        CONFLICT_GAIN_VS_STOP,
-                        "Gevinst høy, stop nær",
-                        priority=1,
-                    ),
-                ],
-            },
-        }
-
-        briefing = build_daily_briefing(context)
-
-        self.assertEqual(len(briefing["portfolio_items"]), 2)
-        self.assertEqual(briefing["portfolio_items"][0]["ticker"], "EQNR")
-        self.assertIn("analytikere positive", briefing["portfolio_items"][0]["text"])
-        self.assertEqual(briefing["portfolio_items"][1]["ticker"], "NVDA")
-        self.assertIn("gevinst høy", briefing["portfolio_items"][1]["text"])
-
-    def test_earnings_items_within_seven_days(self):
+    def test_earnings_within_three_days_goes_to_critical(self):
         context = {
             "earnings_summary": {
                 "items": [
@@ -87,25 +88,28 @@ class BuildDailyBriefingTests(unittest.TestCase):
 
         briefing = build_daily_briefing(context)
 
-        self.assertEqual(len(briefing["earnings_items"]), 2)
-        self.assertEqual(briefing["earnings_items"][0]["days_until"], 0)
-        self.assertIn("i dag", briefing["earnings_items"][0]["text"])
-        self.assertEqual(briefing["earnings_items"][1]["days_until"], 3)
-        self.assertIn("om 3 dager", briefing["earnings_items"][1]["text"])
+        self.assertEqual(len(briefing["critical_items"]), 2)
+        self.assertEqual(briefing["critical_items"][0]["days_until"], 0)
+        self.assertIn("i dag", briefing["critical_items"][0]["text"])
+        self.assertEqual(briefing["critical_items"][1]["days_until"], 3)
+        self.assertIn("om 3 dager", briefing["critical_items"][1]["text"])
+        self.assertEqual(briefing["headline"], "Earnings-fokus i dag.")
 
-    def test_analyst_material_changes_included(self):
+    def test_vurder_kjop_goes_to_watchlist(self):
         context = {
-            "analyst_summary": {
-                "material_changes": [
+            "watchlist_advisor_output": {
+                "items": [
                     {
                         "ticker": "NVDA",
-                        "change_type": "target_mean",
-                        "Endring": "Kursmål opp (+5.5%)",
+                        "watchlist_action": ACTION_VURDER_KJOP,
+                        "headline": "Sterk kandidat for videre vurdering",
+                        "priority": 1,
                     },
                     {
-                        "ticker": "AAPL",
-                        "change_type": "recommendation_key",
-                        "Endring": "Konsensus endret til Hold",
+                        "ticker": "MSFT",
+                        "watchlist_action": ACTION_AVVENT_EARNINGS,
+                        "headline": "Rapport nær – avvent inngang",
+                        "priority": 1,
                     },
                 ],
             },
@@ -113,29 +117,46 @@ class BuildDailyBriefingTests(unittest.TestCase):
 
         briefing = build_daily_briefing(context)
 
-        self.assertEqual(len(briefing["analyst_items"]), 2)
-        self.assertEqual(
-            briefing["analyst_items"][0]["text"],
-            "NVDA: Kursmål opp (+5.5%)",
+        self.assertEqual(len(briefing["watchlist_items"]), 2)
+        vurder_kjop_items = [
+            item
+            for item in briefing["watchlist_items"]
+            if item.get("watchlist_action") == ACTION_VURDER_KJOP
+        ]
+        self.assertEqual(len(vurder_kjop_items), 1)
+        self.assertEqual(vurder_kjop_items[0]["ticker"], "NVDA")
+        self.assertNotIn(
+            ACTION_VURDER_KJOP,
+            {
+                item.get("watchlist_action")
+                for item in briefing["important_items"]
+            },
         )
 
-    def test_candidate_items_from_screener_and_opportunity_advisor(self):
+    def test_candidate_items_from_opportunity_advisor(self):
         context = {
-            "screener_results": pd.DataFrame(
-                [
-                    {"ticker": "AVGO", "score": 96},
-                    {"ticker": "JPM", "score": 92},
-                    {"ticker": "MSFT", "score": 88},
-                    {"ticker": "AAPL", "score": 85},
-                ]
-            ),
             "opportunity_advisor": {
                 "items": [
                     {
                         "ticker": "AVGO",
                         "headline": "Sterk screener-kandidat",
                         "priority": 1,
-                    }
+                    },
+                    {
+                        "ticker": "JPM",
+                        "headline": "Momentum og sterk score",
+                        "priority": 2,
+                    },
+                    {
+                        "ticker": "MSFT",
+                        "headline": "Solid kandidat",
+                        "priority": 2,
+                    },
+                    {
+                        "ticker": "AAPL",
+                        "headline": "Interessant oppside",
+                        "priority": 3,
+                    },
                 ],
             },
         }
@@ -147,28 +168,151 @@ class BuildDailyBriefingTests(unittest.TestCase):
             briefing["candidate_items"][0]["text"],
             "AVGO: Sterk screener-kandidat",
         )
-        self.assertEqual(briefing["candidate_items"][1]["text"], "JPM score 92")
+        self.assertEqual(
+            briefing["candidate_items"][1]["text"],
+            "JPM: Momentum og sterk score",
+        )
 
-    def test_news_items_only_clear_sentiment(self):
+    def test_headline_quiet_day(self):
+        briefing = build_daily_briefing({})
+        self.assertEqual(
+            briefing["headline"],
+            "Rolig dag – ingen kritiske hendelser.",
+        )
+
+    def test_headline_earnings_focus(self):
+        context = {
+            "earnings_summary": {
+                "items": [
+                    {"ticker": "DNB.OL", "days_until": 1, "in_portfolio": True},
+                ],
+            },
+        }
+
+        briefing = build_daily_briefing(context)
+        self.assertEqual(briefing["headline"], "Earnings-fokus i dag.")
+
+    def test_headline_candidates_with_reporting_risk(self):
+        context = {
+            "earnings_summary": {
+                "items": [
+                    {"ticker": "DNB.OL", "days_until": 2, "in_portfolio": True},
+                ],
+            },
+            "opportunity_advisor": {
+                "items": [
+                    {"ticker": "AVGO", "headline": "Sterk kandidat", "priority": 1},
+                    {"ticker": "JPM", "headline": "Sterk kandidat", "priority": 1},
+                ],
+            },
+        }
+
+        briefing = build_daily_briefing(context)
+        self.assertEqual(
+            briefing["headline"],
+            "Flere sterke kandidater, men rapporteringsrisiko nærmer seg.",
+        )
+
+    def test_critical_reduser_and_trailing_stop(self):
+        context = {
+            "portfolio_report": pd.DataFrame(
+                [
+                    _portfolio_row(
+                        ticker="NVDA",
+                        portefølje_råd="REDUSER / SELG",
+                    ),
+                ]
+            ),
+            "alerts": [
+                _alert(
+                    ALERT_NEAR_TRAILING_STOP,
+                    "EQNR.OL",
+                    title="Nær trailing stop",
+                    message="Kursen er 2.1 % over stop-nivå.",
+                ),
+            ],
+        }
+
+        briefing = build_daily_briefing(context)
+        categories = {item["category"] for item in briefing["critical_items"]}
+
+        self.assertIn("reduser", categories)
+        self.assertIn("trailing_stop", categories)
+
+    def test_critical_sell_order(self):
+        context = {
+            "alerts": [
+                _alert(
+                    ALERT_PENDING_ORDER,
+                    "NVDA",
+                    message="Salgsordre venter: 10 aksjer @ 120. Utfør, juster limit, eller kanseller.",
+                ),
+            ],
+        }
+
+        briefing = build_daily_briefing(context)
+
+        self.assertEqual(len(briefing["critical_items"]), 1)
+        self.assertEqual(briefing["critical_items"][0]["category"], "sell")
+
+    def test_negative_analyst_change_goes_to_critical(self):
+        context = {
+            "analyst_summary": {
+                "material_changes": [
+                    {
+                        "ticker": "NVDA",
+                        "change_type": "target_mean",
+                        "Endring": "Kursmål ned (-6.0%)",
+                    },
+                    {
+                        "ticker": "AAPL",
+                        "change_type": "target_mean",
+                        "Endring": "Kursmål opp (+5.5%)",
+                    },
+                ],
+            },
+        }
+
+        briefing = build_daily_briefing(context)
+
+        self.assertEqual(len(briefing["critical_items"]), 1)
+        self.assertIn("Kursmål ned", briefing["critical_items"][0]["text"])
+        self.assertEqual(len(briefing["important_items"]), 1)
+        self.assertIn("Kursmål opp", briefing["important_items"][0]["text"])
+
+    def test_avvent_earnings_goes_to_important(self):
+        context = {
+            "watchlist_advisor_output": {
+                "items": [
+                    {
+                        "ticker": "MSFT",
+                        "watchlist_action": ACTION_AVVENT_EARNINGS,
+                        "headline": "Rapport nær – avvent inngang",
+                        "priority": 1,
+                    },
+                ],
+            },
+        }
+
+        briefing = build_daily_briefing(context)
+
+        self.assertEqual(len(briefing["important_items"]), 1)
+        self.assertEqual(briefing["important_items"][0]["rule"], "avvent_earnings")
+
+    def test_strong_negative_sentiment_goes_to_important(self):
         context = {
             "sentiment_summary": {
                 "items": [
                     {
-                        "ticker": "NVDA",
-                        "sentiment": SENTIMENT_POSITIVE,
-                        "score": 0.8,
+                        "ticker": "TSLA",
+                        "sentiment": SENTIMENT_NEGATIVE,
+                        "score": -0.75,
                         "in_portfolio": True,
                     },
                     {
-                        "ticker": "TSLA",
-                        "sentiment": SENTIMENT_NEGATIVE,
-                        "score": -0.7,
-                        "in_portfolio": False,
-                    },
-                    {
                         "ticker": "MSFT",
-                        "sentiment": "NEUTRAL",
-                        "score": 0.0,
+                        "sentiment": SENTIMENT_NEGATIVE,
+                        "score": -0.30,
                         "in_portfolio": False,
                     },
                 ],
@@ -177,55 +321,22 @@ class BuildDailyBriefingTests(unittest.TestCase):
 
         briefing = build_daily_briefing(context)
 
-        self.assertEqual(len(briefing["news_items"]), 2)
-        self.assertEqual(briefing["news_items"][0]["ticker"], "NVDA")
-        self.assertIn("Positiv", briefing["news_items"][0]["text"])
-        self.assertEqual(briefing["news_items"][1]["ticker"], "TSLA")
-        self.assertIn("Negativ", briefing["news_items"][1]["text"])
-
-    def test_summary_rules(self):
-        context = {
-            "advisor_output": {
-                "items": [
-                    _advisor_item(
-                        "NVDA",
-                        CONFLICT_GAIN_VS_STOP,
-                        "Gevinst høy, stop nær",
-                    )
-                ],
-            },
-            "earnings_summary": {
-                "items": [
-                    {"ticker": "DNB.OL", "days_until": 0, "in_portfolio": True},
-                ],
-            },
-            "screener_results": pd.DataFrame(
-                [
-                    {"ticker": "AVGO", "score": 96},
-                    {"ticker": "JPM", "score": 92},
-                ]
-            ),
-        }
-
-        briefing = build_daily_briefing(context, today=date(2026, 6, 14))
-        rules = {item["rule"] for item in briefing["summary_items"]}
-
-        self.assertEqual(
-            rules,
-            {"earnings_today", "advisor_conflicts", "strong_candidates"},
-        )
+        self.assertEqual(len(briefing["important_items"]), 1)
+        self.assertEqual(briefing["important_items"][0]["ticker"], "TSLA")
 
 
 class FormatDailyBriefingTests(unittest.TestCase):
     def test_format_daily_briefing_renders_sections(self):
         briefing = {
-            "portfolio_items": [{"text": "NVDA: gevinst høy, stop nær"}],
-            "earnings_items": [{"text": "DNB rapporterer om 3 dager"}],
+            "headline": "Handlingspunkter krever oppmerksomhet i dag.",
+            "critical_items": [{"text": "NVDA: Reduser / selg"}],
+            "important_items": [{"text": "MSFT: Rapport nær – avvent inngang"}],
+            "watchlist_items": [{"text": "NVDA: sterk kandidat for videre vurdering"}],
             "candidate_items": [
-                {"text": "AVGO score 96"},
-                {"text": "JPM score 92"},
+                {"text": "AVGO: Sterk screener-kandidat"},
+                {"text": "JPM: Momentum og sterk score"},
             ],
-            "summary_items": [
+            "summary": [
                 {"text": "Markedet tilbyr flere interessante kandidater"},
             ],
         }
@@ -233,12 +344,13 @@ class FormatDailyBriefingTests(unittest.TestCase):
         formatted = format_daily_briefing(briefing)
 
         self.assertIn("Dagens briefing", formatted)
-        self.assertIn("Portefølje", formatted)
-        self.assertIn("• NVDA: gevinst høy, stop nær", formatted)
-        self.assertIn("Earnings", formatted)
-        self.assertIn("• DNB rapporterer om 3 dager", formatted)
+        self.assertIn("Handlingspunkter krever oppmerksomhet i dag.", formatted)
+        self.assertIn("Kritisk", formatted)
+        self.assertIn("• NVDA: Reduser / selg", formatted)
+        self.assertIn("Viktig", formatted)
+        self.assertIn("Watchlist", formatted)
         self.assertIn("Kandidater", formatted)
-        self.assertIn("• AVGO score 96", formatted)
+        self.assertIn("• AVGO: Sterk screener-kandidat", formatted)
         self.assertIn("Oppsummering", formatted)
 
 
@@ -246,12 +358,12 @@ class ResolveDailyBriefingTests(unittest.TestCase):
     def test_uses_existing_daily_briefing_from_context(self):
         existing = {
             "generated_at": "2026-06-12T08:00:00+00:00",
-            "portfolio_items": [{"text": "NVDA: cached briefing"}],
-            "earnings_items": [],
-            "analyst_items": [],
+            "headline": "Rolig dag – ingen kritiske hendelser.",
+            "critical_items": [],
+            "important_items": [],
+            "watchlist_items": [],
             "candidate_items": [],
-            "news_items": [],
-            "summary_items": [],
+            "summary": [],
         }
         context = {"daily_briefing": existing}
 
@@ -261,19 +373,18 @@ class ResolveDailyBriefingTests(unittest.TestCase):
 
     def test_builds_briefing_when_context_missing_field(self):
         context = {
-            "advisor_output": {
-                "items": [
-                    _advisor_item(
-                        "NVDA",
-                        CONFLICT_GAIN_VS_STOP,
-                        "Gevinst høy, stop nær",
-                    )
-                ],
-            },
+            "portfolio_report": pd.DataFrame(
+                [
+                    _portfolio_row(
+                        ticker="NVDA",
+                        portefølje_råd="REDUSER / SELG",
+                    ),
+                ]
+            ),
         }
 
         briefing = resolve_daily_briefing(context)
 
         self.assertNotIn("daily_briefing", context)
-        self.assertEqual(len(briefing["portfolio_items"]), 1)
-        self.assertIn("gevinst høy", briefing["portfolio_items"][0]["text"])
+        self.assertEqual(len(briefing["critical_items"]), 1)
+        self.assertIn("Reduser / selg", briefing["critical_items"][0]["text"])

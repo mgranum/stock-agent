@@ -137,12 +137,12 @@ def _sample_context():
         "daily_briefing": {
             "generated_at": "2026-06-12T08:00:00+00:00",
             "date": "2026-06-12",
-            "portfolio_items": [],
-            "earnings_items": [],
-            "analyst_items": [],
+            "headline": "Rolig dag – ingen kritiske hendelser.",
+            "critical_items": [],
+            "important_items": [],
+            "watchlist_items": [],
             "candidate_items": [],
-            "news_items": [],
-            "summary_items": [],
+            "summary": [],
         },
     }
 
@@ -188,7 +188,7 @@ class ContextSnapshotTests(unittest.TestCase):
             loaded["daily_briefing"]["generated_at"],
             "2026-06-12T08:00:00+00:00",
         )
-        self.assertEqual(loaded["daily_briefing"]["portfolio_items"], [])
+        self.assertEqual(loaded["daily_briefing"]["critical_items"], [])
 
     def test_old_snapshot_is_ignored(self):
         save_context_snapshot(_sample_context())
@@ -347,12 +347,12 @@ class BuildAgentContextDailyBriefingTests(unittest.TestCase):
         mock_build_daily_briefing.return_value = {
             "generated_at": "2026-06-12T08:00:00+00:00",
             "date": "2026-06-12",
-            "portfolio_items": [],
-            "earnings_items": [],
-            "analyst_items": [],
+            "headline": "Rolig dag – ingen kritiske hendelser.",
+            "critical_items": [],
+            "important_items": [],
+            "watchlist_items": [],
             "candidate_items": [],
-            "news_items": [],
-            "summary_items": [],
+            "summary": [],
         }
 
         context = build_agent_context(

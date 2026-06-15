@@ -5,6 +5,9 @@ from pathlib import Path
 import pandas as pd
 import yfinance as yf
 
+from src.cache_preserve import annotate_fetch_attempt
+from src.table_display import display_table_cell, ensure_string_columns
+
 SOURCE_YFINANCE = "yfinance"
 
 RECOMMENDATION_LABELS = {
@@ -297,25 +300,53 @@ def _write_analyst_cache(cache_file, symbol, data, today=None):
         )
 
 
+def _load_analyst_cache(cache_file):
+    if not cache_file.exists():
+        return None, None
+
+    with open(cache_file, "r", encoding="utf-8") as f:
+        cached = json.load(f)
+
+    return cached.get("date"), cached.get("data")
+
+
+def _should_preserve_analyst_cache(existing_data, fetched_data):
+    return (
+        existing_data is not None
+        and _has_analyst_data(existing_data)
+        and not _has_analyst_data(fetched_data)
+    )
+
+
 def get_analyst(symbol, use_cache=True, today=None):
     today = today or date.today()
     today_iso = today.isoformat()
     symbol = str(symbol).strip().upper()
     cache_file = _cache_file(symbol)
 
-    previous_data = None
-    if cache_file.exists():
-        with open(cache_file, "r", encoding="utf-8") as f:
-            cached = json.load(f)
+    cache_date, existing_data = _load_analyst_cache(cache_file)
+    if use_cache and cache_date == today_iso and existing_data is not None:
+        print(f"Bruker analyst-cache for {symbol}")
+        return dict(existing_data)
 
-        if use_cache and cached.get("date") == today_iso:
-            print(f"Bruker analyst-cache for {symbol}")
-            return dict(cached["data"])
+    try:
+        fetched = _fetch_yfinance_analyst(symbol)
+    except Exception as exc:
+        if existing_data is not None and _has_analyst_data(existing_data):
+            preserved = annotate_fetch_attempt(dict(existing_data), error=exc)
+            _write_analyst_cache(cache_file, symbol, preserved, today=today)
+            return preserved
+        raise
 
-        previous_data = cached.get("data")
+    if _should_preserve_analyst_cache(existing_data, fetched):
+        preserved = annotate_fetch_attempt(
+            dict(existing_data),
+            error="missing analyst data",
+        )
+        _write_analyst_cache(cache_file, symbol, preserved, today=today)
+        return preserved
 
-    data = _fetch_yfinance_analyst(symbol)
-    data = _apply_change_detection(data, previous_data)
+    data = _apply_change_detection(fetched, existing_data)
     _write_analyst_cache(cache_file, symbol, data, today=today)
     return data
 
@@ -412,13 +443,18 @@ def build_analyst_table(analyst_summary):
                 "Konsensus": format_recommendation_label(
                     item.get("recommendation_key"),
                 ),
-                "Analytikere": analyst_count if analyst_count is not None else "—",
-                "Kursmål": round(target_mean, 2) if target_mean is not None else "—",
-                "Oppside %": upside_pct if upside_pct is not None else "—",
+                "Analytikere": display_table_cell(analyst_count),
+                "Kursmål": display_table_cell(
+                    round(target_mean, 2) if target_mean is not None else None
+                ),
+                "Oppside %": display_table_cell(upside_pct),
             }
         )
 
-    return pd.DataFrame(rows)
+    return ensure_string_columns(
+        pd.DataFrame(rows),
+        ["Analytikere", "Kursmål", "Oppside %"],
+    )
 
 
 def build_analyst_changes_table(analyst_summary):
@@ -432,12 +468,16 @@ def build_analyst_changes_table(analyst_summary):
             {
                 "Ticker": change.get("ticker", ""),
                 "Endring": change.get("Endring", ""),
-                "Fra": _format_change_value(change.get("Fra")),
-                "Til": _format_change_value(change.get("Til")),
+                "Fra": display_table_cell(
+                    _format_change_value(change.get("Fra")),
+                ),
+                "Til": display_table_cell(
+                    _format_change_value(change.get("Til")),
+                ),
             }
         )
 
-    return pd.DataFrame(rows)
+    return ensure_string_columns(pd.DataFrame(rows), ["Fra", "Til"])
 
 
 def find_analyst_item(analyst_summary, ticker):

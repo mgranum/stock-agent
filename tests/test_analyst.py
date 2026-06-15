@@ -139,6 +139,106 @@ class AnalystCacheTests(unittest.TestCase):
         self.assertEqual(result["recommendation_key"], "buy")
         self.assertEqual(result["analyst_count"], 31)
 
+    @patch("src.analyst._fetch_yfinance_analyst")
+    def test_empty_fetch_does_not_overwrite_useful_cache(self, mock_fetch):
+        cache_file = self.cache_root / "NVDA_analyst.json"
+        _write_analyst_cache(
+            cache_file,
+            "NVDA",
+            {
+                "ticker": "NVDA",
+                "recommendation_key": "strong_buy",
+                "recommendation_mean": 1.3,
+                "analyst_count": 59,
+                "target_mean": 298.93,
+                "source": SOURCE_YFINANCE,
+                "last_updated": "2026-06-11T08:00:00+00:00",
+            },
+            today=date(2026, 6, 11),
+        )
+        mock_fetch.return_value = {
+            "ticker": "NVDA",
+            "recommendation_key": None,
+            "recommendation_mean": None,
+            "analyst_count": None,
+            "target_mean": None,
+            "target_median": None,
+            "target_high": None,
+            "target_low": None,
+            "current_price": None,
+            "upside_pct": None,
+            "currency": None,
+            "distribution": None,
+            "source": SOURCE_YFINANCE,
+            "last_updated": "2026-06-12T08:00:00+00:00",
+        }
+
+        result = get_analyst("NVDA", use_cache=True, today=date(2026, 6, 12))
+
+        self.assertEqual(result["recommendation_key"], "strong_buy")
+        self.assertEqual(result["analyst_count"], 59)
+        self.assertEqual(result["fetch_error"], "missing analyst data")
+        self.assertIn("last_attempted_at", result)
+
+        cached = json.loads(cache_file.read_text(encoding="utf-8"))
+        self.assertEqual(cached["date"], "2026-06-12")
+        self.assertEqual(cached["data"]["analyst_count"], 59)
+
+    @patch("src.analyst._fetch_yfinance_analyst")
+    def test_empty_fetch_can_be_saved_without_existing_cache(self, mock_fetch):
+        mock_fetch.return_value = {
+            "ticker": "UNKNOWN",
+            "recommendation_key": None,
+            "recommendation_mean": None,
+            "analyst_count": None,
+            "target_mean": None,
+            "target_median": None,
+            "target_high": None,
+            "target_low": None,
+            "current_price": None,
+            "upside_pct": None,
+            "currency": None,
+            "distribution": None,
+            "source": SOURCE_YFINANCE,
+            "last_updated": "2026-06-12T08:00:00+00:00",
+        }
+
+        result = get_analyst("UNKNOWN", use_cache=True, today=date(2026, 6, 12))
+
+        self.assertIsNone(result["recommendation_key"])
+        self.assertNotIn("fetch_error", result)
+
+        cache_file = self.cache_root / "UNKNOWN_analyst.json"
+        cached = json.loads(cache_file.read_text(encoding="utf-8"))
+        self.assertIsNone(cached["data"]["analyst_count"])
+
+    @patch("src.analyst._fetch_yfinance_analyst")
+    def test_network_exception_preserves_existing_cache(self, mock_fetch):
+        cache_file = self.cache_root / "MSFT_analyst.json"
+        _write_analyst_cache(
+            cache_file,
+            "MSFT",
+            {
+                "ticker": "MSFT",
+                "recommendation_key": "buy",
+                "recommendation_mean": 2.5,
+                "analyst_count": 31,
+                "target_mean": 510.0,
+                "source": SOURCE_YFINANCE,
+                "last_updated": "2026-06-11T08:00:00+00:00",
+            },
+            today=date(2026, 6, 11),
+        )
+        mock_fetch.side_effect = ConnectionError("network down")
+
+        result = get_analyst("MSFT", use_cache=True, today=date(2026, 6, 12))
+
+        self.assertEqual(result["analyst_count"], 31)
+        self.assertIn("network down", result["fetch_error"])
+
+        cached = json.loads(cache_file.read_text(encoding="utf-8"))
+        self.assertEqual(cached["data"]["analyst_count"], 31)
+
 
 class FetchAnalystDataTests(unittest.TestCase):
     @patch("src.analyst.yf.Ticker")
@@ -358,9 +458,46 @@ class BuildAnalystSummaryTests(unittest.TestCase):
         )
         self.assertEqual(table.iloc[0]["Ticker"], "NVDA")
         self.assertEqual(table.iloc[0]["Konsensus"], "Sterk kjøp")
-        self.assertEqual(table.iloc[0]["Analytikere"], 59)
-        self.assertEqual(table.iloc[0]["Kursmål"], 298.93)
-        self.assertEqual(table.iloc[0]["Oppside %"], 45.9)
+        self.assertEqual(table.iloc[0]["Analytikere"], "59")
+        self.assertEqual(table.iloc[0]["Kursmål"], "298.93")
+        self.assertEqual(table.iloc[0]["Oppside %"], "45.9")
+
+    def test_build_analyst_table_arrow_compatible_with_missing_values(self):
+        import pyarrow as pa
+
+        summary = {
+            "items": [
+                {
+                    "ticker": "NVDA",
+                    "recommendation_key": "strong_buy",
+                    "analyst_count": 42,
+                    "target_mean": 298.93,
+                    "upside_pct": 45.9,
+                },
+                {
+                    "ticker": "EMPTY",
+                    "recommendation_key": None,
+                    "analyst_count": None,
+                    "target_mean": None,
+                    "upside_pct": None,
+                },
+            ]
+        }
+
+        table = build_analyst_table(summary)
+
+        for column in ("Analytikere", "Kursmål", "Oppside %"):
+            self.assertTrue(
+                all(isinstance(value, str) for value in table[column]),
+                msg=f"{column} should contain only strings",
+            )
+
+        self.assertEqual(table.iloc[0]["Analytikere"], "42")
+        self.assertEqual(table.iloc[1]["Analytikere"], "—")
+        self.assertEqual(table.iloc[1]["Kursmål"], "—")
+        self.assertEqual(table.iloc[1]["Oppside %"], "—")
+
+        pa.Table.from_pandas(table)
 
 
 class SortAnalystItemsTests(unittest.TestCase):
@@ -559,8 +696,8 @@ class AnalystChangeDetectionTests(unittest.TestCase):
             ["Ticker", "Endring", "Fra", "Til"],
         )
         self.assertEqual(table.iloc[0]["Ticker"], "AAPL")
-        self.assertEqual(table.iloc[0]["Fra"], 100.0)
-        self.assertEqual(table.iloc[0]["Til"], 110.0)
+        self.assertEqual(table.iloc[0]["Fra"], "100")
+        self.assertEqual(table.iloc[0]["Til"], "110")
 
     @patch("src.analyst.get_analyst")
     def test_build_analyst_summary_includes_material_changes(self, mock_get_analyst):

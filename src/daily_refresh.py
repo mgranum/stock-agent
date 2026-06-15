@@ -28,6 +28,7 @@ from src.fundamentals import get_fundamentals
 from src.indicators import add_indicators
 from src.model_backtest import save_model_snapshot
 from src.news import build_news_summary, get_news
+from src.network import check_network_ready
 from src.research_ideas import load_research_ideas
 from src.screener import screen_nordics, screen_obx, screen_us_large
 from src.sentiment import build_sentiment_summary
@@ -35,6 +36,10 @@ from src.storage import load_pending_orders, load_portfolio
 from src.technicals import analyze_technicals, get_benchmark_for_symbol
 
 _lock_file_handle: Any | None = None
+
+NETWORK_PREFLIGHT_RETRIES = 3
+NETWORK_PREFLIGHT_RETRY_DELAY_SECONDS = 60.0
+NETWORK_SKIP_REASON = "network_unavailable"
 
 
 def _project_root() -> Path:
@@ -186,6 +191,9 @@ def format_refresh_panel_status(
         elif last_status == "failed":
             status = "failed"
             status_label = "Feilet"
+        elif last_status == "skipped_network":
+            status = "skipped_network"
+            status_label = "Nettverksfeil – bruker siste vellykkede data"
         elif last_successful_date != today_iso:
             status = "stale"
             status_label = "Ikke oppdatert i dag"
@@ -310,9 +318,14 @@ def _refresh_earnings(
     today: date | None = None,
 ) -> None:
     try:
-        get_earnings(symbol, use_cache=use_cache, today=today)
+        result = get_earnings(symbol, use_cache=use_cache, today=today)
     except Exception as exc:
         _record_error(errors, symbol, "earnings", exc)
+        return
+
+    fetch_error = result.get("fetch_error") if isinstance(result, dict) else None
+    if isinstance(fetch_error, str) and fetch_error:
+        _record_error(errors, symbol, "earnings", Exception(fetch_error))
 
 
 def _refresh_analyst(
@@ -322,9 +335,14 @@ def _refresh_analyst(
     today: date | None = None,
 ) -> None:
     try:
-        get_analyst(symbol, use_cache=use_cache, today=today)
+        result = get_analyst(symbol, use_cache=use_cache, today=today)
     except Exception as exc:
         _record_error(errors, symbol, "analyst", exc)
+        return
+
+    fetch_error = result.get("fetch_error") if isinstance(result, dict) else None
+    if isinstance(fetch_error, str) and fetch_error:
+        _record_error(errors, symbol, "analyst", Exception(fetch_error))
 
 
 def _refresh_news(
@@ -443,9 +461,43 @@ def run_daily_refresh(
     }
 
 
+def wait_for_network_ready(
+    *,
+    retries: int = NETWORK_PREFLIGHT_RETRIES,
+    retry_delay_seconds: float = NETWORK_PREFLIGHT_RETRY_DELAY_SECONDS,
+    sleep_fn=time.sleep,
+    check_fn=None,
+) -> tuple[bool, str | None]:
+    check = check_fn or check_network_ready
+    last_error: str | None = None
+
+    for attempt in range(1, retries + 1):
+        ready, error = check()
+        if ready:
+            return True, None
+
+        last_error = error
+        if attempt < retries:
+            sleep_fn(retry_delay_seconds)
+
+    return False, last_error
+
+
 def build_refresh_summary(result: dict[str, Any]) -> str:
+    if result.get("skipped_network"):
+        message = result.get("message") or (
+            "Daily Refresh hoppet over: nettverk utilgjengelig."
+        )
+        return message
+
     if result.get("skipped"):
-        return str(result.get("message") or "Daily Refresh hoppet over.")
+        message = str(result.get("message") or "Daily Refresh hoppet over.")
+        if result.get("dry_run") and "network_ready" in result:
+            network_label = (
+                "klart" if result.get("network_ready") else "utilgjengelig"
+            )
+            return f"{message}\n\nNettverk: {network_label}."
+        return message
 
     lines = [
         "Daily Refresh Fullført",
@@ -532,6 +584,37 @@ def _save_finished_state(
     ))
 
 
+def _save_skipped_network_state(
+    *,
+    error: str,
+    previous: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    previous = previous or {}
+    finished_at = _utc_now_iso()
+    save_refresh_state(_build_refresh_state(
+        last_successful_date=previous.get("last_successful_date"),
+        last_started_at=finished_at,
+        last_finished_at=finished_at,
+        last_status="skipped_network",
+        last_error_count=1,
+        duration_seconds=0,
+    ))
+    message = (
+        "Daily Refresh hoppet over: nettverk utilgjengelig. "
+        f"{error}"
+    )
+    return {
+        "success": True,
+        "skipped": True,
+        "skipped_network": True,
+        "reason": NETWORK_SKIP_REASON,
+        "message": message,
+        "network_error": error,
+        "finished_at": finished_at,
+        "errors": [],
+    }
+
+
 def _save_skipped_state(
     *,
     reason: str,
@@ -562,6 +645,8 @@ def execute_daily_refresh(
     force: bool = False,
     dry_run: bool = False,
     today: date | None = None,
+    network_retries: int = NETWORK_PREFLIGHT_RETRIES,
+    network_retry_delay_seconds: float = NETWORK_PREFLIGHT_RETRY_DELAY_SECONDS,
 ) -> dict[str, Any]:
     today = today or date.today()
     previous = load_refresh_state()
@@ -569,12 +654,15 @@ def execute_daily_refresh(
     if not should_run_refresh(today=today, force=force):
         reason = "Daily Refresh hoppet over: allerede kjørt i dag."
         if dry_run:
+            network_ready, network_error = check_network_ready()
             return {
                 "success": True,
                 "skipped": True,
                 "dry_run": True,
                 "reason": reason,
                 "message": reason,
+                "network_ready": network_ready,
+                "network_error": network_error,
                 "errors": [],
             }
         return _save_skipped_state(reason=reason, previous=previous)
@@ -582,18 +670,22 @@ def execute_daily_refresh(
     if not acquire_refresh_lock():
         reason = "Daily Refresh hoppet over: kjøring pågår allerede."
         if dry_run:
+            network_ready, network_error = check_network_ready()
             return {
                 "success": True,
                 "skipped": True,
                 "dry_run": True,
                 "reason": reason,
                 "message": reason,
+                "network_ready": network_ready,
+                "network_error": network_error,
                 "errors": [],
             }
         return _save_skipped_state(reason=reason, previous=previous)
 
     if dry_run:
         release_refresh_lock()
+        network_ready, network_error = check_network_ready()
         message = "Daily Refresh dry-run: ville kjørt refresh nå."
         return {
             "success": True,
@@ -601,8 +693,22 @@ def execute_daily_refresh(
             "dry_run": True,
             "reason": message,
             "message": message,
+            "network_ready": network_ready,
+            "network_error": network_error,
             "errors": [],
         }
+
+    network_ready, network_error = wait_for_network_ready(
+        retries=network_retries,
+        retry_delay_seconds=network_retry_delay_seconds,
+    )
+    if not network_ready:
+        result = _save_skipped_network_state(
+            error=network_error or "Network preflight failed",
+            previous=previous,
+        )
+        release_refresh_lock()
+        return result
 
     started_at = _utc_now_iso()
     _save_running_state(previous, started_at)
@@ -647,6 +753,9 @@ def main(argv: list[str] | None = None) -> int:
     print(build_refresh_summary(result))
 
     if result.get("skipped"):
+        return 0
+
+    if result.get("skipped_network"):
         return 0
 
     if not result.get("success"):

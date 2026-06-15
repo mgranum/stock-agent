@@ -5,7 +5,7 @@
 * [ ] Daily Briefing v2
 * [ ] Opportunity Advisor v2
 * [ ] Daily Refresh v2.1 – Network preflight og retry
-* [ ] Strategy Profiles v2
+* [ ] Strategy Profiles v2 - skille kvalitet, momentum og trend-following
 * [ ] Agentisk overvåkning / endringsvarsler
 
 ## 💡 Ideer og fremtidige features

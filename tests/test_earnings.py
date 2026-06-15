@@ -11,6 +11,7 @@ from src.earnings import (
     STATUS_UNKNOWN,
     _write_earnings_cache,
     build_earnings_summary,
+    build_earnings_table,
     compute_days_until,
     determine_status,
     get_earnings,
@@ -140,6 +141,88 @@ class EarningsCacheTests(unittest.TestCase):
         mock_fetch.assert_not_called()
         self.assertEqual(result["days_until"], 5)
 
+    @patch("src.earnings._fetch_yfinance_earnings")
+    def test_unknown_fetch_does_not_overwrite_useful_cache(self, mock_fetch):
+        cache_file = self.cache_root / "AAPL_earnings.json"
+        _write_earnings_cache(
+            cache_file,
+            "AAPL",
+            {
+                "ticker": "AAPL",
+                "earnings_date": "2026-07-30",
+                "days_until": 48,
+                "status": STATUS_ESTIMATED,
+                "source": "yfinance",
+                "last_updated": "2026-06-11T08:00:00+00:00",
+            },
+            today=date(2026, 6, 11),
+        )
+        mock_fetch.return_value = {
+            "ticker": "AAPL",
+            "earnings_date": None,
+            "days_until": None,
+            "status": STATUS_UNKNOWN,
+            "source": "yfinance",
+            "last_updated": "2026-06-12T08:00:00+00:00",
+        }
+
+        result = get_earnings("AAPL", use_cache=True, today=date(2026, 6, 12))
+
+        self.assertEqual(result["earnings_date"], "2026-07-30")
+        self.assertEqual(result["status"], STATUS_ESTIMATED)
+        self.assertEqual(result["fetch_error"], "unknown earnings data")
+        self.assertIn("last_attempted_at", result)
+
+        cached = json.loads(cache_file.read_text(encoding="utf-8"))
+        self.assertEqual(cached["date"], "2026-06-12")
+        self.assertEqual(cached["data"]["earnings_date"], "2026-07-30")
+
+    @patch("src.earnings._fetch_yfinance_earnings")
+    def test_unknown_fetch_can_be_saved_without_existing_cache(self, mock_fetch):
+        mock_fetch.return_value = {
+            "ticker": "UNKNOWN",
+            "earnings_date": None,
+            "days_until": None,
+            "status": STATUS_UNKNOWN,
+            "source": "yfinance",
+            "last_updated": "2026-06-12T08:00:00+00:00",
+        }
+
+        result = get_earnings("UNKNOWN", use_cache=True, today=date(2026, 6, 12))
+
+        self.assertEqual(result["status"], STATUS_UNKNOWN)
+        self.assertNotIn("fetch_error", result)
+
+        cache_file = self.cache_root / "UNKNOWN_earnings.json"
+        cached = json.loads(cache_file.read_text(encoding="utf-8"))
+        self.assertEqual(cached["data"]["status"], STATUS_UNKNOWN)
+
+    @patch("src.earnings._fetch_yfinance_earnings")
+    def test_network_exception_preserves_existing_cache(self, mock_fetch):
+        cache_file = self.cache_root / "MSFT_earnings.json"
+        _write_earnings_cache(
+            cache_file,
+            "MSFT",
+            {
+                "ticker": "MSFT",
+                "earnings_date": "2026-06-20",
+                "days_until": 8,
+                "status": STATUS_CONFIRMED,
+                "source": "yfinance",
+                "last_updated": "2026-06-11T08:00:00+00:00",
+            },
+            today=date(2026, 6, 11),
+        )
+        mock_fetch.side_effect = ConnectionError("network down")
+
+        result = get_earnings("MSFT", use_cache=True, today=date(2026, 6, 12))
+
+        self.assertEqual(result["earnings_date"], "2026-06-20")
+        self.assertIn("network down", result["fetch_error"])
+
+        cached = json.loads(cache_file.read_text(encoding="utf-8"))
+        self.assertEqual(cached["data"]["earnings_date"], "2026-06-20")
+
 
 class BuildEarningsSummaryTests(unittest.TestCase):
     @patch("src.earnings.get_earnings")
@@ -236,6 +319,38 @@ class SortEarningsItemsTests(unittest.TestCase):
         sorted_items = sort_earnings_items(items, portfolio_tickers={"AAA"})
 
         self.assertEqual([item["ticker"] for item in sorted_items], ["AAA", "ZZZ"])
+
+
+class BuildEarningsTableTests(unittest.TestCase):
+    def test_build_earnings_table_arrow_compatible_with_missing_days(self):
+        import pyarrow as pa
+
+        summary = {
+            "items": [
+                {
+                    "ticker": "AAPL",
+                    "earnings_date": "2026-06-15",
+                    "days_until": 3,
+                    "status": STATUS_CONFIRMED,
+                    "source": "yfinance",
+                },
+                {
+                    "ticker": "UNKNOWN",
+                    "earnings_date": None,
+                    "days_until": None,
+                    "status": STATUS_UNKNOWN,
+                    "source": "yfinance",
+                },
+            ],
+        }
+
+        table = build_earnings_table(summary)
+
+        self.assertTrue(all(isinstance(value, str) for value in table["Dager"]))
+        self.assertEqual(table.iloc[0]["Dager"], "3")
+        self.assertEqual(table.iloc[1]["Dager"], "—")
+
+        pa.Table.from_pandas(table)
 
 
 if __name__ == "__main__":

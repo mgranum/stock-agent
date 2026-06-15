@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
+from src.analyst import SOURCE_YFINANCE, _write_analyst_cache, get_analyst
 from src.daily_refresh import (
     acquire_refresh_lock,
     build_refresh_summary,
@@ -23,6 +24,14 @@ from src.daily_refresh import (
     run_daily_refresh,
     save_refresh_state,
     should_run_refresh,
+    wait_for_network_ready,
+)
+from src.daily_refresh import _refresh_analyst, _refresh_earnings
+from src.earnings import (
+    STATUS_CONFIRMED,
+    STATUS_UNKNOWN,
+    _write_earnings_cache,
+    get_earnings,
 )
 
 
@@ -339,8 +348,14 @@ class RefreshStateTests(unittest.TestCase):
         self.state_patcher.start()
         self.lock_patcher.start()
         release_refresh_lock()
+        self.network_patcher = patch(
+            "src.daily_refresh.wait_for_network_ready",
+            return_value=(True, None),
+        )
+        self.network_patcher.start()
 
     def tearDown(self):
+        self.network_patcher.stop()
         release_refresh_lock()
         self.state_patcher.stop()
         self.lock_patcher.stop()
@@ -456,13 +471,16 @@ class RefreshStateTests(unittest.TestCase):
 
         mock_run.assert_called_once()
 
+    @patch("src.daily_refresh.check_network_ready", return_value=(True, None))
     @patch("src.daily_refresh.run_daily_refresh")
-    def test_dry_run_does_not_execute_refresh(self, mock_run):
+    def test_dry_run_does_not_execute_refresh(self, mock_run, _mock_network):
         result = execute_daily_refresh(dry_run=True, today=date(2026, 6, 14))
 
         mock_run.assert_not_called()
         self.assertTrue(result["dry_run"])
         self.assertIn("dry-run", result["message"])
+        self.assertTrue(result["network_ready"])
+        self.assertIsNone(result["network_error"])
 
     def test_parse_args_supports_force_and_dry_run(self):
         args = parse_args(["--force", "--dry-run"])
@@ -512,6 +530,23 @@ class FormatRefreshPanelStatusTests(unittest.TestCase):
         self.assertEqual(status["status"], "stale")
         self.assertEqual(status["status_label"], "Ikke oppdatert i dag")
 
+    def test_formats_skipped_network(self):
+        status = format_refresh_panel_status(
+            refresh_state={
+                "last_successful_date": "2026-06-13",
+                "last_finished_at": "2026-06-14T04:12:00+00:00",
+                "last_status": "skipped_network",
+                "last_error_count": 1,
+            },
+            today=date(2026, 6, 14),
+        )
+
+        self.assertEqual(status["status"], "skipped_network")
+        self.assertEqual(
+            status["status_label"],
+            "Nettverksfeil – bruker siste vellykkede data",
+        )
+
     @patch("src.daily_refresh.get_context_snapshot_metadata", return_value=None)
     @patch("src.daily_refresh.load_refresh_state", return_value=None)
     def test_formats_unknown_without_state_or_snapshot(
@@ -524,6 +559,236 @@ class FormatRefreshPanelStatusTests(unittest.TestCase):
         self.assertEqual(status["status"], "unknown")
         self.assertEqual(status["status_label"], "Ukjent")
         self.assertEqual(status["updated_at"], "–")
+
+
+class NetworkPreflightTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.cache_dir = Path(self.temp_dir.name)
+        self.state_path = self.cache_dir / "daily_refresh_state.json"
+        self.lock_path = self.cache_dir / "daily_refresh.lock"
+        self.state_patcher = patch(
+            "src.daily_refresh.refresh_state_path",
+            return_value=self.state_path,
+        )
+        self.lock_patcher = patch(
+            "src.daily_refresh.refresh_lock_path",
+            return_value=self.lock_path,
+        )
+        self.state_patcher.start()
+        self.lock_patcher.start()
+        release_refresh_lock()
+
+    def tearDown(self):
+        release_refresh_lock()
+        self.state_patcher.stop()
+        self.lock_patcher.stop()
+        self.temp_dir.cleanup()
+
+    def test_wait_for_network_ready_retries(self):
+        side_effect = [
+            (False, "Could not resolve host: query1.finance.yahoo.com"),
+            (False, "Could not resolve host: query1.finance.yahoo.com"),
+            (True, None),
+        ]
+
+        with patch(
+            "src.daily_refresh.check_network_ready",
+            side_effect=side_effect,
+        ) as mock_check:
+            ready, error = wait_for_network_ready(
+                retries=3,
+                retry_delay_seconds=0,
+                sleep_fn=lambda _seconds: None,
+            )
+
+        self.assertTrue(ready)
+        self.assertIsNone(error)
+        self.assertEqual(mock_check.call_count, 3)
+
+    @patch("src.daily_refresh.run_daily_refresh")
+    @patch(
+        "src.daily_refresh.wait_for_network_ready",
+        return_value=(True, None),
+    )
+    def test_preflight_success_runs_refresh(self, _mock_network, mock_run):
+        mock_run.return_value = _success_result()
+
+        result = execute_daily_refresh(today=date(2026, 6, 14))
+
+        mock_run.assert_called_once()
+        self.assertTrue(result["success"])
+        state = load_refresh_state()
+        assert state is not None
+        self.assertEqual(state["last_status"], "success")
+
+    @patch("src.daily_refresh.run_daily_refresh")
+    @patch(
+        "src.daily_refresh.wait_for_network_ready",
+        return_value=(
+            False,
+            "Could not resolve host: query1.finance.yahoo.com",
+        ),
+    )
+    def test_preflight_fail_skips_refresh_and_preserves_success_date(
+        self,
+        _mock_network,
+        mock_run,
+    ):
+        save_refresh_state({
+            "last_successful_date": "2026-06-13",
+            "last_started_at": "2026-06-13T04:00:00+00:00",
+            "last_finished_at": "2026-06-13T04:10:00+00:00",
+            "last_status": "success",
+            "last_error_count": 0,
+            "duration_seconds": 600.0,
+        })
+
+        result = execute_daily_refresh(today=date(2026, 6, 14))
+
+        mock_run.assert_not_called()
+        self.assertTrue(result["skipped_network"])
+        self.assertTrue(result["success"])
+
+        state = load_refresh_state()
+        assert state is not None
+        self.assertEqual(state["last_status"], "skipped_network")
+        self.assertEqual(state["last_error_count"], 1)
+        self.assertEqual(state["last_successful_date"], "2026-06-13")
+
+    @patch(
+        "src.daily_refresh.wait_for_network_ready",
+        return_value=(
+            False,
+            "Could not resolve host: query1.finance.yahoo.com",
+        ),
+    )
+    def test_network_skip_exits_with_zero(self, _mock_network):
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            exit_code = main([])
+
+        self.assertEqual(exit_code, 0)
+        output = buffer.getvalue()
+        self.assertIn("nettverk utilgjengelig", output.lower())
+
+    @patch("src.daily_refresh.check_network_ready", return_value=(False, "dns fail"))
+    def test_dry_run_reports_network_unavailable(self, _mock_network):
+        result = execute_daily_refresh(dry_run=True, today=date(2026, 6, 14))
+
+        self.assertTrue(result["dry_run"])
+        self.assertFalse(result["network_ready"])
+        self.assertEqual(result["network_error"], "dns fail")
+
+        summary = build_refresh_summary(result)
+        self.assertIn("Nettverk: utilgjengelig", summary)
+
+
+class DailyRefreshCachePreservationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.cache_root = Path(self.temp_dir.name)
+
+        self.earnings_cache_patcher = patch(
+            "src.earnings._cache_dir",
+            return_value=self.cache_root,
+        )
+        self.analyst_cache_patcher = patch(
+            "src.analyst._cache_dir",
+            return_value=self.cache_root,
+        )
+        self.earnings_cache_patcher.start()
+        self.analyst_cache_patcher.start()
+        self.addCleanup(self.earnings_cache_patcher.stop)
+        self.addCleanup(self.analyst_cache_patcher.stop)
+
+    @patch("src.earnings._fetch_yfinance_earnings")
+    def test_refresh_earnings_records_error_and_reuses_preserved_cache(self, mock_fetch):
+        cache_file = self.cache_root / "AAPL_earnings.json"
+        _write_earnings_cache(
+            cache_file,
+            "AAPL",
+            {
+                "ticker": "AAPL",
+                "earnings_date": "2026-07-30",
+                "days_until": 48,
+                "status": STATUS_CONFIRMED,
+                "source": "yfinance",
+                "last_updated": "2026-06-11T08:00:00+00:00",
+            },
+            today=date(2026, 6, 11),
+        )
+        mock_fetch.return_value = {
+            "ticker": "AAPL",
+            "earnings_date": None,
+            "days_until": None,
+            "status": STATUS_UNKNOWN,
+            "source": "yfinance",
+            "last_updated": "2026-06-12T08:00:00+00:00",
+        }
+
+        errors = []
+        _refresh_earnings("AAPL", errors, today=date(2026, 6, 12))
+
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0]["symbol"], "AAPL")
+        self.assertEqual(errors[0]["step"], "earnings")
+
+        cached_result = get_earnings("AAPL", use_cache=True, today=date(2026, 6, 12))
+        self.assertEqual(cached_result["earnings_date"], "2026-07-30")
+        mock_fetch.assert_called_once()
+
+        cached = json.loads(cache_file.read_text(encoding="utf-8"))
+        self.assertEqual(cached["data"]["earnings_date"], "2026-07-30")
+
+    @patch("src.analyst._fetch_yfinance_analyst")
+    def test_refresh_analyst_records_error_and_reuses_preserved_cache(self, mock_fetch):
+        cache_file = self.cache_root / "NVDA_analyst.json"
+        _write_analyst_cache(
+            cache_file,
+            "NVDA",
+            {
+                "ticker": "NVDA",
+                "recommendation_key": "strong_buy",
+                "recommendation_mean": 1.3,
+                "analyst_count": 59,
+                "target_mean": 298.93,
+                "source": SOURCE_YFINANCE,
+                "last_updated": "2026-06-11T08:00:00+00:00",
+            },
+            today=date(2026, 6, 11),
+        )
+        mock_fetch.return_value = {
+            "ticker": "NVDA",
+            "recommendation_key": None,
+            "recommendation_mean": None,
+            "analyst_count": None,
+            "target_mean": None,
+            "target_median": None,
+            "target_high": None,
+            "target_low": None,
+            "current_price": None,
+            "upside_pct": None,
+            "currency": None,
+            "distribution": None,
+            "source": SOURCE_YFINANCE,
+            "last_updated": "2026-06-12T08:00:00+00:00",
+        }
+
+        errors = []
+        _refresh_analyst("NVDA", errors, today=date(2026, 6, 12))
+
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0]["symbol"], "NVDA")
+        self.assertEqual(errors[0]["step"], "analyst")
+
+        cached_result = get_analyst("NVDA", use_cache=True, today=date(2026, 6, 12))
+        self.assertEqual(cached_result["analyst_count"], 59)
+        mock_fetch.assert_called_once()
+
+        cached = json.loads(cache_file.read_text(encoding="utf-8"))
+        self.assertEqual(cached["data"]["analyst_count"], 59)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,9 @@ from pathlib import Path
 import pandas as pd
 import yfinance as yf
 
+from src.cache_preserve import annotate_fetch_attempt
+from src.table_display import display_table_cell, ensure_string_columns
+
 SOURCE_YFINANCE = "yfinance"
 
 STATUS_CONFIRMED = "confirmed"
@@ -171,6 +174,38 @@ def _write_earnings_cache(cache_file, symbol, data, today=None):
         )
 
 
+def _load_earnings_cache(cache_file):
+    if not cache_file.exists():
+        return None, None
+
+    with open(cache_file, "r", encoding="utf-8") as f:
+        cached = json.load(f)
+
+    return cached.get("date"), cached.get("data")
+
+
+def _is_unknown_earnings_data(data):
+    data = data or {}
+    return not data.get("earnings_date") and data.get("status", STATUS_UNKNOWN) == STATUS_UNKNOWN
+
+
+def _has_useful_earnings_data(data):
+    data = data or {}
+    if data.get("earnings_date"):
+        return True
+
+    status = data.get("status")
+    return status not in (None, STATUS_UNKNOWN)
+
+
+def _should_preserve_earnings_cache(existing_data, fetched_data):
+    return (
+        existing_data is not None
+        and _has_useful_earnings_data(existing_data)
+        and _is_unknown_earnings_data(fetched_data)
+    )
+
+
 def _refresh_cached_days_until(data, today=None):
     refreshed = dict(data)
     earnings_date = refreshed.get("earnings_date")
@@ -186,17 +221,30 @@ def get_earnings(symbol, use_cache=True, today=None):
     symbol = str(symbol).strip().upper()
     cache_file = _cache_file(symbol)
 
-    if use_cache and cache_file.exists():
-        with open(cache_file, "r", encoding="utf-8") as f:
-            cached = json.load(f)
+    cache_date, existing_data = _load_earnings_cache(cache_file)
+    if use_cache and cache_date == today_iso and existing_data is not None:
+        print(f"Bruker earnings-cache for {symbol}")
+        return _refresh_cached_days_until(existing_data, today=today)
 
-        if cached.get("date") == today_iso:
-            print(f"Bruker earnings-cache for {symbol}")
-            return _refresh_cached_days_until(cached["data"], today=today)
+    try:
+        fetched = _fetch_yfinance_earnings(symbol)
+    except Exception as exc:
+        if existing_data is not None and _has_useful_earnings_data(existing_data):
+            preserved = annotate_fetch_attempt(dict(existing_data), error=exc)
+            _write_earnings_cache(cache_file, symbol, preserved, today=today)
+            return _refresh_cached_days_until(preserved, today=today)
+        raise
 
-    data = _fetch_yfinance_earnings(symbol)
-    _write_earnings_cache(cache_file, symbol, data, today=today)
-    return data
+    if _should_preserve_earnings_cache(existing_data, fetched):
+        preserved = annotate_fetch_attempt(
+            dict(existing_data),
+            error="unknown earnings data",
+        )
+        _write_earnings_cache(cache_file, symbol, preserved, today=today)
+        return _refresh_cached_days_until(preserved, today=today)
+
+    _write_earnings_cache(cache_file, symbol, fetched, today=today)
+    return _refresh_cached_days_until(fetched, today=today)
 
 
 def _ordered_universe_tickers(portfolio, watchlist):
@@ -283,10 +331,10 @@ def build_earnings_table(earnings_summary):
             {
                 "Ticker": item.get("ticker", ""),
                 "Dato": item.get("earnings_date") or "—",
-                "Dager": days_until if days_until is not None else "—",
+                "Dager": display_table_cell(days_until),
                 "Status": item.get("status", STATUS_UNKNOWN),
                 "Kilde": item.get("source", SOURCE_YFINANCE),
             }
         )
 
-    return pd.DataFrame(rows)
+    return ensure_string_columns(pd.DataFrame(rows), ["Dager"])
