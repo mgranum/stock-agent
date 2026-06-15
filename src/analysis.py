@@ -3,7 +3,7 @@ import pandas as pd
 
 from src.data import get_daily_prices
 from src.indicators import add_indicators
-from src.fundamentals import analyze_fundamentals
+from src.fundamentals import analyze_fundamentals, extract_value_fields
 from src.fundamental_history import analyze_fundamental_history
 from src.technicals import (
     get_benchmark_for_symbol,
@@ -87,6 +87,7 @@ def analyze_stock(symbol):
         "begrunnelse": reasons,
     }
 
+    result.update(extract_value_fields(fundamental_result))
     result.update(stop_result)
 
     return result, df

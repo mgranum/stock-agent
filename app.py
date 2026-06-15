@@ -102,6 +102,7 @@ from src.score_explainability import (
     build_score_explanation,
     format_score_explanation,
 )
+from src.strategy_profiles import build_strategy_profile, format_strategy_profile
 
 
 WATCHLISTS = load_watchlists()
@@ -1137,6 +1138,10 @@ with tab_technical:
 
         with st.expander("Forklar score", expanded=False):
             st.markdown(format_score_explanation(score_explanation))
+
+        with st.expander("Strategi-profil", expanded=False):
+            strategy_profile = build_strategy_profile(stock_row)
+            st.markdown(format_strategy_profile(strategy_profile))
 
 
 with tab_screening:

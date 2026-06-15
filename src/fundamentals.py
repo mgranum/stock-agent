@@ -67,6 +67,24 @@ def get_fundamentals(symbol, use_cache=True):
     return data
 
 
+FUNDAMENTAL_VALUE_FIELDS = (
+    "price_to_book",
+    "return_on_equity",
+    "debt_to_equity",
+    "profit_margin",
+    "operating_margin",
+    "trailing_pe",
+    "forward_pe",
+)
+
+
+def extract_value_fields(fundamental_result):
+    return {
+        field: fundamental_result.get(field)
+        for field in FUNDAMENTAL_VALUE_FIELDS
+    }
+
+
 def score_fundamentals(fundamentals):
     score = 0
     reasons = []

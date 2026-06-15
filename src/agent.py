@@ -35,6 +35,10 @@ from src.score_explainability import (
     format_score_explanation,
     is_score_explanation_question,
 )
+from src.strategy_profiles import (
+    format_strategy_profile_answer,
+    is_strategy_profile_question,
+)
 
 
 def format_buy_recommendation(recommendation):
@@ -1710,6 +1714,9 @@ def ask_agent(question, context):
 
     if _is_portfolio_summary_question(question):
         return _format_portfolio_summary_answer(context)
+
+    if is_strategy_profile_question(question):
+        return format_strategy_profile_answer(context, question)
 
     if is_score_explanation_question(question):
         ticker = extract_score_explanation_ticker(question, context)
