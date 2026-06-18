@@ -9,6 +9,7 @@ from src.alerts import (
     ALERT_TRAILING_STOP_TRIGGERED,
 )
 from src.daily_briefing import (
+    CHANGE_ITEM_LIMIT,
     TOTAL_CONCRETE_ITEM_LIMIT,
     build_daily_briefing,
     format_daily_briefing,
@@ -50,6 +51,46 @@ def _alert(alert_type, ticker, *, title="", message="", action=""):
     }
 
 
+def _snapshot_change_row(**overrides):
+    base = {
+        "ticker": "AAPL",
+        "previous_score": 50,
+        "current_score": 65,
+        "score_change": 15,
+        "previous_recommendation": "HOLD / OBSERVER",
+        "current_recommendation": "KJØP / ØK",
+    }
+    base.update(overrides)
+    return base
+
+
+def _changes_context(
+    recommendation_rows=None,
+    score_rows=None,
+    *,
+    new_buy_rows=None,
+    include_changes=True,
+):
+    context = {}
+    if include_changes:
+        context["dashboard"] = {
+            "changes_since_last_snapshot": {
+                "recommendation_changed": pd.DataFrame(
+                    recommendation_rows or [],
+                ),
+                "large_score_changes": pd.DataFrame(score_rows or []),
+            },
+        }
+    daily_flow = {}
+    if new_buy_rows is not None:
+        daily_flow["key_opportunities"] = {
+            "new_buy_candidates": pd.DataFrame(new_buy_rows),
+        }
+    if daily_flow:
+        context["daily_flow"] = daily_flow
+    return context
+
+
 def _concrete_item_count(briefing):
     return sum(
         len(briefing.get(section) or [])
@@ -83,6 +124,7 @@ class BuildDailyBriefingTests(unittest.TestCase):
         self.assertEqual(briefing["important_items"], [])
         self.assertEqual(briefing["watchlist_items"], [])
         self.assertEqual(briefing["candidate_items"], [])
+        self.assertEqual(briefing["change_items"], [])
         self.assertEqual(briefing["summary"], [])
         self.assertEqual(
             briefing["headline"],
@@ -529,11 +571,216 @@ class BuildDailyBriefingTests(unittest.TestCase):
         self.assertLessEqual(len(briefing["summary"]), 2)
 
 
+class BuildDailyBriefingChangeTests(unittest.TestCase):
+    def test_change_items_shown_from_snapshot_diff(self):
+        context = _changes_context(
+            recommendation_rows=[
+                _snapshot_change_row(
+                    ticker="BRK-B",
+                    previous_recommendation="HOLD / OBSERVER",
+                    current_recommendation="KJØP / ØK",
+                ),
+            ],
+            score_rows=[
+                _snapshot_change_row(
+                    ticker="DNB.OL",
+                    previous_score=71,
+                    current_score=83,
+                    score_change=12,
+                    previous_recommendation="HOLD / OBSERVER",
+                    current_recommendation="HOLD / OBSERVER",
+                ),
+            ],
+            new_buy_rows=[
+                {
+                    "ticker": "AVGO",
+                    "anbefaling": "KJØP / ØK",
+                    "score": 78,
+                },
+            ],
+        )
+
+        briefing = build_daily_briefing(context)
+
+        self.assertEqual(len(briefing["change_items"]), 3)
+        self.assertEqual(
+            briefing["change_items"][0]["text"],
+            "BRK-B oppgradert til KJØP / ØK",
+        )
+        self.assertEqual(
+            briefing["change_items"][1]["text"],
+            "DNB score økt fra 71 til 83",
+        )
+        self.assertEqual(
+            briefing["change_items"][2]["text"],
+            "AVGO ny kjøpskandidat",
+        )
+        self.assertIn("Endret siden sist", format_daily_briefing(briefing))
+
+    def test_change_items_limited_to_three(self):
+        recommendation_rows = [
+            _snapshot_change_row(ticker=f"REC{i}")
+            for i in range(4)
+        ]
+        context = _changes_context(recommendation_rows=recommendation_rows)
+
+        briefing = build_daily_briefing(context)
+
+        self.assertEqual(len(briefing["change_items"]), CHANGE_ITEM_LIMIT)
+
+    def test_change_items_deduped_against_watchlist_and_candidates(self):
+        context = _changes_context(
+            recommendation_rows=[
+                _snapshot_change_row(
+                    ticker="BRK-B",
+                    previous_recommendation="HOLD / OBSERVER",
+                    current_recommendation="KJØP / ØK",
+                ),
+            ],
+        )
+        context["watchlist_advisor_output"] = {
+            "items": [
+                {
+                    "ticker": "BRK-B",
+                    "watchlist_action": ACTION_VURDER_KJOP,
+                    "headline": "Sterk kandidat for videre vurdering",
+                    "priority": 1,
+                },
+                {
+                    "ticker": "MSFT",
+                    "watchlist_action": ACTION_VURDER_KJOP,
+                    "headline": "Vurder kjøp",
+                    "priority": 2,
+                },
+            ],
+        }
+        context["opportunity_advisor"] = {
+            "items": [
+                {
+                    "ticker": "BRK-B",
+                    "headline": "Sterk screener-kandidat",
+                    "priority": 1,
+                },
+                {
+                    "ticker": "AVGO",
+                    "headline": "Momentum og sterk score",
+                    "priority": 2,
+                },
+            ],
+        }
+
+        briefing = build_daily_briefing(context)
+
+        watchlist_tickers = {item["ticker"] for item in briefing["watchlist_items"]}
+        candidate_tickers = {item["ticker"] for item in briefing["candidate_items"]}
+        change_tickers = {item["ticker"] for item in briefing["change_items"]}
+
+        self.assertIn("BRK-B", change_tickers)
+        self.assertNotIn("BRK-B", watchlist_tickers)
+        self.assertNotIn("BRK-B", candidate_tickers)
+
+    def test_headline_quiet_day_with_changes(self):
+        context = _changes_context(
+            score_rows=[
+                _snapshot_change_row(
+                    ticker="DNB.OL",
+                    previous_score=71,
+                    current_score=83,
+                    score_change=12,
+                    previous_recommendation="HOLD / OBSERVER",
+                    current_recommendation="HOLD / OBSERVER",
+                ),
+            ],
+        )
+
+        briefing = build_daily_briefing(context)
+
+        self.assertEqual(
+            briefing["headline"],
+            "Flere nye signaler siden sist oppdatering.",
+        )
+
+    def test_no_change_section_when_no_snapshot_changes(self):
+        briefing = build_daily_briefing({})
+
+        self.assertEqual(briefing["change_items"], [])
+        formatted = format_daily_briefing(briefing)
+        self.assertNotIn("Endret siden sist", formatted)
+
+    def test_no_change_section_when_snapshot_empty(self):
+        context = _changes_context()
+
+        briefing = build_daily_briefing(context)
+
+        self.assertEqual(briefing["change_items"], [])
+        self.assertNotIn(
+            "Endret siden sist",
+            format_daily_briefing(briefing),
+        )
+
+    def test_summary_reflects_changes(self):
+        context = _changes_context(
+            recommendation_rows=[
+                _snapshot_change_row(ticker="BRK-B"),
+            ],
+        )
+        context["sentiment_summary"] = {
+            "items": [
+                {
+                    "ticker": "TSLA",
+                    "sentiment": SENTIMENT_NEGATIVE,
+                    "score": -0.75,
+                    "in_portfolio": True,
+                },
+            ],
+        }
+
+        briefing = build_daily_briefing(context)
+
+        summary_rules = {item["rule"] for item in briefing["summary"]}
+        summary_text = " ".join(item["text"] for item in briefing["summary"])
+
+        self.assertIn("snapshot_changes", summary_rules)
+        self.assertIn("siden forrige snapshot", summary_text)
+        self.assertNotIn("Støttende signaler er verdt et raskt blikk", summary_text)
+
+    def test_v21_caps_still_apply_with_changes(self):
+        context = _changes_context(
+            recommendation_rows=[
+                _snapshot_change_row(ticker="BRK-B"),
+            ],
+        )
+        context["portfolio_report"] = pd.DataFrame(
+            [
+                _portfolio_row(ticker="NVDA", portefølje_råd="REDUSER / SELG"),
+                _portfolio_row(ticker="GOOGL", portefølje_råd="REDUSER / SELG"),
+                _portfolio_row(ticker="EQNR.OL", portefølje_råd="REDUSER / SELG"),
+                _portfolio_row(ticker="KOG.OL", portefølje_råd="REDUSER / SELG"),
+                _portfolio_row(ticker="KMAR.OL", portefølje_råd="REDUSER / SELG"),
+            ]
+        )
+        context["alerts"] = [
+            _alert(
+                ALERT_NEAR_TRAILING_STOP,
+                "AAPL",
+                title="Nær trailing stop",
+                message="Kursen er 1.9 % over stop.",
+            ),
+        ]
+
+        briefing = build_daily_briefing(context)
+
+        self.assertLessEqual(len(briefing["critical_items"]), 3)
+        self.assertLessEqual(_concrete_item_count(briefing), TOTAL_CONCRETE_ITEM_LIMIT)
+        self.assertEqual(len(briefing["change_items"]), 1)
+
+
 class FormatDailyBriefingTests(unittest.TestCase):
     def test_format_daily_briefing_renders_sections(self):
         briefing = {
             "headline": "Handlingspunkter krever oppmerksomhet i dag.",
             "critical_items": [{"text": "NVDA: Reduser / selg"}],
+            "change_items": [{"text": "BRK-B oppgradert til KJØP / ØK"}],
             "important_items": [{"text": "MSFT: Rapport nær – avvent inngang"}],
             "watchlist_items": [{"text": "NVDA: sterk kandidat for videre vurdering"}],
             "candidate_items": [
@@ -550,6 +797,13 @@ class FormatDailyBriefingTests(unittest.TestCase):
         self.assertIn("Handlingspunkter krever oppmerksomhet i dag.", formatted)
         self.assertIn("Kritisk", formatted)
         self.assertIn("• NVDA: Reduser / selg", formatted)
+        kritisk_pos = formatted.index("Kritisk")
+        endret_pos = formatted.index("Endret siden sist")
+        viktig_pos = formatted.index("Viktig")
+        self.assertLess(kritisk_pos, endret_pos)
+        self.assertLess(endret_pos, viktig_pos)
+        self.assertIn("Endret siden sist", formatted)
+        self.assertIn("• BRK-B oppgradert til KJØP / ØK", formatted)
         self.assertIn("Viktig", formatted)
         self.assertIn("Watchlist", formatted)
         self.assertIn("Kandidater", formatted)
@@ -581,6 +835,7 @@ class ResolveDailyBriefingTests(unittest.TestCase):
             "generated_at": "2026-06-12T08:00:00+00:00",
             "headline": "Rolig dag – ingen kritiske hendelser.",
             "critical_items": [],
+            "change_items": [],
             "important_items": [],
             "watchlist_items": [],
             "candidate_items": [],

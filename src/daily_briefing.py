@@ -25,6 +25,7 @@ IMPORTANT_ITEM_LIMIT = 2
 TOTAL_CONCRETE_ITEM_LIMIT = 5
 WATCHLIST_ITEM_LIMIT = 2
 CANDIDATE_ITEM_LIMIT = 2
+CHANGE_ITEM_LIMIT = 3
 EARNINGS_OWNED_CRITICAL_DAYS = 1
 EARNINGS_AVVENT_DAYS = 3
 STRONG_NEGATIVE_SENTIMENT_SCORE = -0.5
@@ -51,6 +52,13 @@ _PRIORITY_STRONG_NEGATIVE_SENTIMENT = 8
 _PRIORITY_WATCHLIST_ACTION = 9
 _PRIORITY_CANDIDATE = 10
 _PRIORITY_ANALYST_MAJOR = 11
+
+_CHANGE_PRIORITY_RECOMMENDATION = 1
+_CHANGE_PRIORITY_SCORE = 2
+_CHANGE_PRIORITY_NEW_BUY = 3
+
+_BUY_RECOMMENDATION = "KJØP / ØK"
+_SELL_RECOMMENDATION = "UNNGÅ / SELG"
 
 
 def _utc_now_iso() -> str:
@@ -660,6 +668,155 @@ def _has_strong_candidates(candidate_items) -> bool:
     return len(candidate_items) >= 2
 
 
+def _change_item_sort_key(item) -> tuple:
+    return (
+        item.get("change_priority", 99),
+        item.get("ticker", ""),
+    )
+
+
+def _dedupe_change_items_by_ticker(items):
+    best_by_ticker: dict[str, dict] = {}
+    for item in items:
+        ticker = item.get("ticker", "")
+        if not ticker:
+            continue
+        existing = best_by_ticker.get(ticker)
+        if existing is None or _change_item_sort_key(item) < _change_item_sort_key(existing):
+            best_by_ticker[ticker] = item
+    return sorted(best_by_ticker.values(), key=_change_item_sort_key)
+
+
+def _format_recommendation_change_text(ticker, previous_recommendation, current_recommendation) -> str:
+    display = _display_ticker(ticker)
+    if current_recommendation == _BUY_RECOMMENDATION:
+        return f"{display} oppgradert til KJØP / ØK"
+    if current_recommendation == _SELL_RECOMMENDATION:
+        return f"{display} nedgradert til UNNGÅ / SELG"
+    if previous_recommendation == _BUY_RECOMMENDATION:
+        return f"{display} nedgradert fra KJØP / ØK"
+    if previous_recommendation == _SELL_RECOMMENDATION:
+        return f"{display} oppgradert fra UNNGÅ / SELG"
+    return f"{display} anbefaling endret til {current_recommendation}"
+
+
+def _format_score_change_text(ticker, previous_score, current_score) -> str:
+    display = _display_ticker(ticker)
+    previous = _safe_int(previous_score)
+    current = _safe_int(current_score)
+    if previous is None or current is None:
+        return f"{display} score endret siden sist"
+    if current > previous:
+        return f"{display} score økt fra {previous} til {current}"
+    return f"{display} score sunket fra {previous} til {current}"
+
+
+def _change_item_from_recommendation_row(row):
+    ticker = row["ticker"]
+    previous = row["previous_recommendation"]
+    current = row["current_recommendation"]
+    return _briefing_item(
+        ticker,
+        _format_recommendation_change_text(ticker, previous, current),
+        category="change",
+        rule="recommendation_change",
+        change_priority=_CHANGE_PRIORITY_RECOMMENDATION,
+        change_type="recommendation",
+    )
+
+
+def _change_item_from_score_row(row):
+    ticker = row["ticker"]
+    return _briefing_item(
+        ticker,
+        _format_score_change_text(
+            ticker,
+            row.get("previous_score"),
+            row.get("current_score"),
+        ),
+        category="change",
+        rule="score_change",
+        change_priority=_CHANGE_PRIORITY_SCORE,
+        change_type="score",
+    )
+
+
+def _change_item_from_new_buy(ticker):
+    display = _display_ticker(ticker)
+    return _briefing_item(
+        ticker,
+        f"{display} ny kjøpskandidat",
+        category="change",
+        rule="new_buy_candidate",
+        change_priority=_CHANGE_PRIORITY_NEW_BUY,
+        change_type="new_buy",
+    )
+
+
+def _collect_change_candidates(context):
+    context = context or {}
+    dashboard = context.get("dashboard") or {}
+    daily_flow = context.get("daily_flow") or {}
+    changes = dashboard.get("changes_since_last_snapshot")
+    if changes is None:
+        return []
+
+    candidates = []
+    covered_tickers: set[str] = set()
+
+    recommendation_changed = changes.get("recommendation_changed")
+    if recommendation_changed is not None and not recommendation_changed.empty:
+        for _, row in recommendation_changed.iterrows():
+            item = _change_item_from_recommendation_row(row)
+            candidates.append(item)
+            covered_tickers.add(item["ticker"])
+
+    large_score_changes = changes.get("large_score_changes")
+    if large_score_changes is not None and not large_score_changes.empty:
+        for _, row in large_score_changes.iterrows():
+            item = _change_item_from_score_row(row)
+            candidates.append(item)
+            covered_tickers.add(item["ticker"])
+
+    key_opportunities = daily_flow.get("key_opportunities") or {}
+    new_buy_candidates = key_opportunities.get("new_buy_candidates")
+    if new_buy_candidates is not None and not new_buy_candidates.empty:
+        for _, row in new_buy_candidates.iterrows():
+            ticker = row.get("ticker", "")
+            display = _display_ticker(ticker)
+            if not display or display in covered_tickers:
+                continue
+            item = _change_item_from_new_buy(ticker)
+            candidates.append(item)
+            covered_tickers.add(display)
+
+    return candidates
+
+
+def _build_change_items(context):
+    candidates = _collect_change_candidates(context)
+    if not candidates:
+        return []
+    return _dedupe_change_items_by_ticker(candidates)[:CHANGE_ITEM_LIMIT]
+
+
+def _remove_tickers_from_sections(sections, tickers):
+    excluded = set(tickers)
+    return {
+        **sections,
+        "watchlist_items": [
+            item
+            for item in sections["watchlist_items"]
+            if item.get("ticker") not in excluded
+        ],
+        "candidate_items": [
+            item
+            for item in sections["candidate_items"]
+            if item.get("ticker") not in excluded
+        ],
+    }
+
+
 def _has_owned_earnings_within_days(earnings_summary, days=EARNINGS_AVVENT_DAYS) -> bool:
     for item in (earnings_summary or {}).get("items") or []:
         days_until = _safe_int(item.get("days_until"))
@@ -678,6 +835,7 @@ def _build_headline(
     candidate_items,
     *,
     earnings_summary=None,
+    has_changes=False,
 ):
     has_critical = bool(critical_items)
     has_important = bool(important_items)
@@ -700,6 +858,8 @@ def _build_headline(
         return "Earnings-fokus i dag."
 
     if not has_critical and not has_important:
+        if has_changes:
+            return "Flere nye signaler siden sist oppdatering."
         return "Rolig dag – ingen kritiske hendelser."
 
     return "Handlingspunkter krever oppmerksomhet i dag."
@@ -719,8 +879,17 @@ def _summary_briefing_items(
     candidate_items,
     *,
     headline="",
+    has_changes=False,
 ):
     summary_items = []
+
+    if has_changes:
+        summary_items.append(
+            {
+                "text": "Flere nye signaler har oppstått siden forrige snapshot.",
+                "rule": "snapshot_changes",
+            }
+        )
 
     if _has_earnings_today(critical_items):
         summary_items.append(
@@ -751,7 +920,7 @@ def _summary_briefing_items(
             }
         )
 
-    if important_items and not summary_items:
+    if important_items and not summary_items and not has_changes:
         summary_items.append(
             {
                 "text": "Støttende signaler er verdt et raskt blikk",
@@ -800,21 +969,29 @@ def build_daily_briefing(context, today=None):
     )
     sections = _apply_total_concrete_cap(sections)
 
+    change_items = _build_change_items(context)
+    change_tickers = {item.get("ticker") for item in change_items if item.get("ticker")}
+    if change_tickers:
+        sections = _remove_tickers_from_sections(sections, change_tickers)
+
     critical_items = _sort_section_items("critical_items", sections["critical_items"])
     important_items = _sort_section_items("important_items", sections["important_items"])
     watchlist_items = _sort_section_items("watchlist_items", sections["watchlist_items"])
     candidate_items = _sort_section_items("candidate_items", sections["candidate_items"])
+    has_changes = bool(change_items)
     headline = _build_headline(
         critical_items,
         important_items,
         candidate_items,
         earnings_summary=earnings_summary,
+        has_changes=has_changes,
     )
     summary = _summary_briefing_items(
         critical_items,
         important_items,
         candidate_items,
         headline=headline,
+        has_changes=has_changes,
     )
 
     return {
@@ -822,6 +999,7 @@ def build_daily_briefing(context, today=None):
         "date": today.isoformat(),
         "headline": headline,
         "critical_items": critical_items,
+        "change_items": change_items,
         "important_items": important_items,
         "watchlist_items": watchlist_items,
         "candidate_items": candidate_items,
@@ -829,13 +1007,14 @@ def build_daily_briefing(context, today=None):
     }
 
 
-_SECTION_LABELS = {
-    "critical_items": "Kritisk",
-    "important_items": "Viktig",
-    "watchlist_items": "Watchlist",
-    "candidate_items": "Kandidater",
-    "summary": "Oppsummering",
-}
+_SECTION_LABELS = [
+    ("critical_items", "Kritisk"),
+    ("change_items", "Endret siden sist"),
+    ("important_items", "Viktig"),
+    ("watchlist_items", "Watchlist"),
+    ("candidate_items", "Kandidater"),
+    ("summary", "Oppsummering"),
+]
 
 
 def resolve_daily_briefing(context):
@@ -856,7 +1035,7 @@ def format_daily_briefing(briefing) -> str:
         lines.append("")
 
     has_sections = False
-    for section_key, section_label in _SECTION_LABELS.items():
+    for section_key, section_label in _SECTION_LABELS:
         items = briefing.get(section_key) or []
         if not items:
             continue

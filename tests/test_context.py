@@ -139,6 +139,7 @@ def _sample_context():
             "date": "2026-06-12",
             "headline": "Rolig dag – ingen kritiske hendelser.",
             "critical_items": [],
+            "change_items": [],
             "important_items": [],
             "watchlist_items": [],
             "candidate_items": [],
