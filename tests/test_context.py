@@ -317,6 +317,8 @@ class ContextSnapshotTests(unittest.TestCase):
 
 
 class BuildAgentContextDailyBriefingTests(unittest.TestCase):
+    @patch("src.context.build_screening_results")
+    @patch("src.context.build_watchlist_advisor", return_value={"items": []})
     @patch("src.context.build_daily_briefing")
     @patch("src.context.build_advisor_details", return_value={})
     @patch("src.context.build_advisor_output", return_value={"items": []})
@@ -341,10 +343,18 @@ class BuildAgentContextDailyBriefingTests(unittest.TestCase):
         _mock_advisor_output,
         _mock_advisor_details,
         mock_build_daily_briefing,
+        _mock_watchlist_advisor,
+        mock_build_screening_results,
     ):
         from src.context import build_agent_context
 
         mock_analyze_watchlist.return_value = pd.DataFrame()
+        mock_build_screening_results.return_value = {
+            "USA": pd.DataFrame(),
+            "NORDEN": pd.DataFrame(),
+            "OBX": pd.DataFrame(),
+            "generated_at": "2026-06-12T08:00:00+00:00",
+        }
         mock_build_daily_briefing.return_value = {
             "generated_at": "2026-06-12T08:00:00+00:00",
             "date": "2026-06-12",
@@ -367,6 +377,11 @@ class BuildAgentContextDailyBriefingTests(unittest.TestCase):
         self.assertIn("advisor_output", passed_context)
         self.assertIn("daily_flow", passed_context)
         self.assertIn("daily_briefing", context)
+        self.assertIn("screening_results", context)
+        self.assertEqual(
+            context["screening_results"]["generated_at"],
+            "2026-06-12T08:00:00+00:00",
+        )
         self.assertEqual(
             context["daily_briefing"]["generated_at"],
             "2026-06-12T08:00:00+00:00",

@@ -12,6 +12,11 @@ from src.news import (
 )
 from src.sentiment import SENTIMENT_NEGATIVE, build_sentiment_summary
 from src.strategy_classification import POSITIVE_TRENDS
+from src.strategy_profiles import (
+    INVESTMENT_PROFILES,
+    _PROFILE_LABELS,
+    build_strategy_profile,
+)
 
 METHOD_RULE_V1 = "rule_v1"
 SUPPORT_ENRICH_LIMIT = 5
@@ -30,6 +35,97 @@ _BEARISH_ANALYST_KEYS = {"sell", "strong_sell"}
 _POSITIVE_ANALYST_KEYS = {"strong_buy", "buy"}
 _NEUTRAL_ANALYST_KEYS = {"hold"}
 _NEGATIVE_ANALYST_MEAN_THRESHOLD = 4.0
+
+_CANDIDATE_TYPE_LABELS = {
+    "momentum": "Momentum-kandidat",
+    "quality": "Kvalitetskandidat",
+    "value": "Value-kandidat",
+    "cyclical": "Syklisk kandidat",
+}
+
+_PROFILE_HEADLINES = {
+    "momentum": "Momentum-kandidat med sterk trend",
+    "quality": "Kvalitetskandidat med solid fundamentalprofil",
+    "value": "Value-kandidat med attraktiv verdsettelse",
+    "cyclical": "Syklisk kandidat – følg syklusen tett",
+}
+
+_PROFILE_WHY_SUPPORT = {
+    "momentum": "Sterk trend og positiv relativ styrke",
+    "quality": "Sterk fundamental kvalitet eller historikk",
+    "value": "Attraktiv verdsettelse relativt til fundamentale nøkkeltall",
+    "cyclical": "Syklisk aksje – timing og markedsfase er ekstra viktig",
+}
+
+_PROFILE_TAKEAWAYS = {
+    "momentum": (
+        "Dette er først og fremst et momentum-case; "
+        "kursutviklingen bør fortsette å bekrefte bildet."
+    ),
+    "quality": (
+        "Dette ser ut som en kvalitetskandidat, "
+        "ikke bare et kortsiktig momentum-case."
+    ),
+    "value": (
+        "Dette ser ut som en value-kandidat der verdsettelsen støtter caset."
+    ),
+    "cyclical": (
+        "Dette er en syklisk kandidat der timing og risikostyring "
+        "er viktigere enn langsiktig kvalitet alene."
+    ),
+}
+
+_LEGACY_WHY_SKIP_BY_PROFILE = {
+    "momentum": {
+        "Sterk trend",
+        "Positiv kursutvikling",
+    },
+    "quality": {
+        "Sterk fundamental kvalitet",
+        "Sterk fundamental utvikling",
+    },
+}
+
+
+def _resolve_strategy_profile(row):
+    try:
+        return build_strategy_profile(row)
+    except Exception:
+        return None
+
+
+def _profile_scores(profile):
+    profiles = (profile or {}).get("profiles") or {}
+    return {
+        name: profiles.get(name)
+        for name in INVESTMENT_PROFILES
+    }
+
+
+def _candidate_type_label(primary_profile):
+    if not primary_profile:
+        return None
+    return _CANDIDATE_TYPE_LABELS.get(primary_profile)
+
+
+def _build_profile_headline(primary_profile):
+    if not primary_profile:
+        return "Screener-kandidat"
+    return _PROFILE_HEADLINES.get(primary_profile, "Screener-kandidat")
+
+
+def _build_profile_why_lines(primary_profile):
+    if not primary_profile:
+        return []
+
+    label = _PROFILE_LABELS.get(primary_profile, primary_profile)
+    lines = [f"Primær profil: {label}"]
+
+    support = _PROFILE_WHY_SUPPORT.get(primary_profile)
+    if support:
+        lines.append(support)
+
+    return lines
 
 
 def _screener_top_tickers(screener_results, limit=SUPPORT_ENRICH_LIMIT):
@@ -342,29 +438,42 @@ def _relative_strength_why_line(relative_strength):
     return None
 
 
-def _build_why_interesting(row):
+def _build_legacy_why_interesting(row, primary_profile=None):
     why = []
     score = _safe_float(row.get("score"))
     relative_strength = _safe_float(row.get("relative_strength_20d"))
     trend_regime = row.get("trend_regime")
     rs_line = _relative_strength_why_line(relative_strength)
+    skip = _LEGACY_WHY_SKIP_BY_PROFILE.get(primary_profile, set())
 
     if _is_strong_candidate(row):
         if score is not None and score >= STRONG_SCORE_THRESHOLD:
             why.append(f"Høy score ({int(score)})")
-        if trend_regime == _STRONG_UPTREND:
+        if trend_regime == _STRONG_UPTREND and "Sterk trend" not in skip:
             why.append("Sterk trend")
         if rs_line:
             why.append(rs_line)
 
     if _is_quality_candidate(row):
-        why.append("Sterk fundamental kvalitet")
-        why.append("Sterk fundamental utvikling")
+        if "Sterk fundamental kvalitet" not in skip:
+            why.append("Sterk fundamental kvalitet")
+        if "Sterk fundamental utvikling" not in skip:
+            why.append("Sterk fundamental utvikling")
 
     if _is_momentum_candidate(row):
         if rs_line and rs_line not in why:
             why.append(rs_line)
-        why.append("Positiv kursutvikling")
+        if "Positiv kursutvikling" not in skip:
+            why.append("Positiv kursutvikling")
+
+    return why
+
+
+def _build_why_interesting(row, primary_profile=None):
+    why = _build_profile_why_lines(primary_profile)
+    why.extend(
+        _build_legacy_why_interesting(row, primary_profile=primary_profile)
+    )
 
     seen = set()
     deduped = []
@@ -435,17 +544,13 @@ def _candidate_types(row):
     return types
 
 
-def _build_headline(candidate_types):
-    if "strong" in candidate_types:
-        return "Sterk screener-kandidat"
-    if "quality" in candidate_types:
-        return "Kvalitetskandidat"
-    if "momentum" in candidate_types:
-        return "Momentumkandidat"
-    return "Screener-kandidat"
-
-
-def _build_takeaway(row, analyst_item, earnings_item, watch_out_for):
+def _build_takeaway(
+    row,
+    analyst_item,
+    earnings_item,
+    watch_out_for,
+    primary_profile=None,
+):
     if _has_strong_score(row) and _earnings_within_days(earnings_item):
         return (
             "Interessant kandidat, men rapportdato nærmer seg. "
@@ -463,11 +568,9 @@ def _build_takeaway(row, analyst_item, earnings_item, watch_out_for):
             "Det kan være interessant, men bør dobbeltsjekkes."
         )
 
-    if _has_strong_score(row) and _is_quality_candidate(row):
-        return (
-            "Dette ser ut som en kvalitetskandidat, "
-            "ikke bare et kortsiktig momentum-case."
-        )
+    profile_takeaway = _PROFILE_TAKEAWAYS.get(primary_profile)
+    if profile_takeaway:
+        return profile_takeaway
 
     if _has_strong_score(row) and _has_positive_relative_strength(row):
         base = (
@@ -518,7 +621,13 @@ def build_opportunity_advisor_item(
     row = row or {}
     ticker = str(row.get("ticker") or "").strip().upper()
     candidate_types = _candidate_types(row)
-    why_interesting = _build_why_interesting(row)
+    strategy_profile = _resolve_strategy_profile(row)
+    primary_profile = (
+        (strategy_profile or {}).get("primary_profile")
+        if strategy_profile
+        else None
+    )
+    why_interesting = _build_why_interesting(row, primary_profile=primary_profile)
     watch_out_for = _build_watch_out_for(
         ticker,
         analyst_item,
@@ -526,9 +635,9 @@ def build_opportunity_advisor_item(
         earnings_item,
     )
 
-    return {
+    item = {
         "ticker": ticker,
-        "headline": _build_headline(candidate_types),
+        "headline": _build_profile_headline(primary_profile),
         "why_interesting": why_interesting,
         "watch_out_for": watch_out_for,
         "takeaway": _build_takeaway(
@@ -536,9 +645,20 @@ def build_opportunity_advisor_item(
             analyst_item,
             earnings_item,
             watch_out_for,
+            primary_profile=primary_profile,
         ),
         "priority": _compute_priority(candidate_types, watch_out_for),
     }
+
+    candidate_type = _candidate_type_label(primary_profile)
+    if candidate_type:
+        item["candidate_type"] = candidate_type
+    if primary_profile:
+        item["primary_profile"] = primary_profile
+    if strategy_profile:
+        item["profile_scores"] = _profile_scores(strategy_profile)
+
+    return item
 
 
 def build_opportunity_advisor(

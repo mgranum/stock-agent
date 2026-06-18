@@ -30,7 +30,6 @@ from src.model_backtest import save_model_snapshot
 from src.news import build_news_summary, get_news
 from src.network import check_network_ready
 from src.research_ideas import load_research_ideas
-from src.screener import screen_nordics, screen_obx, screen_us_large
 from src.sentiment import build_sentiment_summary
 from src.storage import load_pending_orders, load_portfolio
 from src.technicals import analyze_technicals, get_benchmark_for_symbol
@@ -357,27 +356,6 @@ def _refresh_news(
         _record_error(errors, symbol, "news", exc)
 
 
-def _run_screeners(
-    errors: list[dict[str, str]],
-    pause_seconds: float,
-    watchlists: dict[str, list[str]],
-) -> None:
-    screeners = (
-        ("screening_usa", screen_us_large),
-        ("screening_nordics", screen_nordics),
-        ("screening_obx", screen_obx),
-    )
-
-    for step_name, screen_fn in screeners:
-        try:
-            screen_fn(
-                pause_seconds=pause_seconds,
-                existing_watchlists=watchlists,
-            )
-        except Exception as exc:
-            _record_error(errors, None, step_name, exc)
-
-
 def run_daily_refresh(
     pause_seconds: float = 1,
     use_cache: bool = True,
@@ -417,13 +395,6 @@ def run_daily_refresh(
     except Exception as exc:
         _record_error(errors, None, "sentiment", exc)
 
-    screening_updated = False
-    try:
-        _run_screeners(errors, pause_seconds, watchlists)
-        screening_updated = True
-    except Exception as exc:
-        _record_error(errors, None, "screening", exc)
-
     context = None
     snapshot_updated = False
     try:
@@ -439,6 +410,11 @@ def run_daily_refresh(
         snapshot_updated = True
     except Exception as exc:
         _record_error(errors, None, "context_snapshot", exc)
+
+    screening_updated = bool(
+        context is not None
+        and isinstance(context.get("screening_results"), dict)
+    )
 
     finished_at = _utc_now_iso()
     duration_seconds = round(time.monotonic() - start_time, 2)

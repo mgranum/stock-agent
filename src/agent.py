@@ -2,7 +2,7 @@ import re
 
 import pandas as pd
 
-from src.analysis import generate_text_report
+from src.analysis import _format_gain_pct, generate_text_report
 from src.ranking import ranking_table
 from src.advisor import build_advisor_details, format_advisor_detail_answer
 from src.config import load_watchlists
@@ -871,13 +871,24 @@ _SCREENING_REGIONS = {
     },
     "usa": {
         "title": "Topp 5 amerikanske kandidater",
-        "markers": ("amerikansk", "amerikanske", " usa"),
+        "markers": ("amerikansk", "amerikanske", "usa", " us", "us "),
     },
     "obx": {
-        "title": "Topp 5 OBX-kandidater",
+        "title": "Topp 5 norske kandidater",
         "markers": ("obx",),
     },
 }
+
+_NORWEGIAN_MARKERS = (
+    "norske kandidater",
+    "norske aksjer",
+    "beste norske",
+    "sterke norske",
+    "norsk kandidat",
+    "norsk aksje",
+    "norske",
+    "norsk",
+)
 
 _SCREENING_ACTION_MARKERS = (
     "beste",
@@ -889,6 +900,17 @@ _SCREENING_ACTION_MARKERS = (
     "vis meg",
     "kandidat",
     "aksjer",
+    "aksje",
+)
+
+_SCREENING_SNAPSHOT_KEYS = {
+    "usa": "USA",
+    "nordics": "NORDEN",
+    "obx": "OBX",
+}
+
+_SCREENING_SNAPSHOT_FALLBACK_NOTE = (
+    "(Bruker live screening fordi snapshot mangler.)"
 )
 
 
@@ -901,6 +923,9 @@ def _detect_screening_region(question):
 
     if any(marker in question for marker in _SCREENING_REGIONS["nordics"]["markers"]):
         return "nordics"
+
+    if any(marker in question for marker in _NORWEGIAN_MARKERS):
+        return "obx"
 
     return None
 
@@ -1027,19 +1052,37 @@ def _format_screening_advisor_commentary(context, results):
     return "\n".join(lines).rstrip()
 
 
+def _screening_results_from_snapshot(context, region):
+    snapshot_key = _SCREENING_SNAPSHOT_KEYS.get(region)
+    if not snapshot_key:
+        return None
+
+    screening_results = context.get("screening_results") or {}
+    results = screening_results.get(snapshot_key)
+    if results is None or not isinstance(results, pd.DataFrame) or results.empty:
+        return None
+
+    return results.head(SCREENING_TOP_LIMIT)
+
+
 def _answer_screening_question(context, question):
     region = _detect_screening_region(question)
     config = _SCREENING_REGIONS[region]
-    screen_fn = _screening_function_for_region(region)
+    results = _screening_results_from_snapshot(context, region)
+    used_live_screening = results is None
 
-    results = screen_fn(
-        preset=SCREENING_PRESET,
-        limit=SCREENING_TOP_LIMIT,
-        pause_seconds=0,
-        existing_watchlists=load_watchlists(),
-    )
+    if used_live_screening:
+        screen_fn = _screening_function_for_region(region)
+        results = screen_fn(
+            preset=SCREENING_PRESET,
+            limit=SCREENING_TOP_LIMIT,
+            pause_seconds=0,
+            existing_watchlists=load_watchlists(),
+        )
 
     answer = _format_screening_top5(results, config["title"])
+    if used_live_screening:
+        answer = f"{answer}\n\n{_SCREENING_SNAPSHOT_FALLBACK_NOTE}"
     if results is not None and not results.empty:
         advisor_section = _format_screening_advisor_commentary(
             context,
@@ -1825,8 +1868,8 @@ def ask_agent(question, context):
         )
 
     if (
-        "beste" in question
-        or "dagens råd" in question
+        ("beste" in question or "dagens råd" in question)
+        and not _is_screening_question(question)
     ):
         filtered = watchlist_report[
             (watchlist_report["score"] >= 55)
@@ -1862,19 +1905,19 @@ def ask_agent(question, context):
 {symbol}
 
 Porteføljeråd:
-{stock['portefølje_råd']}
+{stock.get('portefølje_råd', '—')}
 
 Begrunnelse:
-{stock['begrunnelse']}
+{stock.get('begrunnelse', '—')}
 
 Gevinst/tap:
-{stock['gain_pct']} %
+{_format_gain_pct(stock)} %
 
 Trend:
-{stock['trend_regime']}
+{stock.get('trend_regime', '—')}
 
 Total score:
-{stock['score']}
+{stock.get('score', '—')}
 
 Relativ styrke:
 {stock['relative_strength_20d']} %

@@ -83,9 +83,6 @@ class RunDailyRefreshTests(unittest.TestCase):
     @patch("src.daily_refresh.save_context_snapshot")
     @patch("src.daily_refresh.save_model_snapshot")
     @patch("src.daily_refresh.build_agent_context")
-    @patch("src.daily_refresh.screen_obx")
-    @patch("src.daily_refresh.screen_nordics")
-    @patch("src.daily_refresh.screen_us_large")
     @patch("src.daily_refresh.build_sentiment_summary")
     @patch("src.daily_refresh.build_news_summary", return_value={"items": [], "last_updated": "2026-06-12T08:00:00+00:00"})
     @patch("src.daily_refresh.get_news")
@@ -118,9 +115,6 @@ class RunDailyRefreshTests(unittest.TestCase):
         mock_get_news,
         _mock_build_news_summary,
         _mock_sentiment,
-        _mock_screen_us,
-        _mock_screen_nordics,
-        _mock_screen_obx,
         mock_build_context,
         _mock_save_snapshot,
         _mock_save_context,
@@ -136,6 +130,7 @@ class RunDailyRefreshTests(unittest.TestCase):
         mock_build_context.return_value = {
             "watchlist": ["AAPL", "MSFT"],
             "dashboard": {"portfolio_summary": {"positions": 1}},
+            "screening_results": {"USA": pd.DataFrame(), "NORDEN": pd.DataFrame(), "OBX": pd.DataFrame()},
         }
 
         result = run_daily_refresh(pause_seconds=0, today=date(2026, 6, 12))
@@ -152,9 +147,6 @@ class RunDailyRefreshTests(unittest.TestCase):
     @patch("src.daily_refresh.save_context_snapshot")
     @patch("src.daily_refresh.save_model_snapshot")
     @patch("src.daily_refresh.build_agent_context")
-    @patch("src.daily_refresh.screen_obx")
-    @patch("src.daily_refresh.screen_nordics")
-    @patch("src.daily_refresh.screen_us_large")
     @patch("src.daily_refresh.build_sentiment_summary")
     @patch("src.daily_refresh.build_news_summary", return_value={"items": [], "last_updated": "2026-06-12T08:00:00+00:00"})
     @patch("src.daily_refresh.get_news")
@@ -187,9 +179,6 @@ class RunDailyRefreshTests(unittest.TestCase):
         mock_get_news,
         _mock_build_news_summary,
         _mock_sentiment,
-        _mock_screen_us,
-        _mock_screen_nordics,
-        _mock_screen_obx,
         mock_build_context,
         _mock_save_snapshot,
         _mock_save_context,
@@ -213,6 +202,7 @@ class RunDailyRefreshTests(unittest.TestCase):
         mock_build_context.return_value = {
             "watchlist": ["AAPL", "BAD"],
             "dashboard": {"portfolio_summary": {"positions": 0}},
+            "screening_results": {"USA": pd.DataFrame(), "NORDEN": pd.DataFrame(), "OBX": pd.DataFrame()},
         }
 
         result = run_daily_refresh(pause_seconds=0, today=date(2026, 6, 12))
@@ -227,9 +217,6 @@ class RunDailyRefreshTests(unittest.TestCase):
     @patch("src.daily_refresh.save_context_snapshot")
     @patch("src.daily_refresh.save_model_snapshot")
     @patch("src.daily_refresh.build_agent_context")
-    @patch("src.daily_refresh.screen_obx")
-    @patch("src.daily_refresh.screen_nordics")
-    @patch("src.daily_refresh.screen_us_large")
     @patch("src.daily_refresh.build_sentiment_summary")
     @patch("src.daily_refresh.build_news_summary", return_value={"items": [], "last_updated": "2026-06-12T08:00:00+00:00"})
     @patch("src.daily_refresh.get_news", return_value=[])
@@ -262,9 +249,6 @@ class RunDailyRefreshTests(unittest.TestCase):
         _mock_news,
         _mock_build_news_summary,
         _mock_sentiment,
-        _mock_screen_us,
-        _mock_screen_nordics,
-        _mock_screen_obx,
         mock_build_context,
         _mock_save_snapshot,
         _mock_save_context,
@@ -276,6 +260,7 @@ class RunDailyRefreshTests(unittest.TestCase):
         mock_build_context.return_value = {
             "watchlist": ["AAPL"],
             "dashboard": {"portfolio_summary": {"positions": 0}},
+            "screening_results": {"USA": pd.DataFrame(), "NORDEN": pd.DataFrame(), "OBX": pd.DataFrame()},
         }
 
         result = run_daily_refresh(pause_seconds=0, today=date(2026, 6, 12))

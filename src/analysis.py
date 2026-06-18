@@ -115,6 +115,31 @@ def analyze_watchlist(symbols, pause_seconds=1):
     return pd.DataFrame(results)
 
 
+def _report_field(row, *keys, default="—"):
+    for key in keys:
+        if key not in row:
+            continue
+
+        value = row[key]
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            continue
+
+        return value
+
+    return default
+
+
+def _format_gain_pct(row):
+    value = _report_field(row, "gain_pct", "unrealized_gain_pct", default=None)
+    if value is None:
+        return "—"
+
+    try:
+        return f"{float(value):g}"
+    except (TypeError, ValueError):
+        return "—"
+
+
 def generate_text_report(watchlist_report, portfolio_report=None):
     lines = []
 
@@ -140,15 +165,19 @@ def generate_text_report(watchlist_report, portfolio_report=None):
                 f"relativ styrke {row['relative_strength_20d']}%)"
             )
 
-    if portfolio_report is not None:
+    if portfolio_report is not None and not portfolio_report.empty:
         lines.append("")
         lines.append("Portefølje:")
 
         for _, row in portfolio_report.iterrows():
+            ticker = _report_field(row, "ticker")
+            portefølje_råd = _report_field(row, "portefølje_råd")
+            score = _report_field(row, "score")
+            gain_pct = _format_gain_pct(row)
             lines.append(
-                f"- {row['ticker']}: {row['portefølje_råd']} "
-                f"(gevinst/tap {row['gain_pct']}%, "
-                f"score {row['score']})"
+                f"- {ticker}: {portefølje_råd} "
+                f"(gevinst/tap {gain_pct}%, "
+                f"score {score})"
             )
 
     return "\n".join(lines)

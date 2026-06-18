@@ -516,7 +516,66 @@ class AgentScreeningTests(unittest.TestCase):
         )
 
         mock_screen_obx.assert_called_once()
-        self.assertIn("Topp 5 OBX-kandidater", answer)
+        self.assertIn("Topp 5 norske kandidater", answer)
+
+    @patch("src.agent.build_opportunity_advisor")
+    @patch("src.agent.screen_obx")
+    def test_norske_kandidater_use_obx_screening(
+        self,
+        mock_screen_obx,
+        mock_build_advisor,
+    ):
+        mock_screen_obx.return_value = pd.DataFrame(
+            [
+                {
+                    "ticker": "SUBC.OL",
+                    "in_watchlist": "Nei",
+                    "score": 94,
+                    "recommendation": "KJØP / ØK",
+                    "trend_regime": "STERK OPPTREND",
+                    "relative_strength_20d": 12.3,
+                    "fundamental_score": 80,
+                    "fundamental_history_score": 78,
+                }
+            ]
+        )
+        mock_build_advisor.return_value = {"items": []}
+
+        context = {
+            "watchlist": ["BRK-B"],
+            "watchlist_report": pd.DataFrame(
+                [
+                    {
+                        "ticker": "BRK-B",
+                        "score": 100,
+                        "anbefaling": "KJØP / ØK",
+                        "relative_strength_20d": 8.0,
+                        "trend_regime": "STERK OPPTREND",
+                    }
+                ]
+            ),
+            "portfolio_report": pd.DataFrame(
+                [
+                    {
+                        "ticker": "NVDA",
+                        "portefølje_råd": "HOLD",
+                        "score": 85,
+                        "unrealized_gain_pct": 10.0,
+                    }
+                ]
+            ),
+            "dashboard": {},
+            "daily_flow": {},
+        }
+
+        answer = ask_agent("Vis meg de beste norske kandidatene", context)
+
+        mock_screen_obx.assert_called_once()
+        self.assertIn("Topp 5 norske kandidater", answer)
+        self.assertIn("SUBC.OL", answer)
+        self.assertNotIn("BRK-B", answer)
+        self.assertNotIn("Portefølje:", answer)
+        self.assertNotIn("DAGENS RÅD", answer)
 
     @patch("src.agent.screen_nordics")
     def test_empty_screener_result(self, mock_screen_nordics):

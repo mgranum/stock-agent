@@ -20,10 +20,14 @@ from src.earnings import build_earnings_summary
 from src.news import build_news_summary
 from src.portfolio import analyze_portfolio, ensure_portfolio_report, summarize_portfolio
 from src.environment import context_snapshot_filename
+from src.config import load_watchlists
 from src.sentiment import build_sentiment_summary, merge_sentiment_into_news_summary
+from src.screener import screen_nordics, screen_obx, screen_us_large
 from src.watchlist_advisor import build_watchlist_advisor
 
 CONTEXT_SNAPSHOT_VERSION = 1
+SCREENING_SNAPSHOT_PRESET = "Beste kandidater"
+SCREENING_SNAPSHOT_LIMIT = 5
 _DATAFRAME_MARKER = "__type__"
 _DATAFRAME_TYPE = "dataframe"
 
@@ -144,6 +148,32 @@ def _deserialize_context(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(restored, dict):
         raise ValueError("Context snapshot must deserialize to a dict.")
     return restored
+
+
+def build_screening_results(
+    pause_seconds=0,
+    existing_watchlists=None,
+    preset=SCREENING_SNAPSHOT_PRESET,
+    limit=SCREENING_SNAPSHOT_LIMIT,
+):
+    watchlists = (
+        existing_watchlists
+        if existing_watchlists is not None
+        else load_watchlists()
+    )
+    screen_kwargs = {
+        "preset": preset,
+        "limit": limit,
+        "pause_seconds": pause_seconds,
+        "existing_watchlists": watchlists,
+    }
+
+    return {
+        "USA": screen_us_large(**screen_kwargs),
+        "NORDEN": screen_nordics(**screen_kwargs),
+        "OBX": screen_obx(**screen_kwargs),
+        "generated_at": _utc_now_iso(),
+    }
 
 
 def save_context_snapshot(
@@ -394,6 +424,10 @@ def build_agent_context(
         earnings_summary=earnings_summary,
         snapshot_changes=dashboard.get("changes_since_last_snapshot"),
     )
+    screening_results = build_screening_results(
+        pause_seconds=pause_seconds,
+        existing_watchlists=load_watchlists(),
+    )
 
     context = {
         "watchlist": watchlist,
@@ -409,6 +443,7 @@ def build_agent_context(
         "advisor_details": advisor_details,
         "watchlist_advisor_output": watchlist_advisor_output,
         "alerts": alerts,
+        "screening_results": screening_results,
     }
     context["daily_briefing"] = build_daily_briefing(context)
 

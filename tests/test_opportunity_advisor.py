@@ -67,7 +67,11 @@ class StrongCandidateTests(unittest.TestCase):
         self.assertIn("Sterk trend", item["why_interesting"])
         self.assertIn("Sterk relativ styrke (12.0%)", item["why_interesting"])
         self.assertNotIn("Positiv relativ styrke (12.0%)", item["why_interesting"])
-        self.assertEqual(item["headline"], "Sterk screener-kandidat")
+        self.assertEqual(
+            item["headline"],
+            "Kvalitetskandidat med solid fundamentalprofil",
+        )
+        self.assertEqual(item["candidate_type"], "Kvalitetskandidat")
         self.assertEqual(item["priority"], 1)
 
 
@@ -189,6 +193,9 @@ class TakeawayInterpretationTests(unittest.TestCase):
                 relative_strength_20d=8.5,
                 fundamental_score=60,
                 fundamental_history_score=62,
+                trend_points=35,
+                momentum_points=25,
+                relative_strength_points=8,
             ),
             analyst_item={
                 "ticker": "NVDA",
@@ -197,7 +204,7 @@ class TakeawayInterpretationTests(unittest.TestCase):
             },
         )
 
-        self.assertIn("modellen både liker totalbildet og kursutviklingen", item["takeaway"])
+        self.assertIn("momentum-case", item["takeaway"])
 
     def test_strong_score_and_positive_analyst_gives_consensus_takeaway(self):
         item = build_opportunity_advisor_item(
@@ -247,6 +254,9 @@ class TakeawayInterpretationTests(unittest.TestCase):
                 relative_strength_20d=8.5,
                 fundamental_score=72,
                 fundamental_history_score=74,
+                trend_points=35,
+                momentum_points=25,
+                relative_strength_points=8,
             ),
             analyst_item={
                 "ticker": "JPM",
@@ -257,11 +267,7 @@ class TakeawayInterpretationTests(unittest.TestCase):
         )
 
         self.assertEqual(item["watch_out_for"], [])
-        self.assertIn(
-            "modellen både liker totalbildet og kursutviklingen",
-            item["takeaway"],
-        )
-        self.assertIn("Siden det ikke er tydelige forbehold", item["takeaway"])
+        self.assertIn("momentum-case", item["takeaway"])
 
 
 class ResilienceTests(unittest.TestCase):
@@ -317,9 +323,16 @@ class QualityAndMomentumTests(unittest.TestCase):
             analyst_item=_analyst_item(),
         )
 
-        self.assertIn("Sterk fundamental kvalitet", item["why_interesting"])
-        self.assertIn("Sterk fundamental utvikling", item["why_interesting"])
-        self.assertEqual(item["headline"], "Kvalitetskandidat")
+        self.assertIn("Primær profil: Quality", item["why_interesting"])
+        self.assertIn(
+            "Sterk fundamental kvalitet eller historikk",
+            item["why_interesting"],
+        )
+        self.assertNotIn("Sterk fundamental kvalitet", item["why_interesting"])
+        self.assertEqual(
+            item["headline"],
+            "Kvalitetskandidat med solid fundamentalprofil",
+        )
 
     def test_momentum_candidate_why(self):
         item = build_opportunity_advisor_item(
@@ -329,13 +342,17 @@ class QualityAndMomentumTests(unittest.TestCase):
                 relative_strength_20d=11.5,
                 fundamental_score=60,
                 fundamental_history_score=62,
+                trend_points=30,
+                momentum_points=24,
+                relative_strength_points=10,
             ),
             analyst_item=_analyst_item(),
         )
 
+        self.assertIn("Primær profil: Momentum", item["why_interesting"])
         self.assertIn("Sterk relativ styrke (11.5%)", item["why_interesting"])
-        self.assertIn("Positiv kursutvikling", item["why_interesting"])
-        self.assertEqual(item["headline"], "Momentumkandidat")
+        self.assertNotIn("Positiv kursutvikling", item["why_interesting"])
+        self.assertEqual(item["headline"], "Momentum-kandidat med sterk trend")
 
 
 class SupportDataEnrichmentTests(unittest.TestCase):
