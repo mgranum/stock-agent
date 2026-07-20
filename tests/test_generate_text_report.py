@@ -139,8 +139,8 @@ class AgentNorskeKandidaterTests(unittest.TestCase):
 
         answer = ask_agent("Vis meg dagens råd", context)
 
-        self.assertIn("DAGENS RÅD", answer)
-        self.assertIn("gevinst/tap 10%", answer)
+        self.assertIn("Dagens anbefalinger", answer)
+        self.assertIn("Ingen viktige handlinger anbefales i dag.", answer)
 
 
 if __name__ == "__main__":

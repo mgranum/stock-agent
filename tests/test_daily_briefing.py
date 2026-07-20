@@ -864,3 +864,17 @@ class ResolveDailyBriefingTests(unittest.TestCase):
         self.assertNotIn("daily_briefing", context)
         self.assertEqual(len(briefing["critical_items"]), 1)
         self.assertIn("Reduser / selg", briefing["critical_items"][0]["text"])
+
+    def test_briefing_includes_recommendation_engine_output(self):
+        from src.recommendation_engine import build_recommendations
+
+        context = {
+            "portfolio_report": pd.DataFrame(
+                [_portfolio_row(ticker="NVDA", portefølje_råd="REDUSER / SELG")],
+            ),
+        }
+        recommendations = build_recommendations(context)
+        briefing = build_daily_briefing(context, recommendations=recommendations)
+
+        self.assertEqual(briefing["recommendations"], recommendations)
+        self.assertEqual(len(briefing["critical_items"]), 1)

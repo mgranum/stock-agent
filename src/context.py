@@ -15,6 +15,7 @@ from src.analysis import analyze_watchlist
 from src.analyst import build_analyst_summary
 from src.dashboard import build_dashboard, build_portfolio_risk
 from src.daily_briefing import build_daily_briefing
+from src.recommendation_engine import build_recommendations
 from src.daily_flow import build_daily_flow
 from src.earnings import build_earnings_summary
 from src.news import build_news_summary
@@ -489,7 +490,11 @@ def build_agent_context(
         "alerts": alerts,
         "screening_results": screening_results,
     }
-    context["daily_briefing"] = build_daily_briefing(context)
+    context["recommendations"] = build_recommendations(context)
+    context["daily_briefing"] = build_daily_briefing(
+        context,
+        recommendations=context["recommendations"],
+    )
 
     return context
 

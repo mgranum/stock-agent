@@ -42,6 +42,11 @@ from src.comparison_engine import (
     is_comparison_question,
     resolve_comparison_tickers,
 )
+from src.recommendation_engine import (
+    build_recommendations,
+    format_recommendations,
+    is_recommendation_question,
+)
 from src.strategy_profiles import (
     _PROFILE_LABELS,
     format_strategy_profile_answer,
@@ -2021,6 +2026,9 @@ def ask_agent(question, context):
     if _is_portfolio_comparison_question(question):
         return _answer_portfolio_comparison_question(context, question)
 
+    if is_recommendation_question(question):
+        return format_recommendations(build_recommendations(context))
+
     if _is_daily_flow_question(question):
         return _format_daily_flow_answer(context)
 
@@ -2152,8 +2160,9 @@ def ask_agent(question, context):
         )
 
     if (
-        ("beste" in question or "dagens råd" in question)
+        "beste" in question
         and not _is_screening_question(question)
+        and not is_recommendation_question(question)
     ):
         filtered = watchlist_report[
             (watchlist_report["score"] >= 55)
