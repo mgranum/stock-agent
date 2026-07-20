@@ -31,6 +31,26 @@ def _screening_results(**overrides):
         "USA": pd.DataFrame([_screening_row("AAPL", 88)]),
         "NORDEN": pd.DataFrame([_screening_row("VOLV-B.ST", 86)]),
         "OBX": pd.DataFrame([_screening_row("SUBC.OL", 94)]),
+        "meta": {
+            "USA": {
+                "universe_size": 1,
+                "is_full_universe": True,
+                "display_limit": 5,
+                "use_snapshot_wording": False,
+            },
+            "NORDEN": {
+                "universe_size": 1,
+                "is_full_universe": True,
+                "display_limit": 5,
+                "use_snapshot_wording": False,
+            },
+            "OBX": {
+                "universe_size": 1,
+                "is_full_universe": True,
+                "display_limit": 5,
+                "use_snapshot_wording": False,
+            },
+        },
         "generated_at": "2026-06-18T08:00:00+00:00",
     }
     base.update(overrides)
@@ -76,10 +96,12 @@ class ScreeningSnapshotContextTests(unittest.TestCase):
         self.assertEqual(results["OBX"].iloc[0]["ticker"], "SUBC.OL")
         mock_screen_us.assert_called_once_with(
             preset="Beste kandidater",
-            limit=5,
+            limit=None,
             pause_seconds=0,
             existing_watchlists={"Alle": ["AAPL"]},
         )
+        self.assertTrue(results["meta"]["OBX"]["is_full_universe"])
+        self.assertEqual(results["meta"]["OBX"]["display_limit"], 5)
 
     def test_context_snapshot_roundtrip_preserves_screening_results(self):
         with patch("src.context.context_snapshot_path") as mock_path:
@@ -98,6 +120,7 @@ class ScreeningSnapshotContextTests(unittest.TestCase):
         self.assertEqual(screening["OBX"].iloc[0]["ticker"], "SUBC.OL")
         self.assertEqual(screening["NORDEN"].iloc[0]["ticker"], "VOLV-B.ST")
         self.assertEqual(screening["USA"].iloc[0]["ticker"], "AAPL")
+        self.assertTrue(screening["meta"]["NORDEN"]["is_full_universe"])
 
 
 class AgentScreeningSnapshotTests(unittest.TestCase):
@@ -184,6 +207,95 @@ class AgentScreeningSnapshotTests(unittest.TestCase):
 
         mock_screen_nordics.assert_called_once()
         self.assertIn("Bruker live screening fordi snapshot mangler.", answer)
+
+
+class ScreeningSnapshotRankingHonestyTests(unittest.TestCase):
+    @patch("src.opportunity_advisor.get_news", return_value=[])
+    @patch("src.opportunity_advisor.get_earnings")
+    @patch("src.opportunity_advisor.get_analyst")
+    def test_legacy_top5_snapshot_uses_honest_wording(
+        self,
+        mock_get_analyst,
+        mock_get_earnings,
+        _mock_get_news,
+    ):
+        mock_get_analyst.return_value = {"ticker": "T1"}
+        mock_get_earnings.return_value = {"ticker": "T1"}
+
+        top5 = pd.DataFrame(
+            [_screening_row(f"T{i}", 95 - i) for i in range(5)]
+        )
+        context = _mock_context(
+            screening_results={
+                "OBX": top5,
+                "generated_at": "2026-06-18T08:00:00+00:00",
+            }
+        )
+
+        answer = ask_agent("Vis meg de beste OBX-kandidatene", context)
+
+        self.assertIn("#2 av topp 5 i OBX-snapshot", answer)
+        self.assertNotIn("#2 av 25 i OBX", answer)
+        self.assertNotIn("#2 av 5 i OBX", answer)
+
+    @patch("src.opportunity_advisor.get_news", return_value=[])
+    @patch("src.opportunity_advisor.get_earnings")
+    @patch("src.opportunity_advisor.get_analyst")
+    def test_full_snapshot_uses_full_universe_size(
+        self,
+        mock_get_analyst,
+        mock_get_earnings,
+        _mock_get_news,
+    ):
+        mock_get_analyst.return_value = {"ticker": "T1"}
+        mock_get_earnings.return_value = {"ticker": "T1"}
+
+        full = pd.DataFrame(
+            [_screening_row(f"T{i}", 99 - i) for i in range(25)]
+        )
+        context = _mock_context(
+            screening_results={
+                "OBX": full,
+                "meta": {
+                    "OBX": {
+                        "universe_size": 25,
+                        "is_full_universe": True,
+                        "display_limit": 5,
+                        "use_snapshot_wording": False,
+                    }
+                },
+                "generated_at": "2026-06-18T08:00:00+00:00",
+            }
+        )
+
+        answer = ask_agent("Vis meg de beste OBX-kandidatene", context)
+
+        self.assertIn("#2 av 25 i OBX", answer)
+        self.assertNotIn("OBX-snapshot", answer)
+
+    @patch("src.opportunity_advisor.get_news", return_value=[])
+    @patch("src.opportunity_advisor.get_earnings")
+    @patch("src.opportunity_advisor.get_analyst")
+    @patch("src.agent.screen_obx")
+    def test_live_top5_screening_does_not_overclaim_universe_size(
+        self,
+        mock_screen_obx,
+        mock_get_analyst,
+        mock_get_earnings,
+        _mock_get_news,
+    ):
+        mock_screen_obx.return_value = pd.DataFrame(
+            [_screening_row(f"T{i}", 95 - i) for i in range(5)]
+        )
+        mock_get_analyst.return_value = {"ticker": "T1"}
+        mock_get_earnings.return_value = {"ticker": "T1"}
+
+        answer = ask_agent("Vis meg de beste OBX-kandidatene", _mock_context())
+
+        mock_screen_obx.assert_called_once()
+        self.assertIn("#2 av topp 5 i OBX", answer)
+        self.assertNotIn("#2 av 25 i OBX", answer)
+        self.assertNotIn("OBX-snapshot", answer)
 
 
 if __name__ == "__main__":

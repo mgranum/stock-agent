@@ -7,6 +7,7 @@ from src.company_names import get_company_name
 from src.config import load_json_config, load_watchlists
 from src.ranking import rank_watchlist
 from src.strategy_classification import add_strategy_types
+from src.strategy_profiles import INVESTMENT_PROFILES, build_strategy_profile
 
 
 MIN_SUGGESTION_SCORE = 55
@@ -51,6 +52,11 @@ SCREEN_OUTPUT_COLUMNS = [
     "relative_strength_20d",
     "fundamental_score",
     "fundamental_history_score",
+    "primary_profile",
+    "profile_score_momentum",
+    "profile_score_quality",
+    "profile_score_value",
+    "profile_score_cyclical",
 ]
 
 IN_WATCHLIST_YES = "Ja"
@@ -67,7 +73,7 @@ def _analysis_to_screen_row(result, watchlist_symbols=None):
     if watchlist_symbols is not None and ticker in watchlist_symbols:
         in_watchlist = IN_WATCHLIST_YES
 
-    return {
+    row = {
         "ticker": result["ticker"],
         "in_watchlist": in_watchlist,
         "score": result["score"],
@@ -77,6 +83,19 @@ def _analysis_to_screen_row(result, watchlist_symbols=None):
         "fundamental_score": result["fundamental_score"],
         "fundamental_history_score": result["fundamental_history_score"],
     }
+    return _attach_strategy_profile_fields(result, row)
+
+
+def _attach_strategy_profile_fields(analysis_result, row):
+    profile = build_strategy_profile({**analysis_result, **row})
+    profiles = profile.get("profiles") or {}
+
+    row = dict(row)
+    row["primary_profile"] = profile.get("primary_profile")
+    for name in INVESTMENT_PROFILES:
+        row[f"profile_score_{name}"] = profiles.get(name)
+
+    return row
 
 
 def load_screening_universe():

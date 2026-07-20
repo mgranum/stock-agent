@@ -6,7 +6,8 @@ from src.analysis import _format_gain_pct, generate_text_report
 from src.ranking import ranking_table
 from src.advisor import build_advisor_details, format_advisor_detail_answer
 from src.config import load_watchlists
-from src.opportunity_advisor import build_opportunity_advisor
+from src.context import screening_region_meta
+from src.opportunity_advisor import build_opportunity_advisor, format_relative_context_short
 from src.portfolio import valid_portfolio_rows
 from src.watchlist_advisor import (
     ACTION_AVVENT_EARNINGS,
@@ -36,6 +37,7 @@ from src.score_explainability import (
     is_score_explanation_question,
 )
 from src.strategy_profiles import (
+    _PROFILE_LABELS,
     format_strategy_profile_answer,
     is_strategy_profile_question,
 )
@@ -913,6 +915,45 @@ _SCREENING_SNAPSHOT_FALLBACK_NOTE = (
     "(Bruker live screening fordi snapshot mangler.)"
 )
 
+_STRATEGY_SCREENING_SNAPSHOT_KEYS = ("USA", "NORDEN", "OBX")
+
+_STRATEGY_SCREENING_PROFILES = {
+    "momentum": ("momentum", "vekstaksj", "growth", "trendaksj"),
+    "quality": ("quality", "kvalitetsaksj", "kvalitetsselskap"),
+    "value": ("value", "verdiaksj", "billige aksjer"),
+    "cyclical": (
+        "cyclical",
+        "sykliske",
+        "sykliske aksjer",
+        "shipping",
+        "råvareaksjer",
+    ),
+}
+
+_STRATEGY_SCREENING_ACTION_MARKERS = (
+    "beste",
+    "sterkeste",
+    "sterke",
+    "vis meg",
+    "vis ",
+    "hvilke",
+    "hva er",
+    "kandidat",
+    "aksjer",
+    "aksje",
+)
+
+_STRATEGY_SCREENING_TITLES = {
+    "momentum": "Topp 5 momentum-kandidater",
+    "quality": "Topp 5 quality-kandidater",
+    "value": "Topp 5 value-kandidater",
+    "cyclical": "Topp 5 sykliske kandidater",
+}
+
+_STRATEGY_PROFILE_UNAVAILABLE_MSG = (
+    "Strategy-profiler er ikke tilgjengelige i snapshot. Kjør Oppdater analyser."
+)
+
 
 def _detect_screening_region(question):
     if "obx" in question:
@@ -983,6 +1024,186 @@ def _format_screening_top5(results, title):
     return "\n".join(lines).rstrip()
 
 
+def _detect_strategy_screening_profile(question):
+    for profile, markers in _STRATEGY_SCREENING_PROFILES.items():
+        if any(marker in question for marker in markers):
+            return profile
+    return None
+
+
+def _is_strategy_screening_question(question):
+    profile = _detect_strategy_screening_profile(question)
+    if profile is None:
+        return False
+
+    return any(marker in question for marker in _STRATEGY_SCREENING_ACTION_MARKERS)
+
+
+def _merged_screening_snapshot(context):
+    screening_results = context.get("screening_results") or {}
+    frames = []
+
+    for key in _STRATEGY_SCREENING_SNAPSHOT_KEYS:
+        region_results = screening_results.get(key)
+        if isinstance(region_results, pd.DataFrame) and not region_results.empty:
+            frames.append(region_results)
+
+    if not frames:
+        return None
+
+    return pd.concat(frames, ignore_index=True)
+
+
+def _screening_has_strategy_profiles(results):
+    if results is None or results.empty:
+        return False
+
+    if "primary_profile" not in results.columns:
+        return False
+
+    return results["primary_profile"].notna().any()
+
+
+def _profile_score_column(profile):
+    return f"profile_score_{profile}"
+
+
+def _filter_strategy_candidates(results, profile):
+    return results[results["primary_profile"] == profile].copy()
+
+
+def _sort_strategy_candidates(results, profile):
+    score_column = _profile_score_column(profile)
+    sort_columns = [score_column, "score"]
+    available_columns = [column for column in sort_columns if column in results.columns]
+
+    if not available_columns:
+        return results.reset_index(drop=True)
+
+    return results.sort_values(
+        by=available_columns,
+        ascending=[False] * len(available_columns),
+        na_position="last",
+    ).reset_index(drop=True)
+
+
+def _format_strategy_profile_score(value):
+    if value is None:
+        return "—"
+
+    try:
+        if pd.isna(value):
+            return "—"
+    except TypeError:
+        pass
+
+    return str(int(value))
+
+
+def _format_strategy_screening_top5(results, profile):
+    title = _STRATEGY_SCREENING_TITLES[profile]
+    label = _PROFILE_LABELS[profile]
+    score_column = _profile_score_column(profile)
+    lines = [title, ""]
+
+    if results is None or results.empty:
+        lines.append(
+            f"Ingen {label.lower()}-kandidater funnet i snapshot akkurat nå."
+        )
+        return "\n".join(lines)
+
+    for index, row in enumerate(results.head(SCREENING_TOP_LIMIT).itertuples(index=False), start=1):
+        profile_score = getattr(row, score_column, None)
+        lines.append(f"{index}. {row.ticker}")
+        lines.append(
+            f"   {label}: {_format_strategy_profile_score(profile_score)}"
+        )
+        lines.append(f"   Score: {int(row.score)}")
+        lines.append("")
+
+    return "\n".join(lines).rstrip()
+
+
+def _format_strategy_screening_advisor_commentary(context, top_results, full_results):
+    if top_results is None or top_results.empty:
+        return ""
+
+    advisor_results = top_results.head(3)
+    dashboard = _get_dashboard(context)
+    advisor = build_opportunity_advisor(
+        advisor_results,
+        analyst_summary=_get_analyst_summary(context),
+        sentiment_summary=(
+            context.get("sentiment_summary")
+            or dashboard.get("sentiment_summary")
+        ),
+        earnings_summary=_get_earnings_summary(context),
+        news_summary=context.get("news_summary") or dashboard.get("news_summary"),
+        limit=3,
+        use_cache=True,
+        full_results=full_results,
+        is_full_universe=True,
+    )
+
+    items_by_ticker = {
+        item["ticker"]: item
+        for item in advisor.get("items") or []
+        if item.get("ticker")
+    }
+
+    lines = ["", "Kort kommentar fra Opportunity Advisor", ""]
+
+    for row in advisor_results.itertuples(index=False):
+        ticker = row.ticker
+        item = items_by_ticker.get(ticker)
+
+        lines.append(ticker)
+
+        if item is None:
+            lines.append(SCREENING_ADVISOR_FALLBACK)
+            lines.append("")
+            continue
+
+        headline = item.get("headline")
+        if headline:
+            lines.append(headline)
+
+        relative_context = format_relative_context_short(
+            item.get("relative_context")
+        )
+        if relative_context:
+            lines.append(f"Relativ kontekst: {relative_context}")
+
+        lines.append(item.get("takeaway") or SCREENING_ADVISOR_FALLBACK)
+        lines.append("")
+
+    return "\n".join(lines).rstrip()
+
+
+def _answer_strategy_screening_question(context, question):
+    profile = _detect_strategy_screening_profile(question)
+    merged = _merged_screening_snapshot(context)
+
+    if merged is None or merged.empty or not _screening_has_strategy_profiles(merged):
+        return _STRATEGY_PROFILE_UNAVAILABLE_MSG
+
+    filtered = _filter_strategy_candidates(merged, profile)
+    ranked = _sort_strategy_candidates(filtered, profile)
+    top5 = ranked.head(SCREENING_TOP_LIMIT)
+
+    answer = _format_strategy_screening_top5(top5, profile)
+    if not top5.empty:
+        advisor_section = _format_strategy_screening_advisor_commentary(
+            context,
+            top5,
+            filtered,
+        )
+        if advisor_section:
+            answer = f"{answer}{advisor_section}"
+
+    return answer
+
+
 def _format_screening_advisor_bullet(line):
     if line.startswith("Høy score"):
         return "Sterk score"
@@ -993,12 +1214,39 @@ def _format_screening_advisor_bullet(line):
     return line
 
 
-def _format_screening_advisor_commentary(context, results):
+def _format_screening_advisor_commentary(context, results, region=None):
     if results is None or results.empty:
         return ""
 
     top_results = results.head(SCREENING_TOP_LIMIT)
     dashboard = _get_dashboard(context)
+    full_results = None
+    universe_name = None
+    is_full_universe = False
+    use_snapshot_wording = False
+    if region:
+        snapshot_key = _SCREENING_SNAPSHOT_KEYS.get(region)
+        universe_name = snapshot_key
+        screening_results = context.get("screening_results") or {}
+        snapshot_results = screening_results.get(snapshot_key)
+        meta = screening_region_meta(screening_results, snapshot_key)
+
+        if (
+            snapshot_results is not None
+            and isinstance(snapshot_results, pd.DataFrame)
+            and not snapshot_results.empty
+        ):
+            full_results = snapshot_results
+            if meta:
+                is_full_universe = bool(meta.get("is_full_universe"))
+                use_snapshot_wording = bool(
+                    meta.get("use_snapshot_wording", not is_full_universe)
+                )
+        else:
+            full_results = results
+            is_full_universe = False
+            use_snapshot_wording = False
+
     advisor = build_opportunity_advisor(
         top_results,
         analyst_summary=_get_analyst_summary(context),
@@ -1010,6 +1258,10 @@ def _format_screening_advisor_commentary(context, results):
         news_summary=context.get("news_summary") or dashboard.get("news_summary"),
         limit=SCREENING_TOP_LIMIT,
         use_cache=True,
+        universe_name=universe_name,
+        full_results=full_results if full_results is not None else results,
+        is_full_universe=is_full_universe,
+        use_snapshot_wording=use_snapshot_wording,
     )
 
     items_by_ticker = {
@@ -1020,7 +1272,7 @@ def _format_screening_advisor_commentary(context, results):
 
     lines = ["", "Kort kommentar fra Opportunity Advisor", ""]
 
-    for row in top_results.itertuples(index=False):
+    for index, row in enumerate(top_results.itertuples(index=False)):
         ticker = row.ticker
         item = items_by_ticker.get(ticker)
 
@@ -1033,6 +1285,12 @@ def _format_screening_advisor_commentary(context, results):
             lines.append(SCREENING_ADVISOR_FALLBACK)
             lines.append("")
             continue
+
+        relative_context = format_relative_context_short(
+            item.get("relative_context")
+        )
+        if index < 3 and relative_context:
+            lines.append(f"Relativ kontekst: {relative_context}")
 
         for bullet in item.get("why_interesting") or []:
             lines.append(f"- {_format_screening_advisor_bullet(bullet)}")
@@ -1087,6 +1345,7 @@ def _answer_screening_question(context, question):
         advisor_section = _format_screening_advisor_commentary(
             context,
             results,
+            region=region,
         )
         if advisor_section:
             answer = f"{answer}{advisor_section}"
@@ -1255,11 +1514,12 @@ def _portfolio_comparison_reasons(candidate, beaten_holdings):
     return reasons
 
 
-def _portfolio_comparison_advisor_by_ticker(context, results):
+def _portfolio_comparison_advisor_by_ticker(context, results, region=None):
     if results is None or results.empty:
         return {}
 
     dashboard = _get_dashboard(context)
+    universe_name = _SCREENING_SNAPSHOT_KEYS.get(region) if region else None
     advisor = build_opportunity_advisor(
         results,
         analyst_summary=_get_analyst_summary(context),
@@ -1271,6 +1531,8 @@ def _portfolio_comparison_advisor_by_ticker(context, results):
         news_summary=context.get("news_summary") or dashboard.get("news_summary"),
         limit=SCREENING_TOP_LIMIT,
         use_cache=True,
+        universe_name=universe_name,
+        full_results=results,
     )
 
     return {
@@ -1279,7 +1541,7 @@ def _portfolio_comparison_advisor_by_ticker(context, results):
     }
 
 
-def _format_portfolio_comparison_candidates(context, results, weak_holdings):
+def _format_portfolio_comparison_candidates(context, results, weak_holdings, region=None):
     lines = ["Mest interessante kandidater akkurat nå", ""]
 
     if results is None or results.empty:
@@ -1315,6 +1577,7 @@ def _format_portfolio_comparison_candidates(context, results, weak_holdings):
     advisor_by_ticker = _portfolio_comparison_advisor_by_ticker(
         context,
         results.head(SCREENING_TOP_LIMIT),
+        region=region,
     )
 
     for index, (candidate, beaten) in enumerate(
@@ -1358,7 +1621,12 @@ def _answer_portfolio_comparison_question(context, question):
     )
 
     weak_holdings = _weakest_portfolio_positions(context.get("portfolio_report"))
-    return _format_portfolio_comparison_candidates(context, results, weak_holdings)
+    return _format_portfolio_comparison_candidates(
+        context,
+        results,
+        weak_holdings,
+        region=region,
+    )
 
 
 def _is_earnings_question(question):
@@ -1730,6 +1998,9 @@ def ask_agent(question, context):
 
     if _is_advisor_question(question):
         return _format_advisor_answer(context, question)
+
+    if _is_strategy_screening_question(question):
+        return _answer_strategy_screening_question(context, question)
 
     if _is_screening_question(question):
         return _answer_screening_question(context, question)

@@ -86,6 +86,14 @@ _LEGACY_WHY_SKIP_BY_PROFILE = {
     },
 }
 
+_UNIVERSE_DISPLAY_NAMES = {
+    "OBX": "OBX",
+    "USA": "USA",
+    "US_LARGE_CAP": "USA",
+    "NORDEN": "Norden",
+    "NORDICS": "Norden",
+}
+
 
 def _resolve_strategy_profile(row):
     try:
@@ -612,6 +620,169 @@ def _compute_priority(candidate_types, watch_out_for):
     return 3
 
 
+def _iter_screener_rows(screener_results):
+    if screener_results is None:
+        return []
+
+    if isinstance(screener_results, pd.DataFrame):
+        if screener_results.empty:
+            return []
+        return screener_results.to_dict("records")
+
+    return list(screener_results)
+
+
+def _universe_display_name(universe_name):
+    if not universe_name:
+        return "universet"
+
+    key = str(universe_name).strip().upper()
+    return _UNIVERSE_DISPLAY_NAMES.get(key, str(universe_name).strip())
+
+
+def _build_ranking_index(full_results):
+    rows = _iter_screener_rows(full_results)
+    universe_size = len(rows)
+    profile_counters = {name: 0 for name in INVESTMENT_PROFILES}
+    rankings = {}
+
+    for rank, row in enumerate(rows, start=1):
+        ticker = str(row.get("ticker") or "").strip().upper()
+        if not ticker:
+            continue
+
+        strategy_profile = _resolve_strategy_profile(row)
+        primary_profile = (strategy_profile or {}).get("primary_profile")
+        profile_rank = None
+
+        if primary_profile in profile_counters:
+            profile_counters[primary_profile] += 1
+            profile_rank = profile_counters[primary_profile]
+
+        rankings[ticker] = {
+            "rank": rank,
+            "universe_size": universe_size,
+            "profile_rank": profile_rank,
+            "primary_profile": primary_profile,
+        }
+
+    return rankings
+
+
+def _build_relative_context_lines(
+    rank,
+    universe_size,
+    profile_rank,
+    primary_profile,
+    universe_name=None,
+    is_full_universe=True,
+    use_snapshot_wording=False,
+):
+    if rank is None or universe_size is None or universe_size <= 0:
+        return []
+
+    universe_label = _universe_display_name(universe_name)
+    candidate_type = _candidate_type_label(primary_profile)
+
+    if is_full_universe:
+        lines = [f"#{rank} av {universe_size} i {universe_label}"]
+        profile_scope = universe_label
+    elif use_snapshot_wording:
+        lines = [f"#{rank} av topp {universe_size} i {universe_label}-snapshot"]
+        profile_scope = f"{universe_label}-snapshot (topp {universe_size})"
+    else:
+        lines = [f"#{rank} av topp {universe_size} i {universe_label}"]
+        profile_scope = f"{universe_label} (topp {universe_size})"
+
+    if candidate_type and profile_rank is not None:
+        if profile_rank == 1:
+            lines.append(f"Beste {candidate_type} i {profile_scope}")
+        elif profile_rank <= 3:
+            lines.append(f"Topp 3 {candidate_type} i {profile_scope}")
+
+    return lines
+
+
+def _relative_rank_line(relative_context):
+    for line in relative_context or []:
+        if line.startswith("#"):
+            return line
+    return None
+
+
+def _relative_profile_lines(relative_context):
+    return [
+        line
+        for line in (relative_context or [])
+        if not line.startswith("#")
+    ]
+
+
+def _apply_relative_context_narrative(item, relative_context):
+    if not relative_context:
+        return item
+
+    why = list(item.get("why_interesting") or [])
+    for line in _relative_profile_lines(relative_context):
+        if line not in why:
+            why.append(line)
+
+    rank_line = _relative_rank_line(relative_context)
+    takeaway = item.get("takeaway") or ""
+    if rank_line:
+        relative_takeaway = (
+            "Dette er ikke bare en sterk kandidat isolert sett; "
+            f"den er også {rank_line}."
+        )
+        if takeaway:
+            takeaway = f"{relative_takeaway} {takeaway}"
+        else:
+            takeaway = relative_takeaway
+
+    item["why_interesting"] = why
+    item["takeaway"] = takeaway
+    return item
+
+
+def _attach_relative_ranking(
+    item,
+    ranking,
+    universe_name=None,
+    is_full_universe=True,
+    use_snapshot_wording=False,
+):
+    if not ranking:
+        return item
+
+    relative_context = _build_relative_context_lines(
+        ranking.get("rank"),
+        ranking.get("universe_size"),
+        ranking.get("profile_rank"),
+        ranking.get("primary_profile") or item.get("primary_profile"),
+        universe_name=universe_name,
+        is_full_universe=is_full_universe,
+        use_snapshot_wording=use_snapshot_wording,
+    )
+    if not relative_context:
+        return item
+
+    item["rank"] = ranking.get("rank")
+    item["universe_size"] = ranking.get("universe_size")
+    item["profile_rank"] = ranking.get("profile_rank")
+    if ranking.get("primary_profile") and not item.get("primary_profile"):
+        item["primary_profile"] = ranking.get("primary_profile")
+    item["relative_context"] = relative_context
+    return _apply_relative_context_narrative(item, relative_context)
+
+
+def format_relative_context_short(relative_context):
+    lines = [line for line in (relative_context or []) if line]
+    if not lines:
+        return ""
+
+    return " · ".join(lines)
+
+
 def build_opportunity_advisor_item(
     row,
     analyst_item=None,
@@ -669,6 +840,10 @@ def build_opportunity_advisor(
     news_summary=None,
     limit=SUPPORT_ENRICH_LIMIT,
     use_cache=True,
+    universe_name=None,
+    full_results=None,
+    is_full_universe=True,
+    use_snapshot_wording=False,
 ):
     if screener_results is None:
         return _empty_opportunity_advisor()
@@ -701,6 +876,14 @@ def build_opportunity_advisor(
     analyst_by_ticker = _index_by_ticker((analyst_summary or {}).get("items"))
     sentiment_by_ticker = _index_by_ticker((sentiment_summary or {}).get("items"))
     earnings_by_ticker = _index_by_ticker((earnings_summary or {}).get("items"))
+    include_relative = universe_name is not None or full_results is not None
+    ranking_index = (
+        _build_ranking_index(
+            full_results if full_results is not None else screener_results
+        )
+        if include_relative
+        else {}
+    )
 
     items = []
     for row in rows:
@@ -708,12 +891,19 @@ def build_opportunity_advisor(
         if not ticker:
             continue
 
+        item = build_opportunity_advisor_item(
+            row,
+            analyst_item=analyst_by_ticker.get(ticker),
+            sentiment_item=sentiment_by_ticker.get(ticker),
+            earnings_item=earnings_by_ticker.get(ticker),
+        )
         items.append(
-            build_opportunity_advisor_item(
-                row,
-                analyst_item=analyst_by_ticker.get(ticker),
-                sentiment_item=sentiment_by_ticker.get(ticker),
-                earnings_item=earnings_by_ticker.get(ticker),
+            _attach_relative_ranking(
+                item,
+                ranking_index.get(ticker),
+                universe_name=universe_name,
+                is_full_universe=is_full_universe,
+                use_snapshot_wording=use_snapshot_wording,
             )
         )
 

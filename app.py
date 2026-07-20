@@ -1228,6 +1228,8 @@ with tab_screening:
                 ),
                 news_summary=st.session_state.context.get("news_summary"),
                 limit=5,
+                full_results=watchlist_screen_results,
+                is_full_universe=True,
             )
             advisor_items = opportunity_advisor.get("items") or []
             if advisor_items:
@@ -1250,6 +1252,12 @@ with tab_screening:
                                 st.markdown(f"- {line}")
                         else:
                             st.markdown("- Ingen tydelige forbehold identifisert.")
+
+                        relative_context = item.get("relative_context") or []
+                        if relative_context:
+                            st.markdown("**Relativ kontekst**")
+                            for line in relative_context:
+                                st.markdown(f"- {line}")
 
                         st.markdown("**Tolkning**")
                         st.write(item.get("takeaway") or "")

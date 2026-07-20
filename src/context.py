@@ -154,7 +154,7 @@ def build_screening_results(
     pause_seconds=0,
     existing_watchlists=None,
     preset=SCREENING_SNAPSHOT_PRESET,
-    limit=SCREENING_SNAPSHOT_LIMIT,
+    limit=None,
 ):
     watchlists = (
         existing_watchlists
@@ -168,11 +168,55 @@ def build_screening_results(
         "existing_watchlists": watchlists,
     }
 
+    usa = screen_us_large(**screen_kwargs)
+    norden = screen_nordics(**screen_kwargs)
+    obx = screen_obx(**screen_kwargs)
+
     return {
-        "USA": screen_us_large(**screen_kwargs),
-        "NORDEN": screen_nordics(**screen_kwargs),
-        "OBX": screen_obx(**screen_kwargs),
+        "USA": usa,
+        "NORDEN": norden,
+        "OBX": obx,
+        "meta": {
+            "USA": _screening_region_meta(usa),
+            "NORDEN": _screening_region_meta(norden),
+            "OBX": _screening_region_meta(obx),
+        },
         "generated_at": _utc_now_iso(),
+    }
+
+
+def _screening_region_meta(region_results):
+    if not isinstance(region_results, pd.DataFrame):
+        universe_size = 0
+    else:
+        universe_size = len(region_results)
+
+    return {
+        "universe_size": universe_size,
+        "is_full_universe": True,
+        "display_limit": SCREENING_SNAPSHOT_LIMIT,
+        "use_snapshot_wording": False,
+    }
+
+
+def screening_region_meta(screening_results, region_key):
+    if not screening_results or not region_key:
+        return None
+
+    meta_root = screening_results.get("meta")
+    if isinstance(meta_root, dict) and region_key in meta_root:
+        return dict(meta_root[region_key])
+
+    region_results = screening_results.get(region_key)
+    if not isinstance(region_results, pd.DataFrame) or region_results.empty:
+        return None
+
+    universe_size = len(region_results)
+    return {
+        "universe_size": universe_size,
+        "is_full_universe": False,
+        "display_limit": min(universe_size, SCREENING_SNAPSHOT_LIMIT),
+        "use_snapshot_wording": True,
     }
 
 

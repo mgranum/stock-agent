@@ -132,6 +132,11 @@ class ScreenStocksTests(unittest.TestCase):
                 "relative_strength_20d",
                 "fundamental_score",
                 "fundamental_history_score",
+                "primary_profile",
+                "profile_score_momentum",
+                "profile_score_quality",
+                "profile_score_value",
+                "profile_score_cyclical",
             ],
         )
 
