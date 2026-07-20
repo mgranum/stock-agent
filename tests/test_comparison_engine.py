@@ -7,6 +7,7 @@ from src.agent import ask_agent
 from src.comparison_engine import (
     _dedupe_tickers_preserve_order,
     build_comparison,
+    build_winner_explanation,
     format_comparison_answer,
     is_comparison_question,
     resolve_comparison_tickers,
@@ -617,3 +618,235 @@ class ComparisonRegressionTests(unittest.TestCase):
         self.assertIn("Sammenligning: NVDA vs MSFT", answer)
         self.assertNotIn("V vs", answer)
         self.assertNotRegex(answer, r"\bV vs\b")
+
+
+class ComparisonExplanationTests(unittest.TestCase):
+    @patch("src.opportunity_advisor.get_news", return_value=[])
+    @patch("src.opportunity_advisor.get_earnings")
+    @patch("src.opportunity_advisor.get_analyst")
+    def test_winner_explanation_generated_for_two_stocks(
+        self,
+        mock_get_analyst,
+        mock_get_earnings,
+        _mock_get_news,
+    ):
+        mock_get_analyst.return_value = {"ticker": "SUBC.OL"}
+        mock_get_earnings.return_value = {"ticker": "SUBC.OL"}
+
+        comparison = build_comparison(["SUBC.OL", "AKRBP.OL"], _mock_context())
+        explanation = comparison["winner_explanation"]
+
+        self.assertTrue(explanation["summary"])
+        self.assertGreaterEqual(len(explanation["advantages"]), 1)
+        self.assertGreaterEqual(len(explanation["tradeoffs"]), 1)
+        self.assertGreaterEqual(len(explanation["why_not_the_others"]), 1)
+
+        answer = format_comparison_answer(comparison)
+        self.assertIn("Hvorfor denne vinner", answer)
+        self.assertIn("Viktige kompromisser", answer)
+        self.assertIn("Hvorfor ikke de andre", answer)
+
+    @patch("src.opportunity_advisor.get_news", return_value=[])
+    @patch("src.opportunity_advisor.get_earnings")
+    @patch("src.opportunity_advisor.get_analyst")
+    def test_winner_explanation_generated_for_three_stocks(
+        self,
+        mock_get_analyst,
+        mock_get_earnings,
+        _mock_get_news,
+    ):
+        mock_get_analyst.return_value = {"ticker": "SUBC.OL"}
+        mock_get_earnings.return_value = {"ticker": "SUBC.OL"}
+
+        comparison = build_comparison(
+            ["SUBC.OL", "AKRBP.OL", "FRO.OL"],
+            _mock_context(),
+        )
+        explanation = comparison["winner_explanation"]
+
+        self.assertEqual(comparison["winner"], "SUBC.OL")
+        self.assertLessEqual(len(explanation["advantages"]), 3)
+        self.assertLessEqual(len(explanation["tradeoffs"]), 2)
+        self.assertLessEqual(len(explanation["why_not_the_others"]), 2)
+
+    @patch("src.opportunity_advisor.get_news", return_value=[])
+    @patch("src.opportunity_advisor.get_earnings")
+    @patch("src.opportunity_advisor.get_analyst")
+    def test_advantages_sorted_by_importance(
+        self,
+        mock_get_analyst,
+        mock_get_earnings,
+        _mock_get_news,
+    ):
+        mock_get_analyst.return_value = {"ticker": "SUBC.OL"}
+        mock_get_earnings.return_value = {"ticker": "SUBC.OL"}
+
+        comparison = build_comparison(["SUBC.OL", "AKRBP.OL"], _mock_context())
+        advantages = comparison["winner_explanation"]["advantages"]
+
+        self.assertTrue(advantages[0].lower().startswith("høyest totalscore"))
+
+    @patch("src.opportunity_advisor.get_news", return_value=[])
+    @patch("src.opportunity_advisor.get_earnings")
+    @patch("src.opportunity_advisor.get_analyst")
+    def test_confidence_high_when_core_categories_led(
+        self,
+        mock_get_analyst,
+        mock_get_earnings,
+        _mock_get_news,
+    ):
+        mock_get_analyst.return_value = {"ticker": "SUBC.OL"}
+        mock_get_earnings.return_value = {"ticker": "SUBC.OL"}
+
+        comparison = build_comparison(["SUBC.OL", "AKRBP.OL"], _mock_context())
+
+        self.assertEqual(comparison["confidence"], "high")
+
+    @patch("src.opportunity_advisor.get_news", return_value=[])
+    @patch("src.opportunity_advisor.get_earnings")
+    @patch("src.opportunity_advisor.get_analyst")
+    def test_confidence_medium_when_score_leads_but_loses_category(
+        self,
+        mock_get_analyst,
+        mock_get_earnings,
+        _mock_get_news,
+    ):
+        mock_get_analyst.return_value = {"ticker": "NVDA"}
+        mock_get_earnings.return_value = {"ticker": "NVDA"}
+
+        comparison = build_comparison(["NVDA", "MSFT"], _mock_context())
+
+        self.assertEqual(comparison["winner"], "NVDA")
+        self.assertEqual(comparison["confidence"], "medium")
+
+    @patch("src.opportunity_advisor.get_news", return_value=[])
+    @patch("src.opportunity_advisor.get_earnings")
+    @patch("src.opportunity_advisor.get_analyst")
+    def test_confidence_low_when_no_clear_winner(
+        self,
+        mock_get_analyst,
+        mock_get_earnings,
+        _mock_get_news,
+    ):
+        mock_get_analyst.return_value = {"ticker": "AAA"}
+        mock_get_earnings.return_value = {"ticker": "AAA"}
+
+        context = _mock_context(
+            screening_results=_screening_results(
+                OBX=pd.DataFrame(
+                    [
+                        _screening_row(
+                            "AAA.OL",
+                            90,
+                            "momentum",
+                            momentum=80,
+                            trend_regime="MODERAT OPPTREND",
+                            relative_strength_20d=5.0,
+                        ),
+                        _screening_row(
+                            "BBB.OL",
+                            90,
+                            "momentum",
+                            momentum=80,
+                            trend_regime="MODERAT OPPTREND",
+                            relative_strength_20d=5.0,
+                        ),
+                    ]
+                )
+            )
+        )
+
+        comparison = build_comparison(["AAA.OL", "BBB.OL"], context)
+
+        self.assertIsNone(comparison["winner"])
+        self.assertEqual(comparison["confidence"], "low")
+
+    @patch("src.opportunity_advisor.get_news", return_value=[])
+    @patch("src.opportunity_advisor.get_earnings")
+    @patch("src.opportunity_advisor.get_analyst")
+    def test_no_duplicated_or_contradictory_bullets(
+        self,
+        mock_get_analyst,
+        mock_get_earnings,
+        _mock_get_news,
+    ):
+        mock_get_analyst.return_value = {"ticker": "SUBC.OL"}
+        mock_get_earnings.return_value = {"ticker": "SUBC.OL"}
+
+        comparison = build_comparison(["SUBC.OL", "AKRBP.OL"], _mock_context())
+        explanation = comparison["winner_explanation"]
+        all_bullets = (
+            explanation["advantages"]
+            + explanation["tradeoffs"]
+            + explanation["why_not_the_others"]
+        )
+
+        normalized = [" ".join(bullet.lower().split()) for bullet in all_bullets]
+        self.assertEqual(len(normalized), len(set(normalized)))
+
+        joined = " ".join(all_bullets).lower()
+        self.assertNotIn("bedre profilscore", joined)
+        self.assertFalse(
+            "sterkere profilscore" in joined and "svakere profilscore" in joined
+        )
+
+    @patch("src.opportunity_advisor.get_news", return_value=[])
+    @patch("src.opportunity_advisor.get_earnings")
+    @patch("src.opportunity_advisor.get_analyst")
+    def test_equal_rounded_profile_score_not_claimed_in_explanation(
+        self,
+        mock_get_analyst,
+        mock_get_earnings,
+        _mock_get_news,
+    ):
+        mock_get_analyst.return_value = {"ticker": "SUBC.OL"}
+        mock_get_earnings.return_value = {"ticker": "SUBC.OL"}
+
+        context = _mock_context(
+            screening_results=_screening_results(
+                OBX=pd.DataFrame(
+                    [
+                        _screening_row(
+                            "SUBC.OL",
+                            99,
+                            "cyclical",
+                            cyclical=89.6,
+                            relative_strength_20d=13.3,
+                            trend_regime="STERK OPPTREND",
+                        ),
+                        _screening_row(
+                            "AKRBP.OL",
+                            91,
+                            "cyclical",
+                            cyclical=90.4,
+                            relative_strength_20d=6.1,
+                            trend_regime="MODERAT OPPTREND",
+                            fundamental_score=86,
+                        ),
+                    ]
+                )
+            )
+        )
+
+        comparison = build_comparison(["SUBC.OL", "AKRBP.OL"], context)
+        explanation = build_winner_explanation(comparison)
+        joined = " ".join(
+            explanation["advantages"]
+            + explanation["tradeoffs"]
+            + explanation["why_not_the_others"]
+        ).lower()
+
+        self.assertNotIn("bedre profilscore", joined)
+        self.assertNotIn("svakere profilscore", joined)
+
+    def test_build_winner_explanation_is_pure_function(self):
+        comparison = {
+            "winner": None,
+            "category_winners": {},
+            "rows": [],
+        }
+
+        explanation = build_winner_explanation(comparison)
+
+        self.assertEqual(explanation["confidence"], "low")
+        self.assertEqual(explanation["advantages"], [])

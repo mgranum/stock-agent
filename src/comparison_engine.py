@@ -73,6 +73,51 @@ _MISSING_TICKER_MESSAGE = (
 
 _TICKER_STOPWORDS = frozenset({"AV", "VS", "OG", "ER", "EN"})
 
+_ANALYST_RANK = {
+    "strong_buy": 5,
+    "buy": 4,
+    "hold": 3,
+    "sell": 2,
+    "strong_sell": 1,
+}
+
+_EXPLANATION_MAX_ADVANTAGES = 3
+_EXPLANATION_MAX_TRADEOFFS = 2
+_EXPLANATION_MAX_WHY_NOT = 2
+
+_ADVANTAGE_SPECS = (
+    ("total_score", 1, "score", "Høyest totalscore ({winner}: {winner_value} vs {other}: {other_value})."),
+    ("trend", 2, "trend_regime", "{winner} har sterkere trend ({winner_value} vs {other_value})."),
+    ("relative_strength", 3, "relative_strength_20d", "Sterkere relativ styrke ({winner}: {winner_value} vs {other}: {other_value})."),
+    ("fundamentals", 4, "fundamental_score", "Sterkere fundamentale tall ({winner}: {winner_value} vs {other}: {other_value})."),
+    ("fundamental_history", 5, "fundamental_history_score", "Bedre fundamental historikk ({winner}: {winner_value} vs {other}: {other_value})."),
+    ("profile_fit", 6, "primary_profile_score_display", "{winner} har sterkere {profile_label}-profil ({winner_value} vs {other_value})."),
+)
+
+_TRADEOFF_SPECS = (
+    ("fundamentals", "fundamental_score", "Svakere fundamentale tall ({winner}: {winner_value} vs {best_other}: {other_value})."),
+    ("fundamental_history", "fundamental_history_score", "Svakere fundamental historikk ({winner}: {winner_value} vs {best_other}: {other_value})."),
+    ("relative_strength", "relative_strength_20d", "Svakere relativ styrke ({winner}: {winner_value} vs {best_other}: {other_value})."),
+    ("trend", "trend_regime", "Trenden er ikke like sterk ({winner_value} vs {best_other}: {other_value})."),
+    ("profile_fit", "primary_profile_score_display", "Svakere profilscore ({winner}: {winner_value} vs {best_other}: {other_value})."),
+)
+
+_CATEGORY_NARRATIVE = {
+    "total_score": "totalscore",
+    "trend": "trend",
+    "relative_strength": "relativ styrke",
+    "fundamentals": "fundamentale tall",
+    "fundamental_history": "fundamental historikk",
+    "profile_fit": "profilscore",
+}
+
+_PROFILE_MOMENTUM_LABEL = {
+    "momentum": "markedsmoment",
+    "quality": "kvalitet",
+    "value": "value-profil",
+    "cyclical": "syklisk profil",
+}
+
 
 def _normalize_question(question):
     return (question or "").lower().strip()
@@ -594,6 +639,11 @@ def _build_row(ticker, row, opportunity_item, analyst_item):
         "primary_profile_score": primary_profile_score,
         "primary_profile_score_display": _score_display(primary_profile_score),
         "analyst_signal": analyst_signal,
+        "analyst_recommendation_key": (
+            str(analyst_item.get("recommendation_key")).strip().lower()
+            if analyst_item and analyst_item.get("recommendation_key")
+            else None
+        ),
         "opportunity_headline": (opportunity_item or {}).get("headline"),
         "strengths": strengths,
         "risks": risks,
@@ -790,6 +840,453 @@ def _build_caveats(rows):
     return caveats
 
 
+def _rows_by_ticker(rows):
+    return {
+        row["ticker"]: row
+        for row in rows
+        if row.get("ticker") and not row.get("missing")
+    }
+
+
+def _runner_up_row(rows, winner):
+    others = [row for row in rows if row.get("ticker") != winner and not row.get("missing")]
+    if not others:
+        return None
+    return max(others, key=lambda row: _numeric(row.get("score")) or -1)
+
+
+def _analyst_rank(row):
+    key = row.get("analyst_recommendation_key")
+    if not key:
+        return None
+    return _ANALYST_RANK.get(str(key).strip().lower())
+
+
+def _format_explanation_score(value):
+    display = _score_display(value)
+    if display is not None:
+        return str(display)
+    return _format_number(value, 0)
+
+
+def _format_explanation_percent(value):
+    numeric = _numeric(value)
+    if numeric is None:
+        return "—"
+    return f"{_format_number(numeric)} %"
+
+
+def _format_explanation_value(row, field):
+    if field == "trend_regime":
+        return _format_trend(row.get("trend_regime"))
+    if field == "relative_strength_20d":
+        return _format_explanation_percent(row.get("relative_strength_20d"))
+    if field == "primary_profile_score_display":
+        return _format_explanation_score(row.get("primary_profile_score_display"))
+    if field in {"score", "fundamental_score", "fundamental_history_score"}:
+        return _format_explanation_score(row.get(field))
+    return str(row.get(field) or "—")
+
+
+def _profile_label_for_row(row):
+    key = row.get("primary_profile_key")
+    if key:
+        return _PROFILE_LABELS.get(key, str(key))
+    return row.get("primary_profile") or "profil"
+
+
+def _meaningfully_higher(winner_value, other_value, *, rank_fn=None):
+    if winner_value is None or other_value is None:
+        return False
+    if rank_fn is not None:
+        return rank_fn(winner_value) > rank_fn(other_value)
+    return _numeric(winner_value) > _numeric(other_value)
+
+
+def _meaningfully_lower(winner_value, other_value, *, rank_fn=None):
+    if winner_value is None or other_value is None:
+        return False
+    if rank_fn is not None:
+        return rank_fn(winner_value) < rank_fn(other_value)
+    return _numeric(winner_value) < _numeric(other_value)
+
+
+def _dedupe_bullets(bullets):
+    seen = set()
+    deduped = []
+    for bullet in bullets:
+        normalized = " ".join(str(bullet).lower().split())
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(bullet)
+    return deduped
+
+
+def _explanation_confidence(winner, rows, category_winners):
+    if not winner:
+        return "low"
+
+    winner_row = _rows_by_ticker(rows).get(winner)
+    runner_up = _runner_up_row(rows, winner)
+    if winner_row is None or runner_up is None:
+        return "low"
+
+    leads_score = category_winners.get("total_score") == winner
+    leads_trend = category_winners.get("trend") == winner
+    leads_rs = category_winners.get("relative_strength") == winner
+
+    winner_score = _numeric(winner_row.get("score")) or 0
+    runner_up_score = _numeric(runner_up.get("score")) or 0
+    score_gap = winner_score - runner_up_score
+
+    important_losses = sum(
+        1
+        for key in ("fundamentals", "fundamental_history", "profile_fit")
+        if category_winners.get(key) not in (None, winner)
+    )
+
+    if leads_score and leads_trend and leads_rs and score_gap >= 3:
+        return "high"
+
+    if not leads_score or score_gap <= 1:
+        return "low"
+
+    if leads_score and important_losses >= 1:
+        return "medium"
+
+    if leads_score and (leads_trend or leads_rs):
+        return "medium"
+
+    return "low"
+
+
+def _best_other_for_category(rows, winner, field, *, rank_fn=None, higher_is_better=True):
+    others = [row for row in rows if row.get("ticker") != winner and not row.get("missing")]
+    best_row = None
+    best_value = None
+
+    for row in others:
+        value = row.get(field)
+        if rank_fn is not None:
+            value = rank_fn(value)
+        elif value is None:
+            continue
+
+        if best_value is None:
+            best_value = value
+            best_row = row
+            continue
+
+        if higher_is_better and value > best_value:
+            best_value = value
+            best_row = row
+        elif not higher_is_better and value < best_value:
+            best_value = value
+            best_row = row
+
+    return best_row
+
+
+def _build_analyst_advantage(winner_row, other_rows, winner):
+    winner_rank = _analyst_rank(winner_row)
+    if winner_rank is None:
+        return None
+
+    other_ranks = [_analyst_rank(row) for row in other_rows if _analyst_rank(row) is not None]
+    if not other_ranks:
+        return None
+
+    best_other_rank = max(other_ranks)
+    if winner_rank > best_other_rank:
+        return (
+            f"Analytikerkonsensus støtter {winner} "
+            f"({winner_row.get('analyst_signal')} vs svakere alternativer)."
+        )
+    if winner_rank < best_other_rank:
+        return None
+    return None
+
+
+def _build_analyst_tradeoff(winner_row, other_rows, winner):
+    winner_rank = _analyst_rank(winner_row)
+    if winner_rank is None:
+        return None
+
+    best_other = None
+    best_other_rank = None
+    for row in other_rows:
+        rank = _analyst_rank(row)
+        if rank is None:
+            continue
+        if best_other_rank is None or rank > best_other_rank:
+            best_other_rank = rank
+            best_other = row
+
+    if best_other is None or best_other_rank <= winner_rank:
+        return None
+
+    return (
+        f"Analytikerne er mer positive til {best_other['ticker']} "
+        f"({best_other.get('analyst_signal')} vs {winner_row.get('analyst_signal') or '—'})."
+    )
+
+
+def _build_opportunity_advantage(winner_row, winner):
+    headline = winner_row.get("opportunity_headline")
+    if not headline:
+        return None
+    return f"Opportunity Advisor: {headline}."
+
+
+def _build_opportunity_tradeoff(winner_row):
+    risks = winner_row.get("risks") or []
+    if not risks:
+        return None
+    return f"Opportunity Advisor: {risks[0]}."
+
+
+def _build_cyclical_tradeoff(winner_row, other_rows):
+    if winner_row.get("primary_profile_key") != "cyclical":
+        return None
+    if all(row.get("primary_profile_key") == "cyclical" for row in other_rows):
+        return "Syklisk profil gjør timing og risikostyring viktigere."
+    return "Mer syklisk profil enn alternativene."
+
+
+def _build_advantages(winner, winner_row, other_rows, category_winners):
+    runner_up = _runner_up_row(other_rows + [winner_row], winner)
+    if runner_up is None:
+        runner_up = other_rows[0] if other_rows else winner_row
+
+    advantages = []
+    for category, _priority, field, template in _ADVANTAGE_SPECS:
+        if category_winners.get(category) != winner:
+            continue
+
+        winner_value = _format_explanation_value(winner_row, field)
+        other_value = _format_explanation_value(runner_up, field)
+        rank_fn = _trend_rank if field == "trend_regime" else None
+
+        if category != "total_score":
+            raw_winner = winner_row.get(field if field != "trend_regime" else "trend_regime")
+            raw_other = runner_up.get(field if field != "trend_regime" else "trend_regime")
+            if not _meaningfully_higher(raw_winner, raw_other, rank_fn=rank_fn):
+                continue
+
+        advantages.append(
+            (
+                _priority,
+                template.format(
+                    winner=winner,
+                    other=runner_up["ticker"],
+                    winner_value=winner_value,
+                    other_value=other_value,
+                    profile_label=_profile_label_for_row(winner_row),
+                ),
+            )
+        )
+
+    analyst_advantage = _build_analyst_advantage(winner_row, other_rows, winner)
+    if analyst_advantage:
+        advantages.append((7, analyst_advantage))
+
+    opportunity_advantage = _build_opportunity_advantage(winner_row, winner)
+    if opportunity_advantage:
+        advantages.append((8, opportunity_advantage))
+
+    advantages.sort(key=lambda item: item[0])
+    return _dedupe_bullets([text for _, text in advantages])[:_EXPLANATION_MAX_ADVANTAGES]
+
+
+def _build_tradeoffs(winner, winner_row, other_rows, category_winners):
+    tradeoffs = []
+
+    for category, field, template in _TRADEOFF_SPECS:
+        leader = category_winners.get(category)
+        if leader in (None, winner):
+            continue
+
+        best_other = _rows_by_ticker(other_rows).get(leader) or _best_other_for_category(
+            other_rows,
+            winner,
+            field,
+            rank_fn=_trend_rank if field == "trend_regime" else None,
+        )
+        if best_other is None:
+            continue
+
+        rank_fn = _trend_rank if field == "trend_regime" else None
+        raw_winner = winner_row.get(field if field != "trend_regime" else "trend_regime")
+        raw_other = best_other.get(field if field != "trend_regime" else "trend_regime")
+        if not _meaningfully_lower(raw_winner, raw_other, rank_fn=rank_fn):
+            continue
+
+        tradeoffs.append(
+            template.format(
+                winner=winner,
+                best_other=best_other["ticker"],
+                winner_value=_format_explanation_value(winner_row, field),
+                other_value=_format_explanation_value(best_other, field),
+            )
+        )
+
+    for builder in (
+        lambda: _build_analyst_tradeoff(winner_row, other_rows, winner),
+        lambda: _build_opportunity_tradeoff(winner_row),
+        lambda: _build_cyclical_tradeoff(winner_row, other_rows),
+    ):
+        bullet = builder()
+        if bullet:
+            tradeoffs.append(bullet)
+
+    tradeoffs = _dedupe_bullets(tradeoffs)
+    if not tradeoffs and other_rows:
+        runner_up = _runner_up_row(other_rows + [winner_row], winner)
+        if runner_up is not None:
+            tradeoffs.append(
+                f"{runner_up['ticker']} er nærmere på score "
+                f"({_format_explanation_score(runner_up.get('score'))} vs "
+                f"{_format_explanation_score(winner_row.get('score'))})."
+            )
+
+    return tradeoffs[:_EXPLANATION_MAX_TRADEOFFS]
+
+
+def _other_strengths_vs_winner(other_row, winner_row, category_winners, other_ticker):
+    strengths = []
+    for category, label in _CATEGORY_NARRATIVE.items():
+        if category_winners.get(category) != other_ticker:
+            continue
+        if category == "profile_fit":
+            profile_key = other_row.get("primary_profile_key")
+            profile_phrase = _PROFILE_MOMENTUM_LABEL.get(profile_key, label)
+            strengths.append(f"sterkere {profile_phrase}")
+        else:
+            strengths.append(f"bedre {label}")
+    return strengths
+
+
+def _other_weaknesses_vs_winner(other_row, winner_row, category_winners, winner):
+    weaknesses = []
+    for category, label in _CATEGORY_NARRATIVE.items():
+        if category_winners.get(category) != winner:
+            continue
+        weaknesses.append(label)
+    return weaknesses
+
+
+def _build_why_not_the_others(winner, winner_row, other_rows, category_winners):
+    bullets = []
+    sorted_others = sorted(
+        other_rows,
+        key=lambda row: _numeric(row.get("score")) or -1,
+        reverse=True,
+    )
+
+    for other_row in sorted_others[:_EXPLANATION_MAX_WHY_NOT]:
+        other_ticker = other_row["ticker"]
+        strengths = _other_strengths_vs_winner(
+            other_row,
+            winner_row,
+            category_winners,
+            other_ticker,
+        )
+        weaknesses = _other_weaknesses_vs_winner(
+            other_row,
+            winner_row,
+            category_winners,
+            winner,
+        )
+
+        if strengths and weaknesses:
+            bullets.append(
+                f"{other_ticker} har {', '.join(strengths)}, "
+                f"men taper på {' og '.join(weaknesses)}."
+            )
+        elif strengths:
+            bullets.append(
+                f"{other_ticker} har {', '.join(strengths)}, "
+                f"men lavere totalscore."
+            )
+        elif weaknesses:
+            bullets.append(
+                f"{other_ticker} taper på {' og '.join(weaknesses)}."
+            )
+
+    return _dedupe_bullets(bullets)[:_EXPLANATION_MAX_WHY_NOT]
+
+
+def build_winner_explanation(comparison):
+    rows = [
+        row for row in comparison.get("rows") or []
+        if not row.get("missing")
+    ]
+    winner = comparison.get("winner")
+    category_winners = comparison.get("category_winners") or {}
+
+    if len(rows) < COMPARISON_MIN_TICKERS:
+        return {
+            "summary": "Fant ikke nok data til en tydelig vurdering.",
+            "advantages": [],
+            "tradeoffs": [],
+            "why_not_the_others": [],
+            "confidence": "low",
+        }
+
+    if not winner:
+        return {
+            "summary": "Det er ingen klar vinner.",
+            "advantages": [],
+            "tradeoffs": [],
+            "why_not_the_others": [],
+            "confidence": "low",
+        }
+
+    winner_row = _rows_by_ticker(rows).get(winner)
+    if winner_row is None:
+        return {
+            "summary": "Fant ikke nok data til en tydelig vurdering.",
+            "advantages": [],
+            "tradeoffs": [],
+            "why_not_the_others": [],
+            "confidence": "low",
+        }
+
+    other_rows = [row for row in rows if row["ticker"] != winner]
+    advantages = _build_advantages(winner, winner_row, other_rows, category_winners)
+    tradeoffs = _build_tradeoffs(winner, winner_row, other_rows, category_winners)
+    why_not = _build_why_not_the_others(
+        winner,
+        winner_row,
+        other_rows,
+        category_winners,
+    )
+    confidence = _explanation_confidence(winner, rows, category_winners)
+
+    if advantages:
+        lead = advantages[0]
+        if lead.endswith("."):
+            lead = lead[:-1]
+        summary = (
+            f"{winner} er sterkest akkurat nå fordi "
+            f"{lead[0].lower()}{lead[1:]}."
+        )
+    else:
+        summary = (
+            f"{winner} er sterkest akkurat nå basert på totalscore "
+            f"og tie-breakers i snapshot-data."
+        )
+
+    return {
+        "summary": summary,
+        "advantages": advantages,
+        "tradeoffs": tradeoffs,
+        "why_not_the_others": why_not,
+        "confidence": confidence,
+    }
+
+
 def build_comparison(tickers, context, universe_name=None):
     tickers = _dedupe_tickers_preserve_order(tickers)
 
@@ -872,7 +1369,7 @@ def build_comparison(tickers, context, universe_name=None):
     category_winners = _compute_category_winners(valid_rows)
     winner, winner_reason, confidence = _pick_winner(valid_rows, category_winners)
 
-    return {
+    comparison = {
         "tickers": tickers,
         "rows": rows,
         "winner": winner,
@@ -882,6 +1379,11 @@ def build_comparison(tickers, context, universe_name=None):
         "caveats": _build_caveats(valid_rows),
         "missing_tickers": missing_tickers,
     }
+    explanation = build_winner_explanation(comparison)
+    comparison["winner_explanation"] = explanation
+    comparison["confidence"] = explanation.get("confidence", confidence)
+    comparison["winner_reason"] = explanation.get("summary", winner_reason)
+    return comparison
 
 
 def _comparison_title(tickers):
@@ -994,7 +1496,28 @@ def format_comparison_answer(comparison):
             )
 
     lines.extend(["", "Kort vurdering", ""])
-    lines.append(comparison.get("winner_reason") or "Ingen klar vurdering.")
+    explanation = comparison.get("winner_explanation") or {}
+    summary = explanation.get("summary") or comparison.get("winner_reason")
+    if summary:
+        lines.append(summary)
+
+    advantages = explanation.get("advantages") or []
+    if advantages:
+        lines.extend(["", "Hvorfor denne vinner"])
+        for bullet in advantages:
+            lines.append(f"• {bullet}")
+
+    tradeoffs = explanation.get("tradeoffs") or []
+    if tradeoffs:
+        lines.extend(["", "Viktige kompromisser"])
+        for bullet in tradeoffs:
+            lines.append(f"• {bullet}")
+
+    why_not = explanation.get("why_not_the_others") or []
+    if why_not:
+        lines.extend(["", "Hvorfor ikke de andre"])
+        for bullet in why_not:
+            lines.append(f"• {bullet}")
 
     winner = comparison.get("winner")
     lines.extend(["", "Samlet vurdering:", winner or "Det er ingen klar vinner."])
