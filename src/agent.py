@@ -36,6 +36,12 @@ from src.score_explainability import (
     format_score_explanation,
     is_score_explanation_question,
 )
+from src.comparison_engine import (
+    build_comparison,
+    format_comparison_answer,
+    is_comparison_question,
+    resolve_comparison_tickers,
+)
 from src.strategy_profiles import (
     _PROFILE_LABELS,
     format_strategy_profile_answer,
@@ -1998,6 +2004,13 @@ def ask_agent(question, context):
 
     if _is_advisor_question(question):
         return _format_advisor_answer(context, question)
+
+    if is_comparison_question(question, context):
+        tickers, error = resolve_comparison_tickers(question, context)
+        if error:
+            return error
+        comparison = build_comparison(tickers, context)
+        return format_comparison_answer(comparison)
 
     if _is_strategy_screening_question(question):
         return _answer_strategy_screening_question(context, question)
