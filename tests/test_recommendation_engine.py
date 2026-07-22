@@ -77,7 +77,16 @@ class RecommendationQuestionTests(unittest.TestCase):
         self.assertTrue(is_recommendation_question("What should I do today?"))
         self.assertTrue(is_recommendation_question("What are today's recommendations?"))
         self.assertTrue(is_recommendation_question("Hva bør jeg gjøre i dag?"))
+        self.assertTrue(is_recommendation_question("Hva er viktig i dag?"))
         self.assertTrue(is_recommendation_question("dagens råd"))
+
+    def test_candidate_discovery_not_treated_as_recommendation(self):
+        self.assertFalse(
+            is_recommendation_question("Hvilke aksjer ser sterkest ut i dag?")
+        )
+        self.assertFalse(
+            is_recommendation_question("Vis de beste kandidatene i dag")
+        )
 
     def test_recommendation_question_does_not_match_overview_phrases(self):
         self.assertFalse(is_recommendation_question("Vis morning briefing i dag"))

@@ -42,11 +42,13 @@ from src.comparison_engine import (
     is_comparison_question,
     resolve_comparison_tickers,
 )
+from src.daily_flow import format_snapshot_changes_answer, is_snapshot_changes_question
 from src.recommendation_engine import (
     build_recommendations,
     format_recommendations,
     is_recommendation_question,
 )
+from src.screening_dedup import deduplicate_screening_results
 from src.strategy_profiles import (
     _PROFILE_LABELS,
     format_strategy_profile_answer,
@@ -965,6 +967,32 @@ _STRATEGY_PROFILE_UNAVAILABLE_MSG = (
     "Strategy-profiler er ikke tilgjengelige i snapshot. Kjør Oppdater analyser."
 )
 
+_CANDIDATE_DISCOVERY_TITLE = "Topp 5 kandidater i dag"
+
+_CANDIDATE_DISCOVERY_PHRASES = (
+    "hvilke aksjer bør jeg se på i dag",
+    "hvilke aksjer ser sterkest ut i dag",
+    "hvilke kandidater er mest interessante",
+    "vis de beste kandidatene i dag",
+    "hvilke kandidater bør jeg se på",
+    "hvilke aksjer ser mest interessante ut",
+    "vis de beste kandidatene",
+)
+
+
+def is_candidate_discovery_question(question):
+    question = str(question or "").lower().strip()
+    if not question:
+        return False
+
+    if _is_strategy_screening_question(question):
+        return False
+
+    if _is_screening_question(question):
+        return False
+
+    return any(phrase in question for phrase in _CANDIDATE_DISCOVERY_PHRASES)
+
 
 def _detect_screening_region(question):
     if "obx" in question:
@@ -1062,7 +1090,8 @@ def _merged_screening_snapshot(context):
     if not frames:
         return None
 
-    return pd.concat(frames, ignore_index=True)
+    merged = pd.concat(frames, ignore_index=True)
+    return deduplicate_screening_results(merged)
 
 
 def _screening_has_strategy_profiles(results):
@@ -1225,17 +1254,17 @@ def _format_screening_advisor_bullet(line):
     return line
 
 
-def _format_screening_advisor_commentary(context, results, region=None):
+def _format_screening_advisor_commentary(context, results, region=None, full_results=None):
     if results is None or results.empty:
         return ""
 
     top_results = results.head(SCREENING_TOP_LIMIT)
     dashboard = _get_dashboard(context)
-    full_results = None
+    resolved_full_results = full_results
     universe_name = None
     is_full_universe = False
     use_snapshot_wording = False
-    if region:
+    if resolved_full_results is None and region:
         snapshot_key = _SCREENING_SNAPSHOT_KEYS.get(region)
         universe_name = snapshot_key
         screening_results = context.get("screening_results") or {}
@@ -1247,14 +1276,14 @@ def _format_screening_advisor_commentary(context, results, region=None):
             and isinstance(snapshot_results, pd.DataFrame)
             and not snapshot_results.empty
         ):
-            full_results = snapshot_results
+            resolved_full_results = snapshot_results
             if meta:
                 is_full_universe = bool(meta.get("is_full_universe"))
                 use_snapshot_wording = bool(
                     meta.get("use_snapshot_wording", not is_full_universe)
                 )
         else:
-            full_results = results
+            resolved_full_results = results
             is_full_universe = False
             use_snapshot_wording = False
 
@@ -1270,7 +1299,7 @@ def _format_screening_advisor_commentary(context, results, region=None):
         limit=SCREENING_TOP_LIMIT,
         use_cache=True,
         universe_name=universe_name,
-        full_results=full_results if full_results is not None else results,
+        full_results=resolved_full_results if resolved_full_results is not None else results,
         is_full_universe=is_full_universe,
         use_snapshot_wording=use_snapshot_wording,
     )
@@ -1319,6 +1348,31 @@ def _format_screening_advisor_commentary(context, results, region=None):
         lines.append("")
 
     return "\n".join(lines).rstrip()
+
+
+def _answer_candidate_discovery_question(context):
+    merged = _merged_screening_snapshot(context)
+    if merged is None or merged.empty:
+        return _STRATEGY_PROFILE_UNAVAILABLE_MSG
+
+    ranked = merged.sort_values(
+        by="score",
+        ascending=False,
+        na_position="last",
+    ).reset_index(drop=True)
+    top5 = ranked.head(SCREENING_TOP_LIMIT)
+
+    answer = _format_screening_top5(top5, _CANDIDATE_DISCOVERY_TITLE)
+    if not top5.empty:
+        advisor_section = _format_screening_advisor_commentary(
+            context,
+            top5,
+            full_results=ranked,
+        )
+        if advisor_section:
+            answer = f"{answer}{advisor_section}"
+
+    return answer
 
 
 def _screening_results_from_snapshot(context, region):
@@ -2017,6 +2071,15 @@ def ask_agent(question, context):
         comparison = build_comparison(tickers, context)
         return format_comparison_answer(comparison)
 
+    if is_snapshot_changes_question(question):
+        return format_snapshot_changes_answer(context)
+
+    if is_candidate_discovery_question(question):
+        return _answer_candidate_discovery_question(context)
+
+    if is_recommendation_question(question):
+        return format_recommendations(build_recommendations(context))
+
     if _is_strategy_screening_question(question):
         return _answer_strategy_screening_question(context, question)
 
@@ -2025,9 +2088,6 @@ def ask_agent(question, context):
 
     if _is_portfolio_comparison_question(question):
         return _answer_portfolio_comparison_question(context, question)
-
-    if is_recommendation_question(question):
-        return format_recommendations(build_recommendations(context))
 
     if _is_daily_flow_question(question):
         return _format_daily_flow_answer(context)

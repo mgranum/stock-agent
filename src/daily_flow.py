@@ -546,6 +546,58 @@ def _whats_new_summary_items(
     return items
 
 
+def resolve_whats_new_today(context):
+    context = context or {}
+    daily_flow = context.get("daily_flow") or {}
+    whats_new = daily_flow.get("whats_new_today")
+    if whats_new is not None:
+        return whats_new
+
+    dashboard = context.get("dashboard") or {}
+    return _build_whats_new_today(dashboard)
+
+
+def is_snapshot_changes_question(question: str) -> bool:
+    question = str(question or "").lower().strip()
+    if not question:
+        return False
+
+    phrases = (
+        "hva har endret seg siden i går",
+        "hva har endret seg siden sist",
+        "hva er nytt siden forrige oppdatering",
+        "hva er endret siden i går",
+        "hva er endret siden sist",
+        "endret seg siden i går",
+        "endret seg siden sist",
+        "nytt siden forrige oppdatering",
+    )
+    return any(phrase in question for phrase in phrases)
+
+
+def format_snapshot_changes_answer(context) -> str:
+    whats_new = resolve_whats_new_today(context)
+
+    if not whats_new.get("available"):
+        return (
+            "Endringer siden forrige snapshot er ikke tilgjengelig. "
+            "Kjør Oppdater analyser."
+        )
+
+    if not whats_new.get("has_changes"):
+        return "Ingen endringer siden forrige snapshot."
+
+    lines = ["Endringer siden forrige snapshot", ""]
+    for item in whats_new.get("summary_items") or []:
+        ticker = item.get("ticker") or "—"
+        fra = item.get("fra") or "—"
+        til = item.get("til") or "—"
+        begrunnelse = item.get("begrunnelse") or ""
+        lines.append(f"• {ticker}: {fra} → {til} — {begrunnelse}")
+
+    return "\n".join(lines)
+
+
 def _build_market_regime(watchlist_report, dashboard):
     market_summary = dashboard.get("market_summary") or {}
     strategy_counts = dashboard.get("strategy_type_counts") or {}

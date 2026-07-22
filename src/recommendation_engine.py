@@ -878,8 +878,10 @@ def is_recommendation_question(question: str) -> bool:
         "dagens anbefalinger",
         "dagens råd",
         "hva bør jeg fokusere på",
+        "hva bør jeg fokusere på i dag",
         "viktigste handlinger",
         "viktigste tiltak",
+        "hva er viktig i dag",
         "what are today's recommendations?",
         "what should i do today?",
     ]
