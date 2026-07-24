@@ -44,12 +44,16 @@ def combine_discovery_candidates(
         lambda ticker: str(ticker).strip().upper() in watchlist_symbols
     )
 
+    sort_columns = ["in_watchlist"]
+    ascending = [True]
     if "score" in combined.columns:
-        combined = combined.sort_values(
-            "score",
-            ascending=False,
-            na_position="last",
-            kind="stable",
-        )
+        sort_columns.append("score")
+        ascending.append(False)
+    combined = combined.sort_values(
+        sort_columns,
+        ascending=ascending,
+        na_position="last",
+        kind="stable",
+    )
 
     return combined.reset_index(drop=True)

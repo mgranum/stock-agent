@@ -925,31 +925,27 @@ with tab_dashboard:
         with st.container(border=True):
             st.text(formatted_briefing)
 
-    st.markdown("### Dagens agenda")
-    st.caption("Hva krever oppmerksomhet først?")
-    agenda = build_daily_actions(
-        dashboard_alerts,
-        PENDING_ORDERS,
-        portfolio_report,
-    )[:DAILY_AGENDA_DISPLAY_LIMIT]
-    if not agenda:
-        st.caption("Ingen prioriterte handlinger akkurat nå.")
+    st.markdown("### Nye kandidater")
+    st.caption("Funnet av discovery-screeningen, ikke hentet fra watchlist.")
+    discovery_advisor = st.session_state.context.get("opportunity_advisor") or {}
+    discovery_items = list(discovery_advisor.get("items") or [])
+    if not discovery_items:
+        st.info(
+            "Ingen discovery-kandidater i dagens screening. "
+            "Se Screening-fanen for univers og filterresultater."
+        )
     else:
-        show_daily_agenda(agenda)
-
-    st.markdown("### Nytt i dag")
-    st.caption("Siden sist lagrede snapshot")
-    whats_new = daily_flow.get("whats_new_today") or {}
-    if not whats_new.get("available"):
-        st.caption("Lagre snapshot for å spore endringer.")
-    elif not whats_new.get("has_changes"):
-        st.caption("Ingen vesentlige endringer siden sist snapshot.")
-    else:
-        show_dataframe(build_whats_new_table(daily_flow))
+        for item in discovery_items[:3]:
+            ticker = item.get("ticker") or ""
+            headline = item.get("headline") or "Kandidat for nærmere vurdering"
+            takeaway = item.get("takeaway") or ""
+            with st.container(border=True):
+                st.markdown(f"**{ticker} – {headline}**")
+                if takeaway and takeaway != headline:
+                    st.caption(takeaway)
 
     current_portfolio = load_portfolio([])
     portfolio_summary = summarize_portfolio(portfolio_report)
-    owned = owned_tickers(portfolio_report, current_portfolio)
 
     if current_portfolio and valid_portfolio_rows(portfolio_report).empty:
         st.warning(
@@ -970,90 +966,83 @@ with tab_dashboard:
     )
     t4.metric("Posisjoner", portfolio_summary["positions"])
 
-    show_portfolio_risk_section(dashboard.get("portfolio_risk"))
-
-    st.markdown("### Mine posisjoner – hva bør jeg gjøre?")
     advisor_output = st.session_state.context.get("advisor_output") or {}
     analyst_summary = st.session_state.context.get("analyst_summary") or {}
-    sentiment_summary = st.session_state.context.get("sentiment_summary") or {}
     earnings_summary = st.session_state.context.get("earnings_summary") or {}
-    advisor_details = build_advisor_details(
-        advisor_output,
-        portfolio_report,
-        analyst_summary=analyst_summary,
-        sentiment_summary=sentiment_summary,
-        earnings_summary=earnings_summary,
-        alerts=dashboard_alerts,
-    )
     actions_table = build_portfolio_actions_table(
         portfolio_report,
         advisor_output=advisor_output,
     )
-    if actions_table.empty:
-        st.info("Ingen porteføljeposisjoner.")
-    else:
-        show_dataframe(actions_table)
-        advisor_tickers = advisor_detail_tickers(advisor_output)
-        for index, ticker in enumerate(advisor_tickers):
-            detail = advisor_details.get(ticker)
-            if not detail:
-                continue
-            with st.expander(f"Hvorfor sier agenten dette om {ticker}?"):
-                render_advisor_detail(detail)
-            if index < len(advisor_tickers) - 1:
-                st.markdown("")
 
-    st.markdown("### Nye muligheter")
-    opportunities = build_new_opportunities(
-        watchlist_report,
-        RESEARCH_IDEAS,
-        owned,
-    )
-    if opportunities.empty:
-        st.info("Ingen nye kjøpskandidater utenfor porteføljen.")
-    else:
-        show_dataframe(opportunities)
+    with st.expander("Dagens agenda og varsler", expanded=False):
+        agenda = build_daily_actions(
+            dashboard_alerts,
+            PENDING_ORDERS,
+            portfolio_report,
+        )[:DAILY_AGENDA_DISPLAY_LIMIT]
+        if not agenda:
+            st.caption("Ingen prioriterte handlinger akkurat nå.")
+        else:
+            show_daily_agenda(agenda)
+        st.markdown("#### Full varslingsliste")
+        show_alerts_compact(dashboard_alerts)
 
-    st.markdown("### Kommende earnings")
+    with st.expander("Endringer siden sist snapshot", expanded=False):
+        whats_new = daily_flow.get("whats_new_today") or {}
+        if not whats_new.get("available"):
+            st.caption("Lagre snapshot for å spore endringer.")
+        elif not whats_new.get("has_changes"):
+            st.caption("Ingen vesentlige endringer siden sist snapshot.")
+        else:
+            show_dataframe(build_whats_new_table(daily_flow))
+
+    with st.expander("Porteføljerisiko", expanded=False):
+        show_portfolio_risk_section(dashboard.get("portfolio_risk"))
+
+    with st.expander("Alle posisjoner og råd", expanded=False):
+        if actions_table.empty:
+            st.info("Ingen porteføljeposisjoner.")
+        else:
+            show_dataframe(actions_table)
+
     earnings_table = build_earnings_table(earnings_summary)
-    if earnings_table.empty:
-        st.info("Ingen earnings-data for portefølje eller watchlist.")
-    else:
-        show_dataframe(earnings_table)
-        last_updated = earnings_summary.get("last_updated")
-        if last_updated:
-            st.caption(f"Sist oppdatert: {last_updated}")
+    with st.expander("Kommende earnings", expanded=False):
+        if earnings_table.empty:
+            st.info("Ingen earnings-data for portefølje eller watchlist.")
+        else:
+            show_dataframe(earnings_table)
+            last_updated = earnings_summary.get("last_updated")
+            if last_updated:
+                st.caption(f"Sist oppdatert: {last_updated}")
 
-    st.markdown("### Analytikerkonsensus")
     analyst_table = build_analyst_table(analyst_summary)
-    if analyst_table.empty:
-        st.info("Ingen analytikerdata for portefølje eller watchlist.")
-    else:
-        show_dataframe(analyst_table)
-        st.caption(ANALYST_DISCLAIMER)
-        analyst_changes = analyst_summary.get("material_changes") or []
-        if analyst_changes:
-            st.markdown("#### Endringer siden sist")
-            show_dataframe(build_analyst_changes_table(analyst_summary))
-        analyst_last_updated = analyst_summary.get("last_updated")
-        if analyst_last_updated:
-            st.caption(f"Sist oppdatert: {analyst_last_updated}")
+    with st.expander("Analytikerkonsensus", expanded=False):
+        if analyst_table.empty:
+            st.info("Ingen analytikerdata for portefølje eller watchlist.")
+        else:
+            show_dataframe(analyst_table)
+            st.caption(ANALYST_DISCLAIMER)
+            analyst_changes = analyst_summary.get("material_changes") or []
+            if analyst_changes:
+                st.markdown("#### Endringer siden sist")
+                show_dataframe(build_analyst_changes_table(analyst_summary))
+            analyst_last_updated = analyst_summary.get("last_updated")
+            if analyst_last_updated:
+                st.caption(f"Sist oppdatert: {analyst_last_updated}")
 
-    st.markdown("### Nyheter")
     news_summary = st.session_state.context.get("news_summary") or {}
     news_table = build_news_table(news_summary)
-    if news_table.empty:
-        st.info("Ingen nyheter for portefølje eller watchlist.")
-    else:
-        show_dataframe(news_table.drop(columns=["URL"], errors="ignore"))
-        st.caption("Sentiment er basert på overskrifter og påvirker ikke anbefalingene.")
-        news_last_updated = news_summary.get("last_updated")
-        if news_last_updated:
-            st.caption(f"Sist oppdatert: {news_last_updated}")
-
-    st.markdown("### Viktige varsler")
-    st.caption("Full varslingsliste")
-    show_alerts_compact(dashboard_alerts)
+    with st.expander("Nyheter", expanded=False):
+        if news_table.empty:
+            st.info("Ingen nyheter for portefølje eller watchlist.")
+        else:
+            show_dataframe(news_table.drop(columns=["URL"], errors="ignore"))
+            st.caption(
+                "Sentiment er basert på overskrifter og påvirker ikke anbefalingene."
+            )
+            news_last_updated = news_summary.get("last_updated")
+            if news_last_updated:
+                st.caption(f"Sist oppdatert: {news_last_updated}")
 
 
 with tab_ranking:

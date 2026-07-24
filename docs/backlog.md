@@ -33,7 +33,8 @@ ikke allerede kjenner, før de eventuelt legges i watchlist.
 * [x] Behold kandidater uavhengig av watchlist og marker bare watchlist-status
 * [x] Bygg Opportunity Advisor automatisk fra discovery-kandidatene
 * [x] La Recommendation Engine konsumere discovery-kandidater i daglig context
-* [x] Vis discovery-kandidater i en egen seksjon i Daily Briefing
+* [x] Vis discovery-kandidater i en egen, alltid synlig Dashboard-seksjon
+* [x] Skjul dupliserte detaljer og støttedata bak utvidbare Dashboard-seksjoner
 
 ### 2. Etabler et bredt og reproduserbart univers
 

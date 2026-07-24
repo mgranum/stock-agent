@@ -34,6 +34,7 @@ class CombineDiscoveryCandidatesTests(unittest.TestCase):
         self.assertEqual(set(candidates["ticker"]), {"AAA", "BBB.ST"})
         flags = candidates.set_index("ticker")["in_watchlist"].to_dict()
         self.assertEqual(flags, {"BBB.ST": False, "AAA": True})
+        self.assertEqual(candidates.iloc[0]["ticker"], "BBB.ST")
 
     def test_invalid_or_empty_results_are_safe(self):
         self.assertTrue(combine_discovery_candidates(None).empty)
