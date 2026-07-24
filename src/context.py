@@ -15,10 +15,12 @@ from src.analysis import analyze_watchlist
 from src.analyst import build_analyst_summary
 from src.dashboard import build_dashboard, build_portfolio_risk
 from src.daily_briefing import build_daily_briefing
+from src.discovery import combine_discovery_candidates
 from src.recommendation_engine import build_recommendations
 from src.daily_flow import build_daily_flow
 from src.earnings import build_earnings_summary
 from src.news import build_news_summary
+from src.opportunity_advisor import build_opportunity_advisor
 from src.portfolio import analyze_portfolio, ensure_portfolio_report, summarize_portfolio
 from src.environment import context_snapshot_filename
 from src.config import load_watchlists
@@ -481,6 +483,20 @@ def build_agent_context(
         pause_seconds=pause_seconds,
         existing_watchlists=load_watchlists(),
     )
+    discovery_candidates = combine_discovery_candidates(
+        screening_results,
+        watchlist=watchlist,
+    )
+    opportunity_advisor = build_opportunity_advisor(
+        discovery_candidates,
+        analyst_summary=analyst_summary,
+        sentiment_summary=sentiment_summary,
+        earnings_summary=earnings_summary,
+        news_summary=news_summary,
+        limit=SCREENING_SNAPSHOT_LIMIT,
+        full_results=discovery_candidates,
+        is_full_universe=True,
+    )
 
     context = {
         "model_version": MODEL_VERSION,
@@ -498,6 +514,8 @@ def build_agent_context(
         "watchlist_advisor_output": watchlist_advisor_output,
         "alerts": alerts,
         "screening_results": screening_results,
+        "discovery_candidates": discovery_candidates,
+        "opportunity_advisor": opportunity_advisor,
     }
     context["recommendations"] = build_recommendations(context)
     context["daily_briefing"] = build_daily_briefing(

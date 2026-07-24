@@ -317,6 +317,8 @@ class ContextSnapshotTests(unittest.TestCase):
 
 
 class BuildAgentContextDailyBriefingTests(unittest.TestCase):
+    @patch("src.context.build_opportunity_advisor")
+    @patch("src.context.combine_discovery_candidates")
     @patch("src.context.build_screening_results")
     @patch("src.context.build_watchlist_advisor", return_value={"items": []})
     @patch("src.context.build_daily_briefing")
@@ -345,6 +347,8 @@ class BuildAgentContextDailyBriefingTests(unittest.TestCase):
         mock_build_daily_briefing,
         _mock_watchlist_advisor,
         mock_build_screening_results,
+        mock_combine_discovery_candidates,
+        mock_build_opportunity_advisor,
     ):
         from src.context import build_agent_context
 
@@ -354,6 +358,13 @@ class BuildAgentContextDailyBriefingTests(unittest.TestCase):
             "NORDEN": pd.DataFrame(),
             "OBX": pd.DataFrame(),
             "generated_at": "2026-06-12T08:00:00+00:00",
+        }
+        discovery_candidates = pd.DataFrame(
+            [{"ticker": "UNKNOWN", "score": 90, "in_watchlist": False}]
+        )
+        mock_combine_discovery_candidates.return_value = discovery_candidates
+        mock_build_opportunity_advisor.return_value = {
+            "items": [{"ticker": "UNKNOWN", "priority": 1}],
         }
         mock_build_daily_briefing.return_value = {
             "generated_at": "2026-06-12T08:00:00+00:00",
@@ -378,6 +389,20 @@ class BuildAgentContextDailyBriefingTests(unittest.TestCase):
         self.assertIn("daily_flow", passed_context)
         self.assertIn("daily_briefing", context)
         self.assertIn("screening_results", context)
+        self.assertIs(context["discovery_candidates"], discovery_candidates)
+        self.assertEqual(
+            context["opportunity_advisor"]["items"][0]["ticker"],
+            "UNKNOWN",
+        )
+        self.assertTrue(
+            any(
+                item.get("ticker") == "UNKNOWN"
+                and item.get("source") == "opportunity_advisor"
+                for item in context["recommendations"]["actions"]
+            )
+        )
+        mock_combine_discovery_candidates.assert_called_once()
+        mock_build_opportunity_advisor.assert_called_once()
         self.assertEqual(
             context["screening_results"]["generated_at"],
             "2026-06-12T08:00:00+00:00",

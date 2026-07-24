@@ -21,7 +21,45 @@ ikke alene styre kjøp eller salg.
 
 ---
 
-## 🔥 Neste milepæl – Model Validation & Decision Journal v1
+## 🔥 Neste milepæl – Discovery Universe & Candidate Selection v1
+
+Målet er å gjøre watchlist til et sted for oppfølging, ikke kilden til hvilke
+aksjer modellen får lov til å vurdere. Discovery skal finne kandidater brukeren
+ikke allerede kjenner, før de eventuelt legges i watchlist.
+
+### 1. Skill discovery fra watchlist
+
+* [x] Kombiner regionale screeningresultater til én deduplisert kandidatliste
+* [x] Behold kandidater uavhengig av watchlist og marker bare watchlist-status
+* [x] Bygg Opportunity Advisor automatisk fra discovery-kandidatene
+* [x] La Recommendation Engine konsumere discovery-kandidater i daglig context
+* [ ] Vis tydelig i Daily Briefing at kandidaten kommer fra discovery
+
+### 2. Etabler et bredt og reproduserbart univers
+
+* [ ] Erstatt de håndplukkede tickerlistene med dokumenterte USA- og Norden-univers
+* [ ] Lag daterte univers-snapshots slik at historiske tester kan reproduseres
+* [ ] Definer regler for notering, likviditet, markedsverdi og datadekning
+* [ ] Håndter nye noteringer, avnoteringer og tickerendringer
+* [ ] Rapporter antall vurderte, filtrerte og analyserte selskaper per kjøring
+
+### 3. To-trinns kandidatvalg
+
+* [ ] Bruk et billig grovfilter på hele universet
+* [ ] Kjør full analyse bare på et begrenset antall topprangerte kandidater
+* [ ] Dokumenter hvorfor hver kandidat gikk videre eller ble filtrert bort
+* [ ] Begrens sektor- og regionskonsentrasjon i kandidatlisten
+
+### 4. Valider discovery-pipelinen
+
+* [ ] Backtest hele kjeden fra historisk univers til kandidat og neste-dags utførelse
+* [ ] Sammenlign discovery-porteføljen mot globale og regionale investerbare referanser
+* [ ] Mål hit-rate, turnover, drawdown og meravkastning uten dagens watchlist
+* [ ] Ikke utvikle nye features før kandidatvalg og benchmarkdata er troverdige
+
+---
+
+## Model Validation & Decision Journal v1
 
 Målet er å finne ut om agenten faktisk tilfører verdi, ikke å optimalisere den
 før målegrunnlaget er troverdig.
