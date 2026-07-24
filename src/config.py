@@ -98,6 +98,62 @@ DEFAULT_BACKTEST_CONFIG = {
 }
 
 
+DEFAULT_BACKTEST_VALIDATION_CONFIG = {
+    "execution": {
+        "initial_cash": 100000,
+        "signal_price": "close",
+        "execution_price": "next_open",
+        "use_adjusted_prices": True,
+    },
+    "strategy": {
+        "min_technical_score": 70,
+        "min_buy_relative_strength": 0,
+        "min_hold_days": 60,
+        "stop_loss_pct": 0.12,
+        "trailing_sma": "sma100",
+        "require_risk_on": False,
+    },
+    "costs": {
+        "spread_pct_per_side": 0.001,
+        "nordics": {
+            "commission_pct": 0.001,
+            "minimum_commission": 49,
+            "fx_pct_per_side": 0.0,
+        },
+        "usa": {
+            "commission_pct": 0.001,
+            "minimum_commission": 9.9,
+            "fx_pct_per_side": 0.0025,
+        },
+    },
+    "datasets": {
+        "in_sample": {
+            "start": "2018-01-01",
+            "end": "2022-12-31",
+        },
+        "calibration": {
+            "start": "2023-01-01",
+            "end": "2024-12-31",
+        },
+        "historical_test": {
+            "start": "2025-01-01",
+            "end": "2026-07-23",
+        },
+        "forward_out_of_sample": {
+            "start": "2026-07-24",
+            "end": "2027-07-23",
+        },
+    },
+    "walk_forward": {
+        "start": "2018-01-01",
+        "end": "2026-07-23",
+        "train_years": 3,
+        "test_months": 6,
+        "step_months": 6,
+    },
+}
+
+
 def _load_editable_watchlists():
     return load_json(
         "watchlists.json",
@@ -162,4 +218,11 @@ def load_backtest_config():
     return load_json_config(
         "backtest_config.json",
         DEFAULT_BACKTEST_CONFIG,
+    )
+
+
+def load_backtest_validation_config():
+    return load_json_config(
+        "backtest_validation_config.json",
+        DEFAULT_BACKTEST_VALIDATION_CONFIG,
     )

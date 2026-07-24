@@ -11,6 +11,7 @@ from src.alerts import (
 )
 from src.company_names import get_company_name
 from src.daily_flow import build_daily_actions
+from src.model_version import MODEL_VERSION
 from src.portfolio import valid_portfolio_rows
 from src.sentiment import (
     SENTIMENT_DISPLAY_LABELS,
@@ -831,6 +832,7 @@ def build_recommendations(context) -> dict:
     )
     actions = _dedupe_recommendations(raw_recommendations)
     return {
+        "model_version": MODEL_VERSION,
         "summary": _build_summary(actions),
         "actions": actions,
     }
@@ -840,6 +842,7 @@ def limit_recommendations(recommendations, limit=MAX_RECOMMENDATIONS) -> dict:
     recommendations = recommendations or {}
     actions = list(recommendations.get("actions") or [])[:limit]
     return {
+        "model_version": recommendations.get("model_version") or MODEL_VERSION,
         "summary": recommendations.get("summary") or _build_summary(actions),
         "actions": actions,
     }

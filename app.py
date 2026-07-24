@@ -14,6 +14,14 @@ from src.ranking import ranking_table
 from src.model_backtest import save_model_snapshot, compare_snapshots
 from src.signal_backtest import backtest_signal_watchlist
 from src.backtest_report import summarize_backtest_result
+from src.backtest_validation import (
+    build_backtest_validation_report,
+    summarize_backtest_validation,
+)
+from src.technical_baseline import (
+    backtest_technical_baseline_watchlist,
+    validate_chronological_datasets,
+)
 from src.walk_forward import rolling_walk_forward
 from src.walk_forward_report import summarize_rolling_walk_forward
 from src.portfolio_allocation import build_portfolio_allocation
@@ -42,6 +50,7 @@ from src.portfolio import (
 from src.config import (
     load_watchlists,
     load_backtest_config,
+    load_backtest_validation_config,
     add_symbol_to_watchlist,
     remove_symbol_from_watchlist,
 )
@@ -107,6 +116,7 @@ from src.strategy_profiles import build_strategy_profile, format_strategy_profil
 
 WATCHLISTS = load_watchlists()
 BACKTEST_CONFIG = load_backtest_config()
+BACKTEST_VALIDATION_CONFIG = load_backtest_validation_config()
 
 
 st.set_page_config(
@@ -1849,7 +1859,81 @@ with tab_backtest:
     st.subheader("Backtest av signalmodell")
 
     active_config = get_active_backtest_config()
+    validation_report = build_backtest_validation_report()
 
+    st.error(summarize_backtest_validation(validation_report))
+    with st.expander("Se valideringsfunn"):
+        st.dataframe(
+            pd.DataFrame(validation_report["checks"])[
+                ["title", "status", "finding", "required_action"]
+            ],
+            width="stretch",
+            hide_index=True,
+        )
+
+    st.markdown("### Teknisk valideringsbaseline")
+    st.caption(
+        "Separat teknisk-only baseline: signal på close, handel på neste "
+        "open, justerte priser og kostnader på begge sider."
+    )
+    validation_datasets = validate_chronological_datasets(
+        BACKTEST_VALIDATION_CONFIG["datasets"]
+    )
+    validation_dataset_name = st.selectbox(
+        "Datasett",
+        options=list(validation_datasets),
+        index=list(validation_datasets).index("historical_test"),
+        format_func=lambda name: {
+            "in_sample": "In-sample",
+            "calibration": "Kalibrering",
+            "historical_test": "Historisk test (ikke urørt)",
+            "forward_out_of_sample": "Fremoverskuende out-of-sample",
+        }.get(name, name),
+    )
+    selected_bounds = validation_datasets[validation_dataset_name]
+    st.caption(
+        f"Periode: {selected_bounds['start'].date()} – "
+        f"{selected_bounds['end'].date()}"
+    )
+
+    with st.expander("Se baseline-konfigurasjon"):
+        st.json(BACKTEST_VALIDATION_CONFIG)
+
+    if st.button("Kjør teknisk valideringsbaseline"):
+        with st.spinner("Kjører teknisk valideringsbaseline..."):
+            st.session_state.technical_baseline_result = (
+                backtest_technical_baseline_watchlist(
+                    get_active_watchlist(),
+                    dataset_name=validation_dataset_name,
+                    config=BACKTEST_VALIDATION_CONFIG,
+                )
+            )
+            st.session_state.technical_baseline_dataset = (
+                validation_dataset_name
+            )
+
+    if "technical_baseline_result" in st.session_state:
+        st.markdown(
+            "**Baseline-datasett:** "
+            f"{st.session_state.get('technical_baseline_dataset', 'ukjent')}"
+        )
+        st.dataframe(
+            st.session_state.technical_baseline_result,
+            width="stretch",
+            hide_index=True,
+        )
+        st.text(
+            summarize_backtest_result(
+                st.session_state.technical_baseline_result
+            )
+        )
+
+    st.divider()
+    st.markdown("### Eksisterende fullmodell-backtest")
+    st.caption(
+        "Ikke godkjent: bruker nåværende fundamentaler historisk og "
+        "samme-dags sluttkurs."
+    )
     st.write("Aktiv backtest-konfig:")
     st.json(active_config)
 
@@ -1890,24 +1974,56 @@ with tab_backtest:
 
 
 with tab_walk_forward:
-    st.subheader("Rolling walk-forward")
+    st.subheader("Kronologisk rolling walk-forward")
+    st.caption(
+        "Teknisk-only baseline med faste regler, tre års train-vindu og "
+        "seks måneders etterfølgende testvindu. Ingen tuning per fold."
+    )
+    with st.expander("Se walk-forward-konfigurasjon"):
+        st.json(BACKTEST_VALIDATION_CONFIG["walk_forward"])
 
     if st.button("Kjør walk-forward"):
-        with st.spinner("Kjører rolling walk-forward..."):
+        with st.spinner("Kjører kronologisk rolling walk-forward..."):
             st.session_state.walk_forward_result = rolling_walk_forward(
-                get_active_watchlist()
+                get_active_watchlist(),
+                config=BACKTEST_VALIDATION_CONFIG,
             )
 
     if "walk_forward_result" in st.session_state:
+        walk_forward_result = st.session_state.walk_forward_result
+        summary_columns = [
+            "fold",
+            "test_start",
+            "test_end",
+            "test_portfolio_return_pct",
+            "test_portfolio_buy_hold_return_pct",
+            "test_portfolio_difference_pct",
+            "test_portfolio_max_drawdown_pct",
+            "test_portfolio_buy_hold_max_drawdown_pct",
+            "test_portfolio_sharpe",
+            "test_portfolio_buy_hold_sharpe",
+            "error_count",
+        ]
+        available_summary_columns = [
+            column
+            for column in summary_columns
+            if column in walk_forward_result.columns
+        ]
         st.dataframe(
-            st.session_state.walk_forward_result,
+            walk_forward_result[available_summary_columns],
             width="stretch",
             hide_index=True,
         )
+        with st.expander("Se og eksporter alle walk-forward-detaljer"):
+            st.dataframe(
+                walk_forward_result,
+                width="stretch",
+                hide_index=True,
+            )
 
         st.text(
             summarize_rolling_walk_forward(
-                st.session_state.walk_forward_result
+                walk_forward_result
             )
         )
 
@@ -1949,4 +2065,3 @@ with tab_chat:
         )
 
         st.rerun()
-

@@ -22,6 +22,7 @@ from src.news import build_news_summary
 from src.portfolio import analyze_portfolio, ensure_portfolio_report, summarize_portfolio
 from src.environment import context_snapshot_filename
 from src.config import load_watchlists
+from src.model_version import MODEL_VERSION
 from src.sentiment import build_sentiment_summary, merge_sentiment_into_news_summary
 from src.screener import screen_nordics, screen_obx, screen_us_large
 from src.watchlist_advisor import build_watchlist_advisor
@@ -229,6 +230,7 @@ def save_context_snapshot(
     path = context_snapshot_path()
     payload = {
         "version": CONTEXT_SNAPSHOT_VERSION,
+        "model_version": MODEL_VERSION,
         "built_at": _utc_now_iso(),
         "date": today.isoformat(),
         "context": _serialize_context(context),
@@ -272,6 +274,7 @@ def get_context_snapshot_metadata() -> dict[str, Any] | None:
 
     return {
         "version": payload.get("version"),
+        "model_version": payload.get("model_version"),
         "built_at": payload.get("built_at"),
         "date": payload.get("date"),
     }
@@ -307,9 +310,14 @@ def load_context_snapshot(
         return None
 
     try:
-        return _deserialize_context(context_payload)
+        context = _deserialize_context(context_payload)
     except (ValueError, TypeError, json.JSONDecodeError):
         return None
+
+    snapshot_model_version = payload.get("model_version")
+    if snapshot_model_version:
+        context.setdefault("model_version", snapshot_model_version)
+    return context
 
 
 def reload_context_from_snapshot(
@@ -475,6 +483,7 @@ def build_agent_context(
     )
 
     context = {
+        "model_version": MODEL_VERSION,
         "watchlist": watchlist,
         "watchlist_report": watchlist_report,
         "portfolio_report": portfolio_report,

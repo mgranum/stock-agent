@@ -1,5 +1,25 @@
 def summarize_backtest_result(result):
+    required_columns = {
+        "ticker",
+        "strategy_return_pct",
+        "buy_and_hold_return_pct",
+        "difference_pct",
+        "number_of_trades",
+    }
+    if result is None or result.empty:
+        return "Ingen backtestresultater tilgjengelig."
+
     valid = result[result.get("error").isna()] if "error" in result.columns else result
+    if valid.empty or not required_columns.issubset(valid.columns):
+        error_count = (
+            int(result["error"].notna().sum())
+            if "error" in result.columns
+            else len(result)
+        )
+        return (
+            "Ingen gyldige backtestresultater. "
+            f"Feilede kjøringer: {error_count}."
+        )
 
     avg_strategy = round(valid["strategy_return_pct"].mean(), 2)
     avg_buy_hold = round(valid["buy_and_hold_return_pct"].mean(), 2)

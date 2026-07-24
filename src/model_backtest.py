@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.analysis import analyze_stock
+from src.model_version import LEGACY_MODEL_VERSION, MODEL_VERSION
 
 
 def backtest_current_model(symbols):
@@ -14,6 +15,7 @@ def backtest_current_model(symbols):
 
         rows.append({
             "date": date.today().isoformat(),
+            "model_version": MODEL_VERSION,
             "ticker": symbol,
             "score": result["score"],
             "anbefaling": result["anbefaling"],
@@ -62,6 +64,8 @@ def load_snapshots():
 
     for file in files:
         df = pd.read_csv(file)
+        if "model_version" not in df.columns:
+            df["model_version"] = LEGACY_MODEL_VERSION
         df["snapshot_file"] = file.name
         frames.append(df)
 
