@@ -15,6 +15,15 @@ FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 # Lokal cache-mappe
 CACHE_DIR = "cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
+PRICE_COLUMNS = ["open", "high", "low", "close", "adjusted_close", "volume"]
+YFINANCE_PRICE_COLUMNS = {
+    "Open": "open",
+    "High": "high",
+    "Low": "low",
+    "Close": "close",
+    "Adj Close": "adjusted_close",
+    "Volume": "volume",
+}
 
 
 def _prepare_daily_prices(df, symbol):
@@ -51,30 +60,91 @@ def _write_price_cache(cache_file, symbol, df):
         }, f)
 
 
-def get_daily_prices(symbol, period="6mo", use_cache=True):
-    today = date.today().isoformat()
-
+def _price_cache_file(symbol):
     project_root = Path(__file__).resolve().parent.parent
     cache_dir = project_root / "cache"
     cache_dir.mkdir(exist_ok=True)
+    return cache_dir / f"{symbol}_yf_daily.json"
 
-    cache_file = cache_dir / f"{symbol}_yf_daily.json"
 
-    if use_cache and cache_file.exists():
-        with open(cache_file, "r") as f:
-            cached = json.load(f)
+def _read_current_price_cache(symbol):
+    cache_file = _price_cache_file(symbol)
+    if not cache_file.exists():
+        return None
+    with open(cache_file, "r") as stream:
+        cached = json.load(stream)
+    if cached.get("date") != date.today().isoformat():
+        return None
+    df = pd.DataFrame(cached["data"])
+    df.index = pd.to_datetime(df["date_index"])
+    return _prepare_daily_prices(df.drop(columns=["date_index"]), symbol)
 
-        if cached.get("date") == today:
+
+def _normalize_downloaded_prices(df, symbol):
+    normalized = df.rename(columns=YFINANCE_PRICE_COLUMNS)
+    missing = [column for column in PRICE_COLUMNS if column not in normalized.columns]
+    if missing:
+        raise ValueError(f"Prisdata for {symbol} mangler: {', '.join(missing)}")
+    return _prepare_daily_prices(normalized[PRICE_COLUMNS], symbol)
+
+
+def get_daily_prices_batch(symbols, period="6mo", use_cache=True):
+    symbols = list(dict.fromkeys(str(symbol).strip().upper() for symbol in symbols))
+    prices = {}
+    errors = {}
+    missing = []
+
+    for symbol in symbols:
+        if use_cache:
+            try:
+                cached = _read_current_price_cache(symbol)
+            except Exception:
+                cached = None
+            if cached is not None:
+                prices[symbol] = cached
+                continue
+        missing.append(symbol)
+
+    if not missing:
+        return prices, errors
+
+    downloaded = yf.download(
+        missing,
+        period=period,
+        interval="1d",
+        auto_adjust=False,
+        progress=False,
+        group_by="column",
+        threads=True,
+    )
+
+    for symbol in missing:
+        try:
+            if downloaded.empty:
+                raise ValueError(f"Fant ikke Yahoo Finance-data for {symbol}")
+            if isinstance(downloaded.columns, pd.MultiIndex):
+                symbol_frame = downloaded.xs(symbol, axis=1, level=1)
+            elif len(missing) == 1:
+                symbol_frame = downloaded
+            else:
+                raise ValueError(f"Uventet batchformat for {symbol}")
+            cleaned = _normalize_downloaded_prices(symbol_frame, symbol)
+            prices[symbol] = cleaned
+            _write_price_cache(_price_cache_file(symbol), symbol, cleaned)
+        except Exception as exc:
+            errors[symbol] = str(exc) or exc.__class__.__name__
+
+    return prices, errors
+
+
+def get_daily_prices(symbol, period="6mo", use_cache=True):
+    cache_file = _price_cache_file(symbol)
+
+    if use_cache:
+        cached_prices = _read_current_price_cache(symbol)
+        if cached_prices is not None:
             print(f"Bruker cache for {symbol}")
-            df = pd.DataFrame(cached["data"])
-            df.index = pd.to_datetime(df["date_index"])
-            df = df.drop(columns=["date_index"])
-            cleaned = _prepare_daily_prices(df, symbol)
-
-            if len(cleaned) < len(df):
-                _write_price_cache(cache_file, symbol, cleaned)
-
-            return cleaned
+            return cached_prices
 
     print(f"Henter Yahoo Finance-data for {symbol}")
 
@@ -92,26 +162,7 @@ def get_daily_prices(symbol, period="6mo", use_cache=True):
     if df.empty:
         raise ValueError(f"Fant ikke Yahoo Finance-data for {symbol}")
 
-    df = df.rename(columns={
-        "Open": "open",
-        "High": "high",
-        "Low": "low",
-        "Close": "close",
-        "Adj Close": "adjusted_close",
-        "Volume": "volume",
-    })
-
-    df = df[[
-        "open",
-        "high",
-        "low",
-        "close",
-        "adjusted_close",
-        "volume"
-    ]]
-
-    df.index = pd.to_datetime(df.index)
-    cleaned = _prepare_daily_prices(df, symbol)
+    cleaned = _normalize_downloaded_prices(df, symbol)
     _write_price_cache(cache_file, symbol, cleaned)
 
     return cleaned

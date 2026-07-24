@@ -5,7 +5,7 @@ import pandas as pd
 from src.analysis import analyze_stock, analyze_watchlist
 from src.company_names import get_company_name
 from src.config import load_discovery_config, load_json_config, load_watchlists
-from src.data import get_daily_prices
+from src.data import get_daily_prices_batch
 from src.ranking import rank_watchlist
 from src.strategy_classification import add_strategy_types
 from src.strategy_profiles import INVESTMENT_PROFILES, build_strategy_profile
@@ -378,8 +378,17 @@ def screen_stocks(
     symbols_for_analysis = list(symbols)
     if coarse_filter_config and coarse_filter_config.get("enabled", True):
         symbols_for_analysis = []
+        batch_prices, batch_errors = get_daily_prices_batch(
+            symbols,
+            period=coarse_filter_config.get("period", "6mo"),
+        )
         for symbol in symbols:
-            reason = _coarse_filter_reason(symbol, coarse_filter_config)
+            reason = _coarse_filter_reason(
+                symbol,
+                coarse_filter_config,
+                prices=batch_prices.get(symbol),
+                price_error=batch_errors.get(symbol),
+            )
             if reason is None:
                 symbols_for_analysis.append(symbol)
             else:
@@ -458,14 +467,11 @@ def screen_stocks(
     return result
 
 
-def _coarse_filter_reason(symbol, config):
-    try:
-        prices = get_daily_prices(
-            symbol,
-            period=config.get("period", "6mo"),
-        )
-    except Exception as exc:
-        return f"Prisdata mangler: {str(exc) or exc.__class__.__name__}"
+def _coarse_filter_reason(symbol, config, prices=None, price_error=None):
+    if price_error:
+        return f"Prisdata mangler: {price_error}"
+    if prices is None:
+        return "Prisdata mangler"
 
     min_history_days = int(config.get("min_history_days", 60))
     if len(prices) < min_history_days:

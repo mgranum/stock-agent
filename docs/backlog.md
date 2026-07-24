@@ -48,6 +48,7 @@ ikke allerede kjenner, før de eventuelt legges i watchlist.
 ### 3. To-trinns kandidatvalg
 
 * [x] Bruk et billig pris-/likviditetsfilter før full analyse
+* [x] Hent prisdata batchvis og gjenbruk dags-cache i grovfilteret
 * [ ] Kjør full analyse bare på et begrenset antall topprangerte kandidater
 * [x] Dokumenter ticker, trinn og årsak for filtrerte og feilede analyser
 * [ ] Begrens sektor- og regionskonsentrasjon i kandidatlisten

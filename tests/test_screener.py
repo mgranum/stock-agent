@@ -37,10 +37,10 @@ def _analysis_result(
 
 class ScreenStocksTests(unittest.TestCase):
     @patch("src.screener.analyze_stock")
-    @patch("src.screener.get_daily_prices")
+    @patch("src.screener.get_daily_prices_batch")
     def test_coarse_filter_rejects_low_liquidity_before_full_analysis(
         self,
-        mock_prices,
+        mock_prices_batch,
         mock_analyze,
     ):
         liquid = pd.DataFrame(
@@ -49,7 +49,10 @@ class ScreenStocksTests(unittest.TestCase):
         illiquid = pd.DataFrame(
             {"close": [10.0] * 80, "volume": [100.0] * 80}
         )
-        mock_prices.side_effect = [liquid, illiquid]
+        mock_prices_batch.return_value = (
+            {"LIQUID": liquid, "ILLIQUID": illiquid},
+            {},
+        )
         mock_analyze.return_value = (_analysis_result("LIQUID", 80), None)
 
         result = screen_stocks(
