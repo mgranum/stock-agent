@@ -403,6 +403,41 @@ class BuildDailyBriefingTests(unittest.TestCase):
         self.assertLessEqual(len(briefing["critical_items"]), 3)
         self.assertLessEqual(_concrete_item_count(briefing), TOTAL_CONCRETE_ITEM_LIMIT)
 
+    def test_discovery_keeps_one_slot_when_watchlist_fills_briefing(self):
+        context = {
+            "watchlist_advisor_output": {
+                "items": [
+                    {
+                        "ticker": ticker,
+                        "watchlist_action": ACTION_VURDER_KJOP,
+                        "headline": "Watchlist-kandidat",
+                        "priority": 1,
+                    }
+                    for ticker in ("AAA", "BBB", "CCC", "DDD", "EEE")
+                ],
+            },
+            "opportunity_advisor": {
+                "items": [
+                    {
+                        "ticker": "UNKNOWN",
+                        "headline": "Funnet utenfor watchlist",
+                        "priority": 1,
+                    }
+                ],
+            },
+        }
+
+        briefing = build_daily_briefing(context)
+
+        self.assertEqual(
+            [item["ticker"] for item in briefing["candidate_items"]],
+            ["UNKNOWN"],
+        )
+        self.assertLessEqual(
+            _concrete_item_count(briefing),
+            TOTAL_CONCRETE_ITEM_LIMIT,
+        )
+
     def test_ticker_not_in_multiple_sections(self):
         context = {
             "portfolio_report": pd.DataFrame(
@@ -806,7 +841,7 @@ class FormatDailyBriefingTests(unittest.TestCase):
         self.assertIn("• BRK-B oppgradert til KJØP / ØK", formatted)
         self.assertIn("Viktig", formatted)
         self.assertIn("Watchlist", formatted)
-        self.assertIn("Kandidater", formatted)
+        self.assertIn("Nye kandidater", formatted)
         self.assertIn("• AVGO: Sterk screener-kandidat", formatted)
         self.assertIn("Oppsummering", formatted)
 
@@ -825,7 +860,7 @@ class FormatDailyBriefingTests(unittest.TestCase):
         self.assertNotIn("Kritisk", formatted)
         self.assertNotIn("Viktig", formatted)
         self.assertNotIn("Watchlist", formatted)
-        self.assertNotIn("Kandidater", formatted)
+        self.assertNotIn("Nye kandidater", formatted)
         self.assertNotIn("Oppsummering", formatted)
 
 

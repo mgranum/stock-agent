@@ -240,7 +240,24 @@ def _apply_total_concrete_cap(sections, limit=TOTAL_CONCRETE_ITEM_LIMIT):
             combined.append((item, section_key))
 
     combined.sort(key=lambda entry: _item_sort_key(entry[0]))
-    kept = combined[:limit]
+
+    # On non-critical days, reserve one slot for discovery. Without this,
+    # watchlist items always outrank candidates and can fill the entire briefing.
+    reserved_candidate = None
+    if not sections["critical_items"] and sections["candidate_items"] and limit > 0:
+        reserved_candidate = sections["candidate_items"][0]
+        combined = [
+            entry
+            for entry in combined
+            if not (
+                entry[1] == "candidate_items"
+                and entry[0].get("ticker") == reserved_candidate.get("ticker")
+            )
+        ]
+
+    kept = combined[: limit - 1] if reserved_candidate is not None else combined[:limit]
+    if reserved_candidate is not None:
+        kept.append((reserved_candidate, "candidate_items"))
     kept_keys = {(section_key, item.get("ticker")) for item, section_key in kept}
 
     trimmed = {
@@ -252,7 +269,7 @@ def _apply_total_concrete_cap(sections, limit=TOTAL_CONCRETE_ITEM_LIMIT):
             "candidate_items",
         )
     }
-    for item, section_key in combined:
+    for item, section_key in kept:
         if (section_key, item.get("ticker")) in kept_keys:
             trimmed[section_key].append(item)
 
@@ -637,7 +654,7 @@ _SECTION_LABELS = [
     ("change_items", "Endret siden sist"),
     ("important_items", "Viktig"),
     ("watchlist_items", "Watchlist"),
-    ("candidate_items", "Kandidater"),
+    ("candidate_items", "Nye kandidater"),
     ("summary", "Oppsummering"),
 ]
 
