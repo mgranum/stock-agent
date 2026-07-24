@@ -4,7 +4,8 @@ import pandas as pd
 
 from src.analysis import analyze_stock, analyze_watchlist
 from src.company_names import get_company_name
-from src.config import load_json_config, load_watchlists
+from src.config import load_discovery_config, load_json_config, load_watchlists
+from src.data import get_daily_prices
 from src.ranking import rank_watchlist
 from src.strategy_classification import add_strategy_types
 from src.strategy_profiles import INVESTMENT_PROFILES, build_strategy_profile
@@ -366,32 +367,51 @@ def screen_stocks(
     limit=20,
     pause_seconds=1,
     watchlist_symbols=None,
+    coarse_filter_config=None,
 ):
     if watchlist_symbols is None:
         watchlist_symbols = _watchlist_symbol_set()
 
     rows = []
     failed = 0
+    rejected = []
+    symbols_for_analysis = list(symbols)
+    if coarse_filter_config and coarse_filter_config.get("enabled", True):
+        symbols_for_analysis = []
+        for symbol in symbols:
+            reason = _coarse_filter_reason(symbol, coarse_filter_config)
+            if reason is None:
+                symbols_for_analysis.append(symbol)
+            else:
+                rejected.append({"ticker": symbol, "stage": "coarse_filter", "reason": reason})
 
-    for i, symbol in enumerate(symbols, start=1):
+    for i, symbol in enumerate(symbols_for_analysis, start=1):
         try:
             result, _ = analyze_stock(symbol)
             rows.append(
                 _analysis_to_screen_row(result, watchlist_symbols)
             )
-        except Exception:
+        except Exception as exc:
             failed += 1
+            rejected.append({
+                "ticker": symbol,
+                "stage": "full_analysis",
+                "reason": str(exc) or exc.__class__.__name__,
+            })
 
-        if pause_seconds and i < len(symbols):
+        if pause_seconds and i < len(symbols_for_analysis):
             time.sleep(pause_seconds)
 
     if not rows:
         result = _empty_screen_output()
         result.attrs["diagnostics"] = {
             "requested": len(symbols),
+            "coarse_passed": len(symbols_for_analysis),
+            "coarse_rejected": len(symbols) - len(symbols_for_analysis),
             "analyzed": 0,
             "failed": failed,
             "passed_filters": 0,
+            "rejected": rejected,
         }
         return result
 
@@ -428,11 +448,49 @@ def screen_stocks(
     result = df[SCREEN_OUTPUT_COLUMNS].reset_index(drop=True)
     result.attrs["diagnostics"] = {
         "requested": len(symbols),
+        "coarse_passed": len(symbols_for_analysis),
+        "coarse_rejected": len(symbols) - len(symbols_for_analysis),
         "analyzed": analyzed,
         "failed": failed,
         "passed_filters": len(result),
+        "rejected": rejected,
     }
     return result
+
+
+def _coarse_filter_reason(symbol, config):
+    try:
+        prices = get_daily_prices(
+            symbol,
+            period=config.get("period", "6mo"),
+        )
+    except Exception as exc:
+        return f"Prisdata mangler: {str(exc) or exc.__class__.__name__}"
+
+    min_history_days = int(config.get("min_history_days", 60))
+    if len(prices) < min_history_days:
+        return f"For kort kurshistorikk ({len(prices)} < {min_history_days} dager)"
+
+    recent = prices.tail(20)
+    latest_price = pd.to_numeric(recent["close"], errors="coerce").dropna()
+    if latest_price.empty:
+        return "Mangler gyldig sluttkurs"
+    min_price = float(config.get("min_price", 1.0))
+    if float(latest_price.iloc[-1]) < min_price:
+        return f"Kurs under minimum ({float(latest_price.iloc[-1]):.2f} < {min_price:.2f})"
+
+    close = pd.to_numeric(recent["close"], errors="coerce")
+    volume = pd.to_numeric(recent["volume"], errors="coerce")
+    average_traded_value = (close * volume).dropna().mean()
+    min_traded_value = float(config.get("min_average_traded_value_20d", 0))
+    if pd.isna(average_traded_value) or average_traded_value < min_traded_value:
+        measured = 0 if pd.isna(average_traded_value) else float(average_traded_value)
+        return (
+            "Lav omsatt verdi siste 20 dager "
+            f"({measured:,.0f} < {min_traded_value:,.0f})"
+        )
+
+    return None
 
 
 SCREEN_PRESETS = {
@@ -477,6 +535,9 @@ def screen_explore_universe(
         "limit": limit,
         "pause_seconds": pause_seconds,
         "watchlist_symbols": watchlist_symbols,
+        "coarse_filter_config": (
+            load_discovery_config().get("coarse_filter") or {}
+        ),
     }
 
     if preset is not None:
@@ -488,6 +549,7 @@ def screen_explore_universe(
         "universe_name": universe_name,
         "universe_size": len(symbols),
         "preset": preset,
+        "rejected": diagnostics.get("rejected") or [],
     })
     results.attrs["diagnostics"] = diagnostics
     return results

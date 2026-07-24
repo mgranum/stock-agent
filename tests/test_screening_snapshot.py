@@ -234,7 +234,10 @@ class ScreeningSnapshotRankingHonestyTests(unittest.TestCase):
 
         answer = ask_agent("Vis meg de beste OBX-kandidatene", context)
 
-        self.assertIn("#2 av topp 5 i OBX-snapshot", answer)
+        self.assertIn(
+            "#2 av 5 kvalifiserte kandidater i OBX-snapshot",
+            answer,
+        )
         self.assertNotIn("#2 av 25 i OBX", answer)
         self.assertNotIn("#2 av 5 i OBX", answer)
 

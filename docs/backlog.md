@@ -40,15 +40,16 @@ ikke allerede kjenner, før de eventuelt legges i watchlist.
 
 * [ ] Erstatt de håndplukkede tickerlistene med dokumenterte USA- og Norden-univers
 * [x] Lag daterte univers-snapshots slik at kjøringer kan reproduseres
-* [ ] Definer regler for notering, likviditet, markedsverdi og datadekning
+* [ ] Definer regler for notering og markedsverdi
+* [x] Innfør konfigurerbare minimumskrav til likviditet, kurshistorikk og prisdata
 * [ ] Håndter nye noteringer, avnoteringer og tickerendringer
 * [x] Rapporter antall vurderte, analyserte, filtrerte og feilede selskaper per kjøring
 
 ### 3. To-trinns kandidatvalg
 
-* [ ] Bruk et billig grovfilter på hele universet
+* [x] Bruk et billig pris-/likviditetsfilter før full analyse
 * [ ] Kjør full analyse bare på et begrenset antall topprangerte kandidater
-* [ ] Dokumenter hvorfor hver kandidat gikk videre eller ble filtrert bort
+* [x] Dokumenter ticker, trinn og årsak for filtrerte og feilede analyser
 * [ ] Begrens sektor- og regionskonsentrasjon i kandidatlisten
 
 ### 4. Valider discovery-pipelinen

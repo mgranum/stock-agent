@@ -933,13 +933,16 @@ with tab_dashboard:
     for region in ("USA", "NORDEN", "OBX"):
         coverage = coverage_regions.get(region) or {}
         universe_size = coverage.get("universe_size", 0)
+        coarse_passed = coverage.get("coarse_passed", 0)
         analyzed = coverage.get("analyzed", 0)
         passed = coverage.get("passed_filters", 0)
         failed = coverage.get("failed", 0)
         if universe_size:
             coverage_parts.append(
-                f"{region}: {analyzed}/{universe_size} analysert, "
-                f"{passed} bestod filter, {failed} feilet"
+                f"{region}: {universe_size} i universet → "
+                f"{coarse_passed} bestod grovfilter → "
+                f"{analyzed} analysert → {passed} kvalifiserte, "
+                f"{failed} analysefeil"
             )
     if coverage_parts:
         st.caption(" · ".join(coverage_parts))
@@ -959,6 +962,16 @@ with tab_dashboard:
                 st.markdown(f"**{ticker} – {headline}**")
                 if takeaway and takeaway != headline:
                     st.caption(takeaway)
+    rejected_rows = []
+    for region, coverage in coverage_regions.items():
+        for rejected in coverage.get("rejected") or []:
+            rejected_rows.append({"region": region, **rejected})
+    if rejected_rows:
+        with st.expander(
+            f"Filtrerte og feilede tickere ({len(rejected_rows)})",
+            expanded=False,
+        ):
+            show_dataframe(pd.DataFrame(rejected_rows))
 
     current_portfolio = load_portfolio([])
     portfolio_summary = summarize_portfolio(portfolio_report)

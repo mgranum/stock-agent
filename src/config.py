@@ -154,6 +154,17 @@ DEFAULT_BACKTEST_VALIDATION_CONFIG = {
 }
 
 
+DEFAULT_DISCOVERY_CONFIG = {
+    "coarse_filter": {
+        "enabled": True,
+        "period": "6mo",
+        "min_history_days": 60,
+        "min_price": 1.0,
+        "min_average_traded_value_20d": 2_000_000,
+    },
+}
+
+
 def _load_editable_watchlists():
     return load_json(
         "watchlists.json",
@@ -218,6 +229,13 @@ def load_backtest_config():
     return load_json_config(
         "backtest_config.json",
         DEFAULT_BACKTEST_CONFIG,
+    )
+
+
+def load_discovery_config():
+    return load_json_config(
+        "discovery_config.json",
+        DEFAULT_DISCOVERY_CONFIG,
     )
 
 

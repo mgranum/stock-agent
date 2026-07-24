@@ -688,8 +688,14 @@ def _build_relative_context_lines(
         lines = [f"#{rank} av {universe_size} i {universe_label}"]
         profile_scope = universe_label
     elif use_snapshot_wording:
-        lines = [f"#{rank} av topp {universe_size} i {universe_label}-snapshot"]
-        profile_scope = f"{universe_label}-snapshot (topp {universe_size})"
+        lines = [
+            f"#{rank} av {universe_size} kvalifiserte kandidater "
+            f"i {universe_label}-snapshot"
+        ]
+        profile_scope = (
+            f"{universe_label}-snapshot "
+            f"({universe_size} kvalifiserte kandidater)"
+        )
     else:
         lines = [f"#{rank} av topp {universe_size} i {universe_label}"]
         profile_scope = f"{universe_label} (topp {universe_size})"

@@ -208,8 +208,11 @@ def _screening_region_meta(region_results):
     return {
         "universe_size": diagnostics.get("universe_size", universe_size),
         "analyzed": diagnostics.get("analyzed", universe_size),
+        "coarse_passed": diagnostics.get("coarse_passed", universe_size),
+        "coarse_rejected": diagnostics.get("coarse_rejected", 0),
         "failed": diagnostics.get("failed", 0),
         "passed_filters": diagnostics.get("passed_filters", universe_size),
+        "rejected": diagnostics.get("rejected") or [],
         "preset": diagnostics.get("preset", SCREENING_SNAPSHOT_PRESET),
         "is_full_universe": True,
         "display_limit": SCREENING_SNAPSHOT_LIMIT,

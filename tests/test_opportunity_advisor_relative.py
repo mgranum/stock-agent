@@ -95,7 +95,10 @@ class RelativeRankingTests(unittest.TestCase):
         second = next(item for item in output["items"] if item["ticker"] == "BBB")
         self.assertEqual(second["rank"], 2)
         self.assertEqual(second["universe_size"], 5)
-        self.assertIn("#2 av topp 5 i OBX-snapshot", second["relative_context"])
+        self.assertIn(
+            "#2 av 5 kvalifiserte kandidater i OBX-snapshot",
+            second["relative_context"],
+        )
         self.assertNotIn("#2 av 5 i OBX", second["relative_context"])
 
     def test_profile_rank_for_best_momentum_candidate(self):

@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pandas as pd
 
@@ -36,6 +36,45 @@ def _analysis_result(
 
 
 class ScreenStocksTests(unittest.TestCase):
+    @patch("src.screener.analyze_stock")
+    @patch("src.screener.get_daily_prices")
+    def test_coarse_filter_rejects_low_liquidity_before_full_analysis(
+        self,
+        mock_prices,
+        mock_analyze,
+    ):
+        liquid = pd.DataFrame(
+            {"close": [100.0] * 80, "volume": [100_000.0] * 80}
+        )
+        illiquid = pd.DataFrame(
+            {"close": [10.0] * 80, "volume": [100.0] * 80}
+        )
+        mock_prices.side_effect = [liquid, illiquid]
+        mock_analyze.return_value = (_analysis_result("LIQUID", 80), None)
+
+        result = screen_stocks(
+            ["LIQUID", "ILLIQUID"],
+            limit=None,
+            pause_seconds=0,
+            watchlist_symbols=set(),
+            coarse_filter_config={
+                "enabled": True,
+                "min_history_days": 60,
+                "min_price": 1,
+                "min_average_traded_value_20d": 2_000_000,
+            },
+        )
+
+        mock_analyze.assert_called_once_with("LIQUID")
+        self.assertEqual(result["ticker"].tolist(), ["LIQUID"])
+        diagnostics = result.attrs["diagnostics"]
+        self.assertEqual(diagnostics["coarse_passed"], 1)
+        self.assertEqual(diagnostics["coarse_rejected"], 1)
+        self.assertEqual(
+            diagnostics["rejected"][0]["ticker"],
+            "ILLIQUID",
+        )
+
     @patch("src.screener.analyze_stock")
     def test_filters_by_min_score(self, mock_analyze):
         mock_analyze.side_effect = [
@@ -231,6 +270,7 @@ class ScreenExploreUniverseTests(unittest.TestCase):
             limit=10,
             pause_seconds=0,
             watchlist_symbols={"AAPL"},
+            coarse_filter_config=ANY,
         )
 
     @patch("src.screener.load_json_config")
