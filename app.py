@@ -927,6 +927,22 @@ with tab_dashboard:
 
     st.markdown("### Nye kandidater")
     st.caption("Funnet av discovery-screeningen, ikke hentet fra watchlist.")
+    discovery_coverage = st.session_state.context.get("discovery_coverage") or {}
+    coverage_regions = discovery_coverage.get("regions") or {}
+    coverage_parts = []
+    for region in ("USA", "NORDEN", "OBX"):
+        coverage = coverage_regions.get(region) or {}
+        universe_size = coverage.get("universe_size", 0)
+        analyzed = coverage.get("analyzed", 0)
+        passed = coverage.get("passed_filters", 0)
+        failed = coverage.get("failed", 0)
+        if universe_size:
+            coverage_parts.append(
+                f"{region}: {analyzed}/{universe_size} analysert, "
+                f"{passed} bestod filter, {failed} feilet"
+            )
+    if coverage_parts:
+        st.caption(" · ".join(coverage_parts))
     discovery_advisor = st.session_state.context.get("opportunity_advisor") or {}
     discovery_items = list(discovery_advisor.get("items") or [])
     if not discovery_items:

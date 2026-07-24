@@ -57,3 +57,27 @@ def combine_discovery_candidates(
     )
 
     return combined.reset_index(drop=True)
+
+
+def build_discovery_coverage(screening_results) -> dict:
+    if not isinstance(screening_results, dict):
+        return {"regions": {}, "candidates": 0, "snapshot": None}
+
+    regions = {}
+    for region in DISCOVERY_REGIONS:
+        meta = (screening_results.get("meta") or {}).get(region) or {}
+        regions[region] = {
+            "universe_size": int(meta.get("universe_size") or 0),
+            "analyzed": int(meta.get("analyzed") or 0),
+            "failed": int(meta.get("failed") or 0),
+            "passed_filters": int(meta.get("passed_filters") or 0),
+        }
+
+    return {
+        "regions": regions,
+        "candidates": sum(
+            int(region.get("passed_filters") or 0)
+            for region in regions.values()
+        ),
+        "snapshot": screening_results.get("universe_snapshot"),
+    }

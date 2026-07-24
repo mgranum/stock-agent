@@ -15,7 +15,7 @@ from src.analysis import analyze_watchlist
 from src.analyst import build_analyst_summary
 from src.dashboard import build_dashboard, build_portfolio_risk
 from src.daily_briefing import build_daily_briefing
-from src.discovery import combine_discovery_candidates
+from src.discovery import build_discovery_coverage, combine_discovery_candidates
 from src.recommendation_engine import build_recommendations
 from src.daily_flow import build_daily_flow
 from src.earnings import build_earnings_summary
@@ -27,6 +27,8 @@ from src.config import load_watchlists
 from src.model_version import MODEL_VERSION
 from src.sentiment import build_sentiment_summary, merge_sentiment_into_news_summary
 from src.screener import screen_nordics, screen_obx, screen_us_large
+from src.screener import load_screening_universe
+from src.universe_snapshot import save_universe_snapshot
 from src.watchlist_advisor import build_watchlist_advisor
 
 CONTEXT_SNAPSHOT_VERSION = 1
@@ -172,6 +174,8 @@ def build_screening_results(
         "existing_watchlists": watchlists,
     }
 
+    universes = load_screening_universe()
+    universe_snapshot = save_universe_snapshot(universes)
     usa = screen_us_large(**screen_kwargs)
     norden = screen_nordics(**screen_kwargs)
     obx = screen_obx(**screen_kwargs)
@@ -186,6 +190,7 @@ def build_screening_results(
             "OBX": _screening_region_meta(obx),
         },
         "generated_at": _utc_now_iso(),
+        "universe_snapshot": str(universe_snapshot),
     }
 
 
@@ -195,8 +200,17 @@ def _screening_region_meta(region_results):
     else:
         universe_size = len(region_results)
 
+    diagnostics = (
+        dict(region_results.attrs.get("diagnostics") or {})
+        if isinstance(region_results, pd.DataFrame)
+        else {}
+    )
     return {
-        "universe_size": universe_size,
+        "universe_size": diagnostics.get("universe_size", universe_size),
+        "analyzed": diagnostics.get("analyzed", universe_size),
+        "failed": diagnostics.get("failed", 0),
+        "passed_filters": diagnostics.get("passed_filters", universe_size),
+        "preset": diagnostics.get("preset", SCREENING_SNAPSHOT_PRESET),
         "is_full_universe": True,
         "display_limit": SCREENING_SNAPSHOT_LIMIT,
         "use_snapshot_wording": False,
@@ -487,6 +501,7 @@ def build_agent_context(
         screening_results,
         watchlist=watchlist,
     )
+    discovery_coverage = build_discovery_coverage(screening_results)
     opportunity_advisor = build_opportunity_advisor(
         discovery_candidates,
         analyst_summary=analyst_summary,
@@ -495,7 +510,8 @@ def build_agent_context(
         news_summary=news_summary,
         limit=SCREENING_SNAPSHOT_LIMIT,
         full_results=discovery_candidates,
-        is_full_universe=True,
+        is_full_universe=False,
+        use_snapshot_wording=True,
     )
 
     context = {
@@ -515,6 +531,7 @@ def build_agent_context(
         "alerts": alerts,
         "screening_results": screening_results,
         "discovery_candidates": discovery_candidates,
+        "discovery_coverage": discovery_coverage,
         "opportunity_advisor": opportunity_advisor,
     }
     context["recommendations"] = build_recommendations(context)

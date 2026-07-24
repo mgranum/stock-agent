@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from src.discovery import combine_discovery_candidates
+from src.discovery import build_discovery_coverage, combine_discovery_candidates
 
 
 class CombineDiscoveryCandidatesTests(unittest.TestCase):
@@ -43,6 +43,32 @@ class CombineDiscoveryCandidatesTests(unittest.TestCase):
                 {"USA": pd.DataFrame(), "NORDEN": "invalid"}
             ).empty
         )
+
+    def test_builds_region_coverage_from_screening_meta(self):
+        coverage = build_discovery_coverage(
+            {
+                "meta": {
+                    "USA": {
+                        "universe_size": 500,
+                        "analyzed": 490,
+                        "failed": 10,
+                        "passed_filters": 45,
+                    },
+                    "NORDEN": {
+                        "universe_size": 300,
+                        "analyzed": 280,
+                        "failed": 20,
+                        "passed_filters": 30,
+                    },
+                },
+                "universe_snapshot": "snapshot.json",
+            }
+        )
+
+        self.assertEqual(coverage["regions"]["USA"]["universe_size"], 500)
+        self.assertEqual(coverage["regions"]["NORDEN"]["failed"], 20)
+        self.assertEqual(coverage["candidates"], 75)
+        self.assertEqual(coverage["snapshot"], "snapshot.json")
 
 
 if __name__ == "__main__":

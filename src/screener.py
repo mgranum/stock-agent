@@ -371,6 +371,7 @@ def screen_stocks(
         watchlist_symbols = _watchlist_symbol_set()
 
     rows = []
+    failed = 0
 
     for i, symbol in enumerate(symbols, start=1):
         try:
@@ -379,15 +380,23 @@ def screen_stocks(
                 _analysis_to_screen_row(result, watchlist_symbols)
             )
         except Exception:
-            pass
+            failed += 1
 
         if pause_seconds and i < len(symbols):
             time.sleep(pause_seconds)
 
     if not rows:
-        return _empty_screen_output()
+        result = _empty_screen_output()
+        result.attrs["diagnostics"] = {
+            "requested": len(symbols),
+            "analyzed": 0,
+            "failed": failed,
+            "passed_filters": 0,
+        }
+        return result
 
     df = pd.DataFrame(rows)
+    analyzed = len(df)
 
     if min_score is not None:
         df = df[df["score"] >= min_score]
@@ -416,7 +425,14 @@ def screen_stocks(
     if limit is not None:
         df = df.head(limit)
 
-    return df[SCREEN_OUTPUT_COLUMNS].reset_index(drop=True)
+    result = df[SCREEN_OUTPUT_COLUMNS].reset_index(drop=True)
+    result.attrs["diagnostics"] = {
+        "requested": len(symbols),
+        "analyzed": analyzed,
+        "failed": failed,
+        "passed_filters": len(result),
+    }
+    return result
 
 
 SCREEN_PRESETS = {
@@ -466,7 +482,15 @@ def screen_explore_universe(
     if preset is not None:
         kwargs.update(get_preset_filters(preset))
 
-    return screen_stocks(symbols, **kwargs)
+    results = screen_stocks(symbols, **kwargs)
+    diagnostics = dict(results.attrs.get("diagnostics") or {})
+    diagnostics.update({
+        "universe_name": universe_name,
+        "universe_size": len(symbols),
+        "preset": preset,
+    })
+    results.attrs["diagnostics"] = diagnostics
+    return results
 
 
 def screen_nordics(**kwargs):

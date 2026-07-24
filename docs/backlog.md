@@ -39,10 +39,10 @@ ikke allerede kjenner, før de eventuelt legges i watchlist.
 ### 2. Etabler et bredt og reproduserbart univers
 
 * [ ] Erstatt de håndplukkede tickerlistene med dokumenterte USA- og Norden-univers
-* [ ] Lag daterte univers-snapshots slik at historiske tester kan reproduseres
+* [x] Lag daterte univers-snapshots slik at kjøringer kan reproduseres
 * [ ] Definer regler for notering, likviditet, markedsverdi og datadekning
 * [ ] Håndter nye noteringer, avnoteringer og tickerendringer
-* [ ] Rapporter antall vurderte, filtrerte og analyserte selskaper per kjøring
+* [x] Rapporter antall vurderte, analyserte, filtrerte og feilede selskaper per kjøring
 
 ### 3. To-trinns kandidatvalg
 
