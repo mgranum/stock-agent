@@ -159,6 +159,7 @@ DEFAULT_DISCOVERY_CONFIG = {
         "enabled": True,
         "period": "6mo",
         "min_history_days": 60,
+        "max_price_age_days": 10,
         "min_price": 1.0,
         "min_average_traded_value_20d": 2_000_000,
         "max_full_analysis": 40,

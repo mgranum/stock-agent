@@ -1,4 +1,5 @@
 import unittest
+from datetime import date
 from unittest.mock import ANY, patch
 
 import pandas as pd
@@ -13,6 +14,7 @@ from src.screener import (
     screen_stocks,
     screening_universe_options,
     suggest_watchlist_additions,
+    _coarse_filter_reason,
     _select_for_full_analysis,
 )
 
@@ -38,6 +40,36 @@ def _analysis_result(
 
 
 class ScreenStocksTests(unittest.TestCase):
+    def test_quality_gate_rejects_stale_price_history(self):
+        prices = pd.DataFrame(
+            {"close": [100.0] * 80, "volume": [100_000.0] * 80},
+            index=pd.date_range("2025-10-01", periods=80),
+        )
+
+        reason = _coarse_filter_reason(
+            "STALE.ST",
+            {
+                "min_history_days": 60,
+                "max_price_age_days": 10,
+                "min_price": 1,
+                "min_average_traded_value_20d": 2_000_000,
+            },
+            prices=prices,
+            as_of_date=date(2026, 7, 25),
+        )
+
+        self.assertIn("Siste kurs er for gammel", reason)
+        self.assertIn("avnotert", reason)
+
+    def test_quality_gate_labels_missing_yahoo_symbol(self):
+        reason = _coarse_filter_reason(
+            "BAD.CO",
+            {},
+            price_error="'BAD.CO'",
+        )
+
+        self.assertIn("Yahoo-symbol mangler", reason)
+
     @patch("src.screener.load_official_norway_universe")
     @patch("src.screener.load_official_nordics_universe")
     @patch("src.screener.load_official_us_universe")

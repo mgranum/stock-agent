@@ -519,15 +519,33 @@ def screen_stocks(
     return result
 
 
-def _coarse_filter_reason(symbol, config, prices=None, price_error=None):
+def _coarse_filter_reason(
+    symbol,
+    config,
+    prices=None,
+    price_error=None,
+    as_of_date=None,
+):
     if price_error:
-        return f"Prisdata mangler: {price_error}"
+        return f"Yahoo-symbol mangler eller prisdata er utilgjengelig: {price_error}"
     if prices is None:
-        return "Prisdata mangler"
+        return "Yahoo-symbol mangler eller prisdata er utilgjengelig"
 
     min_history_days = int(config.get("min_history_days", 60))
     if len(prices) < min_history_days:
         return f"For kort kurshistorikk ({len(prices)} < {min_history_days} dager)"
+
+    if isinstance(prices.index, pd.DatetimeIndex) and not prices.index.empty:
+        latest_date = prices.index.max().date()
+        reference_date = as_of_date or date.today()
+        price_age_days = (reference_date - latest_date).days
+        max_price_age_days = int(config.get("max_price_age_days", 10))
+        if price_age_days > max_price_age_days:
+            return (
+                "Siste kurs er for gammel "
+                f"({price_age_days} > {max_price_age_days} dager); "
+                "tickeren kan være stoppet, avnotert eller feil mappet"
+            )
 
     recent = prices.tail(20)
     latest_price = pd.to_numeric(recent["close"], errors="coerce").dropna()

@@ -18,6 +18,7 @@ class DiscoveryConfigTests(unittest.TestCase):
 
         self.assertEqual(config["coarse_filter"]["min_history_days"], 90)
         self.assertEqual(config["coarse_filter"]["max_full_analysis"], 40)
+        self.assertEqual(config["coarse_filter"]["max_price_age_days"], 10)
         self.assertEqual(config["coarse_filter"]["liquidity_top_slots"], 15)
         self.assertEqual(config["coarse_filter"]["mid_liquidity_slots"], 10)
         self.assertIn("min_average_traded_value_20d", config["coarse_filter"])

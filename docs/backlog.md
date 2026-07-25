@@ -44,6 +44,7 @@ ikke allerede kjenner, før de eventuelt legges i watchlist.
 * [x] Lag daterte univers-snapshots slik at kjøringer kan reproduseres
 * [ ] Definer regler for notering og markedsverdi
 * [x] Innfør konfigurerbare minimumskrav til likviditet, kurshistorikk og prisdata
+* [x] Avvis manglende Yahoo-symboler og gamle kurser før fullanalyse
 * [ ] Håndter nye noteringer, avnoteringer og tickerendringer
 * [x] Rapporter antall vurderte, analyserte, filtrerte og feilede selskaper per kjøring
 
