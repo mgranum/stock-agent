@@ -162,6 +162,8 @@ DEFAULT_DISCOVERY_CONFIG = {
         "min_price": 1.0,
         "min_average_traded_value_20d": 2_000_000,
         "max_full_analysis": 40,
+        "liquidity_top_slots": 15,
+        "mid_liquidity_slots": 10,
     },
 }
 

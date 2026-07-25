@@ -75,6 +75,7 @@ def build_discovery_coverage(screening_results) -> dict:
             "failed": int(meta.get("failed") or 0),
             "passed_filters": int(meta.get("passed_filters") or 0),
             "rejected": list(meta.get("rejected") or []),
+            "selection_policy": dict(meta.get("selection_policy") or {}),
         }
 
     return {
@@ -106,3 +107,12 @@ def format_discovery_coverage(coverage) -> str:
             f"{int(values.get('failed') or 0)} analysefeil"
         )
     return " · ".join(parts)
+
+
+def summarize_discovery_rejections(coverage) -> dict[str, int]:
+    counts = {}
+    for region in ((coverage or {}).get("regions") or {}).values():
+        for item in region.get("rejected") or []:
+            stage = str(item.get("stage") or "unknown")
+            counts[stage] = counts.get(stage, 0) + 1
+    return counts

@@ -12,6 +12,7 @@ from src.screener import (
     screen_stocks,
     screening_universe_options,
     suggest_watchlist_additions,
+    _select_for_full_analysis,
 )
 
 
@@ -36,6 +37,32 @@ def _analysis_result(
 
 
 class ScreenStocksTests(unittest.TestCase):
+    def test_mixed_selection_keeps_top_mid_and_rotation(self):
+        candidates = [(f"T{i:02d}", float(100 - i)) for i in range(20)]
+        config = {
+            "max_full_analysis": 6,
+            "liquidity_top_slots": 2,
+            "mid_liquidity_slots": 2,
+        }
+
+        selected, not_selected = _select_for_full_analysis(
+            candidates,
+            config,
+            selection_date=pd.Timestamp("2026-07-25").date(),
+        )
+        repeated, _ = _select_for_full_analysis(
+            candidates,
+            config,
+            selection_date=pd.Timestamp("2026-07-25").date(),
+        )
+
+        selected_symbols = [symbol for symbol, _ in selected]
+        self.assertEqual(selected_symbols[:2], ["T00", "T01"])
+        self.assertTrue(any(symbol in {"T06", "T07", "T08", "T09", "T10", "T11", "T12", "T13"} for symbol in selected_symbols))
+        self.assertEqual(selected, repeated)
+        self.assertEqual(len(selected), 6)
+        self.assertEqual(len(not_selected), 14)
+
     @patch("src.screener.analyze_stock")
     @patch("src.screener.get_daily_prices_batch")
     def test_coarse_filter_rejects_low_liquidity_before_full_analysis(

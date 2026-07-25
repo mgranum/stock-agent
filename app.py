@@ -58,7 +58,10 @@ from src.strategy_classification import STRATEGY_TYPES, add_strategy_types
 from src.analysis import analyze_stock
 from src.company_names import get_company_name
 from src.opportunity_advisor import build_opportunity_advisor
-from src.discovery import format_discovery_coverage
+from src.discovery import (
+    format_discovery_coverage,
+    summarize_discovery_rejections,
+)
 from src.screener import (
     SCREEN_OUTPUT_COLUMNS,
     SCREEN_PRESETS,
@@ -933,6 +936,14 @@ with tab_dashboard:
     coverage_text = format_discovery_coverage(discovery_coverage)
     if coverage_text:
         st.caption(coverage_text)
+    usa_policy = (coverage_regions.get("USA") or {}).get("selection_policy") or {}
+    if usa_policy:
+        st.caption(
+            "Fullanalyseutvalg per region: "
+            f"{usa_policy.get('liquidity_top_slots', 0)} topp likviditet + "
+            f"{usa_policy.get('mid_liquidity_slots', 0)} mellomsegment + "
+            f"{usa_policy.get('rotation_slots', 0)} daglig rotasjon."
+        )
     discovery_advisor = st.session_state.context.get("opportunity_advisor") or {}
     discovery_items = list(discovery_advisor.get("items") or [])
     if not discovery_items:
@@ -954,11 +965,33 @@ with tab_dashboard:
         for rejected in coverage.get("rejected") or []:
             rejected_rows.append({"region": region, **rejected})
     if rejected_rows:
-        with st.expander(
-            f"Filtrerte og feilede tickere ({len(rejected_rows)})",
-            expanded=False,
-        ):
-            show_dataframe(pd.DataFrame(rejected_rows))
+        rejection_counts = summarize_discovery_rejections(discovery_coverage)
+        count_labels = {
+            "coarse_filter": "Grovfilter",
+            "capacity_limit": "Ikke valgt denne kjøringen",
+            "full_analysis": "Analysefeil",
+        }
+        summary_text = " · ".join(
+            f"{count_labels.get(stage, stage)}: {count}"
+            for stage, count in sorted(rejection_counts.items())
+        )
+        st.caption(summary_text)
+        rejected_frame = pd.DataFrame(rejected_rows)
+        actual_errors = rejected_frame[
+            rejected_frame["stage"].isin(["coarse_filter", "full_analysis"])
+        ]
+        if not actual_errors.empty:
+            with st.expander(
+                f"Data- og analysefeil ({len(actual_errors)})",
+                expanded=False,
+            ):
+                show_dataframe(actual_errors)
+        st.download_button(
+            "Last ned full filtreringsliste (CSV)",
+            rejected_frame.to_csv(index=False).encode("utf-8"),
+            file_name="discovery_filtering.csv",
+            mime="text/csv",
+        )
 
     current_portfolio = load_portfolio([])
     portfolio_summary = summarize_portfolio(portfolio_report)

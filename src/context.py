@@ -214,6 +214,7 @@ def _screening_region_meta(region_results):
         "failed": diagnostics.get("failed", 0),
         "passed_filters": diagnostics.get("passed_filters", universe_size),
         "rejected": diagnostics.get("rejected") or [],
+        "selection_policy": diagnostics.get("selection_policy") or {},
         "preset": diagnostics.get("preset", SCREENING_SNAPSHOT_PRESET),
         "is_full_universe": True,
         "display_limit": SCREENING_SNAPSHOT_LIMIT,

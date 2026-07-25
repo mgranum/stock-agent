@@ -6,6 +6,7 @@ from src.discovery import (
     build_discovery_coverage,
     combine_discovery_candidates,
     format_discovery_coverage,
+    summarize_discovery_rejections,
 )
 
 
@@ -91,6 +92,29 @@ class CombineDiscoveryCandidatesTests(unittest.TestCase):
 
         self.assertIn("50 valgt for fullanalyse", text)
         self.assertIn("16 kvalifiserte", text)
+
+    def test_summarizes_rejections_by_stage(self):
+        summary = summarize_discovery_rejections(
+            {
+                "regions": {
+                    "USA": {
+                        "rejected": [
+                            {"stage": "capacity_limit"},
+                            {"stage": "capacity_limit"},
+                            {"stage": "coarse_filter"},
+                        ]
+                    },
+                    "NORDEN": {
+                        "rejected": [{"stage": "full_analysis"}]
+                    },
+                }
+            }
+        )
+
+        self.assertEqual(
+            summary,
+            {"capacity_limit": 2, "coarse_filter": 1, "full_analysis": 1},
+        )
 
 
 if __name__ == "__main__":

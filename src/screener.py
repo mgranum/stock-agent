@@ -1,4 +1,6 @@
 import time
+import hashlib
+from datetime import date
 
 import pandas as pd
 
@@ -402,20 +404,18 @@ def screen_stocks(
                 )
             else:
                 rejected.append({"ticker": symbol, "stage": "coarse_filter", "reason": reason})
-        coarse_passed.sort(key=lambda item: item[1], reverse=True)
-        max_full_analysis = int(
-            coarse_filter_config.get("max_full_analysis") or len(coarse_passed)
+        selected, not_selected = _select_for_full_analysis(
+            coarse_passed,
+            coarse_filter_config,
         )
-        symbols_for_analysis = [
-            symbol for symbol, _ in coarse_passed[:max_full_analysis]
-        ]
-        for symbol, _ in coarse_passed[max_full_analysis:]:
+        symbols_for_analysis = [symbol for symbol, _ in selected]
+        for symbol, _ in not_selected:
             rejected.append({
                 "ticker": symbol,
                 "stage": "capacity_limit",
                 "reason": (
-                    f"Bestod grovfilter, men utenfor topp {max_full_analysis} "
-                    "på omsatt verdi"
+                    "Bestod grovfilter, men ble ikke valgt i dagens "
+                    "likviditets-/rotasjonsutvalg"
                 ),
             })
 
@@ -490,6 +490,20 @@ def screen_stocks(
         "failed": failed,
         "passed_filters": len(result),
         "rejected": rejected,
+        "selection_policy": {
+            "liquidity_top_slots": int(
+                (coarse_filter_config or {}).get("liquidity_top_slots") or 0
+            ),
+            "mid_liquidity_slots": int(
+                (coarse_filter_config or {}).get("mid_liquidity_slots") or 0
+            ),
+            "rotation_slots": max(
+                0,
+                len(symbols_for_analysis)
+                - int((coarse_filter_config or {}).get("liquidity_top_slots") or 0)
+                - int((coarse_filter_config or {}).get("mid_liquidity_slots") or 0),
+            ),
+        },
     }
     return result
 
@@ -530,6 +544,52 @@ def _average_traded_value(prices):
     volume = pd.to_numeric(recent["volume"], errors="coerce")
     value = (close * volume).dropna().mean()
     return 0.0 if pd.isna(value) else float(value)
+
+
+def _select_for_full_analysis(coarse_passed, config, selection_date=None):
+    ranked = sorted(coarse_passed, key=lambda item: item[1], reverse=True)
+    limit = min(int(config.get("max_full_analysis") or len(ranked)), len(ranked))
+    if limit >= len(ranked):
+        return ranked, []
+
+    top_slots = min(int(config.get("liquidity_top_slots") or limit), limit)
+    mid_slots = min(
+        int(config.get("mid_liquidity_slots") or 0),
+        limit - top_slots,
+    )
+    selected = list(ranked[:top_slots])
+    selected_symbols = {symbol for symbol, _ in selected}
+
+    remaining = ranked[top_slots:]
+    if mid_slots and remaining:
+        start = len(remaining) // 4
+        end = max(start + 1, (len(remaining) * 3) // 4)
+        middle = remaining[start:end]
+        if len(middle) <= mid_slots:
+            mid_selected = middle
+        else:
+            step = len(middle) / mid_slots
+            mid_selected = [middle[int(index * step)] for index in range(mid_slots)]
+        selected.extend(mid_selected)
+        selected_symbols.update(symbol for symbol, _ in mid_selected)
+
+    rotation_slots = limit - len(selected)
+    rotation_pool = [
+        item for item in remaining if item[0] not in selected_symbols
+    ]
+    rotation_date = (selection_date or date.today()).isoformat()
+    rotation_pool.sort(
+        key=lambda item: hashlib.sha256(
+            f"{rotation_date}:{item[0]}".encode("utf-8")
+        ).hexdigest()
+    )
+    selected.extend(rotation_pool[:rotation_slots])
+    selected_symbols.update(symbol for symbol, _ in rotation_pool[:rotation_slots])
+
+    not_selected = [
+        item for item in ranked if item[0] not in selected_symbols
+    ]
+    return selected, not_selected
 
 
 SCREEN_PRESETS = {
