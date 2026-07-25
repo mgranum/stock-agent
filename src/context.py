@@ -209,6 +209,7 @@ def _screening_region_meta(region_results):
         "universe_size": diagnostics.get("universe_size", universe_size),
         "analyzed": diagnostics.get("analyzed", universe_size),
         "coarse_passed": diagnostics.get("coarse_passed", universe_size),
+        "selected_for_analysis": diagnostics.get("selected_for_analysis", universe_size),
         "coarse_rejected": diagnostics.get("coarse_rejected", 0),
         "failed": diagnostics.get("failed", 0),
         "passed_filters": diagnostics.get("passed_filters", universe_size),

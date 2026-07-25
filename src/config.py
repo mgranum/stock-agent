@@ -161,6 +161,7 @@ DEFAULT_DISCOVERY_CONFIG = {
         "min_history_days": 60,
         "min_price": 1.0,
         "min_average_traded_value_20d": 2_000_000,
+        "max_full_analysis": 150,
     },
 }
 

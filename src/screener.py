@@ -9,6 +9,7 @@ from src.data import get_daily_prices_batch
 from src.ranking import rank_watchlist
 from src.strategy_classification import add_strategy_types
 from src.strategy_profiles import INVESTMENT_PROFILES, build_strategy_profile
+from src.universe_sources import load_official_us_universe
 
 
 MIN_SUGGESTION_SCORE = 55
@@ -100,7 +101,12 @@ def _attach_strategy_profile_fields(analysis_result, row):
 
 
 def load_screening_universe():
-    return load_json_config("screening_universe.json", {})
+    universes = load_json_config("screening_universe.json", {})
+    official_us = load_official_us_universe()
+    if official_us:
+        universes = dict(universes)
+        universes["US_LARGE_CAP"] = official_us
+    return universes
 
 
 def _universe_symbols(universe_name):
@@ -376,8 +382,9 @@ def screen_stocks(
     failed = 0
     rejected = []
     symbols_for_analysis = list(symbols)
+    coarse_passed = [(symbol, 0.0) for symbol in symbols]
     if coarse_filter_config and coarse_filter_config.get("enabled", True):
-        symbols_for_analysis = []
+        coarse_passed = []
         batch_prices, batch_errors = get_daily_prices_batch(
             symbols,
             period=coarse_filter_config.get("period", "6mo"),
@@ -390,9 +397,27 @@ def screen_stocks(
                 price_error=batch_errors.get(symbol),
             )
             if reason is None:
-                symbols_for_analysis.append(symbol)
+                coarse_passed.append(
+                    (symbol, _average_traded_value(batch_prices[symbol]))
+                )
             else:
                 rejected.append({"ticker": symbol, "stage": "coarse_filter", "reason": reason})
+        coarse_passed.sort(key=lambda item: item[1], reverse=True)
+        max_full_analysis = int(
+            coarse_filter_config.get("max_full_analysis") or len(coarse_passed)
+        )
+        symbols_for_analysis = [
+            symbol for symbol, _ in coarse_passed[:max_full_analysis]
+        ]
+        for symbol, _ in coarse_passed[max_full_analysis:]:
+            rejected.append({
+                "ticker": symbol,
+                "stage": "capacity_limit",
+                "reason": (
+                    f"Bestod grovfilter, men utenfor topp {max_full_analysis} "
+                    "på omsatt verdi"
+                ),
+            })
 
     for i, symbol in enumerate(symbols_for_analysis, start=1):
         try:
@@ -415,8 +440,9 @@ def screen_stocks(
         result = _empty_screen_output()
         result.attrs["diagnostics"] = {
             "requested": len(symbols),
-            "coarse_passed": len(symbols_for_analysis),
-            "coarse_rejected": len(symbols) - len(symbols_for_analysis),
+            "coarse_passed": len(coarse_passed),
+            "selected_for_analysis": len(symbols_for_analysis),
+            "coarse_rejected": len(symbols) - len(coarse_passed),
             "analyzed": 0,
             "failed": failed,
             "passed_filters": 0,
@@ -457,8 +483,9 @@ def screen_stocks(
     result = df[SCREEN_OUTPUT_COLUMNS].reset_index(drop=True)
     result.attrs["diagnostics"] = {
         "requested": len(symbols),
-        "coarse_passed": len(symbols_for_analysis),
-        "coarse_rejected": len(symbols) - len(symbols_for_analysis),
+        "coarse_passed": len(coarse_passed),
+        "selected_for_analysis": len(symbols_for_analysis),
+        "coarse_rejected": len(symbols) - len(coarse_passed),
         "analyzed": analyzed,
         "failed": failed,
         "passed_filters": len(result),
@@ -485,9 +512,7 @@ def _coarse_filter_reason(symbol, config, prices=None, price_error=None):
     if float(latest_price.iloc[-1]) < min_price:
         return f"Kurs under minimum ({float(latest_price.iloc[-1]):.2f} < {min_price:.2f})"
 
-    close = pd.to_numeric(recent["close"], errors="coerce")
-    volume = pd.to_numeric(recent["volume"], errors="coerce")
-    average_traded_value = (close * volume).dropna().mean()
+    average_traded_value = _average_traded_value(recent)
     min_traded_value = float(config.get("min_average_traded_value_20d", 0))
     if pd.isna(average_traded_value) or average_traded_value < min_traded_value:
         measured = 0 if pd.isna(average_traded_value) else float(average_traded_value)
@@ -497,6 +522,14 @@ def _coarse_filter_reason(symbol, config, prices=None, price_error=None):
         )
 
     return None
+
+
+def _average_traded_value(prices):
+    recent = prices.tail(20)
+    close = pd.to_numeric(recent["close"], errors="coerce")
+    volume = pd.to_numeric(recent["volume"], errors="coerce")
+    value = (close * volume).dropna().mean()
+    return 0.0 if pd.isna(value) else float(value)
 
 
 SCREEN_PRESETS = {

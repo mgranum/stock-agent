@@ -38,7 +38,8 @@ ikke allerede kjenner, før de eventuelt legges i watchlist.
 
 ### 2. Etabler et bredt og reproduserbart univers
 
-* [ ] Erstatt de håndplukkede tickerlistene med dokumenterte USA- og Norden-univers
+* [x] Erstatt håndplukket USA-liste med Nasdaq Symbol Directory-snapshot
+* [ ] Erstatt håndplukkede Norden-lister med dokumenterte børsunivers
 * [x] Lag daterte univers-snapshots slik at kjøringer kan reproduseres
 * [ ] Definer regler for notering og markedsverdi
 * [x] Innfør konfigurerbare minimumskrav til likviditet, kurshistorikk og prisdata
@@ -49,6 +50,7 @@ ikke allerede kjenner, før de eventuelt legges i watchlist.
 
 * [x] Bruk et billig pris-/likviditetsfilter før full analyse
 * [x] Hent prisdata batchvis og gjenbruk dags-cache i grovfilteret
+* [x] Begrens fullanalyse per region ved å prioritere mest likvide grovfiltertreff
 * [ ] Kjør full analyse bare på et begrenset antall topprangerte kandidater
 * [x] Dokumenter ticker, trinn og årsak for filtrerte og feilede analyser
 * [ ] Begrens sektor- og regionskonsentrasjon i kandidatlisten

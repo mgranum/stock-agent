@@ -934,6 +934,7 @@ with tab_dashboard:
         coverage = coverage_regions.get(region) or {}
         universe_size = coverage.get("universe_size", 0)
         coarse_passed = coverage.get("coarse_passed", 0)
+        selected = coverage.get("selected_for_analysis", analyzed)
         analyzed = coverage.get("analyzed", 0)
         passed = coverage.get("passed_filters", 0)
         failed = coverage.get("failed", 0)
@@ -941,6 +942,7 @@ with tab_dashboard:
             coverage_parts.append(
                 f"{region}: {universe_size} i universet → "
                 f"{coarse_passed} bestod grovfilter → "
+                f"{selected} valgt for fullanalyse → "
                 f"{analyzed} analysert → {passed} kvalifiserte, "
                 f"{failed} analysefeil"
             )

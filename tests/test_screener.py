@@ -79,6 +79,40 @@ class ScreenStocksTests(unittest.TestCase):
         )
 
     @patch("src.screener.analyze_stock")
+    @patch("src.screener.get_daily_prices_batch")
+    def test_capacity_limit_selects_most_liquid_for_full_analysis(
+        self,
+        mock_prices_batch,
+        mock_analyze,
+    ):
+        low = pd.DataFrame({"close": [10.0] * 80, "volume": [300_000.0] * 80})
+        high = pd.DataFrame({"close": [100.0] * 80, "volume": [1_000_000.0] * 80})
+        mock_prices_batch.return_value = ({"LOW": low, "HIGH": high}, {})
+        mock_analyze.return_value = (_analysis_result("HIGH", 80), None)
+
+        result = screen_stocks(
+            ["LOW", "HIGH"],
+            limit=None,
+            pause_seconds=0,
+            watchlist_symbols=set(),
+            coarse_filter_config={
+                "enabled": True,
+                "min_history_days": 60,
+                "min_price": 1,
+                "min_average_traded_value_20d": 2_000_000,
+                "max_full_analysis": 1,
+            },
+        )
+
+        mock_analyze.assert_called_once_with("HIGH")
+        self.assertEqual(result.attrs["diagnostics"]["coarse_passed"], 2)
+        self.assertEqual(result.attrs["diagnostics"]["selected_for_analysis"], 1)
+        self.assertEqual(
+            result.attrs["diagnostics"]["rejected"][0]["stage"],
+            "capacity_limit",
+        )
+
+    @patch("src.screener.analyze_stock")
     def test_filters_by_min_score(self, mock_analyze):
         mock_analyze.side_effect = [
             (_analysis_result("AAA", 80), None),

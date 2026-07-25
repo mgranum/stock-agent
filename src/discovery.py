@@ -69,6 +69,7 @@ def build_discovery_coverage(screening_results) -> dict:
         regions[region] = {
             "universe_size": int(meta.get("universe_size") or 0),
             "coarse_passed": int(meta.get("coarse_passed") or 0),
+            "selected_for_analysis": int(meta.get("selected_for_analysis") or 0),
             "coarse_rejected": int(meta.get("coarse_rejected") or 0),
             "analyzed": int(meta.get("analyzed") or 0),
             "failed": int(meta.get("failed") or 0),

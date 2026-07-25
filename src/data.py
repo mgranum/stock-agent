@@ -88,7 +88,7 @@ def _normalize_downloaded_prices(df, symbol):
     return _prepare_daily_prices(normalized[PRICE_COLUMNS], symbol)
 
 
-def get_daily_prices_batch(symbols, period="6mo", use_cache=True):
+def get_daily_prices_batch(symbols, period="6mo", use_cache=True, batch_size=200):
     symbols = list(dict.fromkeys(str(symbol).strip().upper() for symbol in symbols))
     prices = {}
     errors = {}
@@ -108,31 +108,33 @@ def get_daily_prices_batch(symbols, period="6mo", use_cache=True):
     if not missing:
         return prices, errors
 
-    downloaded = yf.download(
-        missing,
-        period=period,
-        interval="1d",
-        auto_adjust=False,
-        progress=False,
-        group_by="column",
-        threads=True,
-    )
+    for start in range(0, len(missing), batch_size):
+        batch = missing[start : start + batch_size]
+        downloaded = yf.download(
+            batch,
+            period=period,
+            interval="1d",
+            auto_adjust=False,
+            progress=False,
+            group_by="column",
+            threads=True,
+        )
 
-    for symbol in missing:
-        try:
-            if downloaded.empty:
-                raise ValueError(f"Fant ikke Yahoo Finance-data for {symbol}")
-            if isinstance(downloaded.columns, pd.MultiIndex):
-                symbol_frame = downloaded.xs(symbol, axis=1, level=1)
-            elif len(missing) == 1:
-                symbol_frame = downloaded
-            else:
-                raise ValueError(f"Uventet batchformat for {symbol}")
-            cleaned = _normalize_downloaded_prices(symbol_frame, symbol)
-            prices[symbol] = cleaned
-            _write_price_cache(_price_cache_file(symbol), symbol, cleaned)
-        except Exception as exc:
-            errors[symbol] = str(exc) or exc.__class__.__name__
+        for symbol in batch:
+            try:
+                if downloaded.empty:
+                    raise ValueError(f"Fant ikke Yahoo Finance-data for {symbol}")
+                if isinstance(downloaded.columns, pd.MultiIndex):
+                    symbol_frame = downloaded.xs(symbol, axis=1, level=1)
+                elif len(batch) == 1:
+                    symbol_frame = downloaded
+                else:
+                    raise ValueError(f"Uventet batchformat for {symbol}")
+                cleaned = _normalize_downloaded_prices(symbol_frame, symbol)
+                prices[symbol] = cleaned
+                _write_price_cache(_price_cache_file(symbol), symbol, cleaned)
+            except Exception as exc:
+                errors[symbol] = str(exc) or exc.__class__.__name__
 
     return prices, errors
 
