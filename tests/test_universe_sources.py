@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from src.universe_sources import (
     load_official_us_universe,
+    parse_euronext_oslo,
     parse_nasdaq_listed,
     parse_other_listed,
 )
@@ -50,3 +51,19 @@ class NasdaqSymbolParserTests(unittest.TestCase):
                 result = load_official_us_universe()
 
         self.assertEqual(result, ["AAPL", "MSFT"])
+
+    def test_parses_only_regulated_oslo_market(self):
+        text = (
+            '\ufeff"European Equities"\n'
+            '"25 Jul 2026"\n'
+            "Name;ISIN;Symbol;Market;Currency\n"
+            "Company;NO1;EQNR;Oslo Børs;NOK\n"
+            "Growth;NO2;GROW;Euronext Growth Oslo;NOK\n"
+            "Expand;NO3;EXP;Euronext Expand Oslo;NOK\n"
+            "Class;NO4;ABC.B;Oslo Børs;NOK\n"
+        )
+
+        self.assertEqual(
+            parse_euronext_oslo(text),
+            ["ABC-B.OL", "EQNR.OL"],
+        )

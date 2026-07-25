@@ -13,6 +13,10 @@ NASDAQ_LISTED_URL = (
 OTHER_LISTED_URL = (
     "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"
 )
+EURONEXT_OSLO_URL = (
+    "https://live.euronext.com/en/product_directory/data/"
+    "stocks-oslo/download?mics=MERK%2CXOAS%2CXOSL"
+)
 
 _EXCLUDED_NAME_PARTS = (
     " warrant",
@@ -32,6 +36,10 @@ def _project_root() -> Path:
 
 def official_us_snapshot_path() -> Path:
     return _project_root() / "data" / "universes" / "us_official.json"
+
+
+def official_norway_snapshot_path() -> Path:
+    return _project_root() / "data" / "universes" / "norway_official.json"
 
 
 def _yahoo_symbol(symbol: str) -> str:
@@ -110,6 +118,62 @@ def load_official_us_universe() -> list[str] | None:
     return [str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()]
 
 
+def parse_euronext_oslo(text: str) -> list[str]:
+    lines = text.lstrip("\ufeff").splitlines()
+    try:
+        header_index = next(
+            index for index, line in enumerate(lines) if line.startswith("Name;")
+        )
+    except StopIteration:
+        return []
+
+    symbols = []
+    rows = csv.DictReader(lines[header_index:], delimiter=";")
+    for row in rows:
+        symbol = str(row.get("Symbol") or "").strip().upper()
+        if not symbol or row.get("Market") != "Oslo Børs":
+            continue
+        yahoo_symbol = symbol.replace(".", "-")
+        if not yahoo_symbol.endswith(".OL"):
+            yahoo_symbol = f"{yahoo_symbol}.OL"
+        symbols.append(yahoo_symbol)
+    return sorted(set(symbols))
+
+
+def refresh_official_norway_universe() -> Path:
+    with urlopen(EURONEXT_OSLO_URL, timeout=30) as response:
+        text = response.read().decode("utf-8-sig")
+    symbols = parse_euronext_oslo(text)
+    if not symbols:
+        raise ValueError("Euronext ga et tomt Oslo Børs-univers.")
+
+    path = official_norway_snapshot_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot = {
+        "snapshot_version": 1,
+        "snapshot_date": date.today().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "source_urls": [EURONEXT_OSLO_URL],
+        "market": "XOSL",
+        "symbols": symbols,
+    }
+    with open(path, "w", encoding="utf-8") as stream:
+        json.dump(snapshot, stream, indent=2, ensure_ascii=False)
+    return path
+
+
+def load_official_norway_universe() -> list[str] | None:
+    path = official_norway_snapshot_path()
+    if not path.exists():
+        return None
+    with open(path, "r", encoding="utf-8") as stream:
+        payload = json.load(stream)
+    symbols = payload.get("symbols")
+    if not isinstance(symbols, list) or not symbols:
+        return None
+    return [str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()]
+
+
 if __name__ == "__main__":
-    snapshot = refresh_official_us_universe()
-    print(snapshot)
+    print(refresh_official_us_universe())
+    print(refresh_official_norway_universe())

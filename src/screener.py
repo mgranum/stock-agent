@@ -11,7 +11,10 @@ from src.data import get_daily_prices_batch
 from src.ranking import rank_watchlist
 from src.strategy_classification import add_strategy_types
 from src.strategy_profiles import INVESTMENT_PROFILES, build_strategy_profile
-from src.universe_sources import load_official_us_universe
+from src.universe_sources import (
+    load_official_norway_universe,
+    load_official_us_universe,
+)
 
 
 MIN_SUGGESTION_SCORE = 55
@@ -108,6 +111,11 @@ def load_screening_universe():
     if official_us:
         universes = dict(universes)
         universes["US_LARGE_CAP"] = official_us
+    official_norway = load_official_norway_universe()
+    if official_norway:
+        universes = dict(universes)
+        nordics = list(universes.get("NORDICS") or [])
+        universes["NORDICS"] = sorted(set(nordics + official_norway))
     return universes
 
 
