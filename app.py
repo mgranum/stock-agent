@@ -62,6 +62,11 @@ from src.discovery import (
     format_discovery_coverage,
     summarize_discovery_rejections,
 )
+from src.discovery_validation import (
+    evaluate_discovery_journal,
+    load_discovery_journal,
+    summarize_discovery_validation,
+)
 from src.screener import (
     SCREEN_OUTPUT_COLUMNS,
     SCREEN_PRESETS,
@@ -1899,6 +1904,56 @@ with tab_backtest:
     active_config = get_active_backtest_config()
     validation_report = build_backtest_validation_report()
 
+    st.markdown("### Fremoverskuende discovery-validering")
+    discovery_journal = load_discovery_journal()
+    if discovery_journal.empty:
+        st.info(
+            "Journalen starter ved neste analyseoppdatering. "
+            "Historiske discovery-resultater rekonstrueres ikke."
+        )
+    else:
+        st.caption(
+            f"{discovery_journal['signal_date'].nunique()} signaldager · "
+            f"{len(discovery_journal)} kandidatobservasjoner · "
+            "neste-dags utførelse · 5/10/20/40 handelsdager · "
+            "global referanse ACWI og lokal markedsreferanse."
+        )
+        show_dataframe(discovery_journal)
+        if st.button("Evaluer discovery-journal"):
+            with st.spinner("Evaluerer modne discovery-signaler..."):
+                st.session_state.discovery_validation = (
+                    evaluate_discovery_journal(discovery_journal)
+                )
+
+    if "discovery_validation" in st.session_state:
+        discovery_evaluation = st.session_state.discovery_validation
+        discovery_summary = summarize_discovery_validation(
+            discovery_evaluation
+        )
+        st.write(
+            f"Fullførte evalueringer: {discovery_summary['completed']} · "
+            f"Venter på nok handelsdager: {discovery_summary['pending']} · "
+            f"Feil: {discovery_summary.get('errors', 0)}"
+        )
+        if discovery_summary.get("cohort_count"):
+            st.write(
+                "Likt vektede kohorter med positiv meravkastning mot "
+                f"ACWI: {discovery_summary['positive_vs_global']} av "
+                f"{discovery_summary['cohort_count']} · "
+                "gjennomsnittlig differanse: "
+                f"{discovery_summary['avg_global_difference_pct']:.2f}%"
+            )
+            show_dataframe(discovery_summary["cohorts"])
+        with st.expander("Se og eksporter alle discovery-evalueringer"):
+            show_dataframe(discovery_evaluation)
+            st.download_button(
+                "Last ned discovery-evaluering (CSV)",
+                discovery_evaluation.to_csv(index=False).encode("utf-8"),
+                file_name="discovery_validation.csv",
+                mime="text/csv",
+            )
+
+    st.divider()
     st.error(summarize_backtest_validation(validation_report))
     with st.expander("Se valideringsfunn"):
         st.dataframe(

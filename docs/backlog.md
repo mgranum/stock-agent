@@ -63,9 +63,10 @@ ikke allerede kjenner, før de eventuelt legges i watchlist.
 ### 4. Valider discovery-pipelinen
 
 * [ ] Backtest hele kjeden fra historisk univers til kandidat og neste-dags utførelse
-* [ ] Sammenlign discovery-porteføljen mot globale og regionale investerbare referanser
+* [x] Start fremoverskuende journal for de tre faktiske discovery-kandidatene
+* [x] Sammenlign modne discovery-kohorter mot global og lokal referanse
 * [ ] Mål hit-rate, turnover, drawdown og meravkastning uten dagens watchlist
-* [ ] Ikke utvikle nye features før kandidatvalg og benchmarkdata er troverdige
+* [x] Ikke utvikle nye features før kandidatvalg og benchmarkdata er troverdige
 
 ---
 
@@ -99,7 +100,7 @@ før målegrunnlaget er troverdig.
 
 ### 3. Etabler referanser agenten må slå
 
-* [ ] Velg og dokumenter en investerbar global indeksreferanse
+* [x] Velg og dokumenter ACWI som investerbar global indeksreferanse
 * [ ] Sammenlign også mot relevante lokale markedsindekser per region
 * [x] Implementer kostnadsjustert buy-and-hold-referanse
 * [ ] Implementer en enkel trend-/momentumreferanse
@@ -115,10 +116,10 @@ før målegrunnlaget er troverdig.
 * [ ] Lagre alle materielle råd med tidspunkt, modellversjon og tilgjengelige inputdata
 * [ ] Lagre anbefalt inngang, kursmål, stop, tidshorisont, konfidens og invalidasjonsgrunn
 * [ ] Registrer om brukeren fulgte rådet, uten å blande dette med modellresultatet
-* [ ] Evaluer råd etter 5, 10, 20 og 40 handelsdager
+* [x] Evaluer discovery-råd etter 5, 10, 20 og 40 handelsdager
 * [ ] Mål maksimal positiv og negativ kursutvikling etter rådet
 * [ ] Registrer om kursmål eller stop ble truffet først
-* [ ] Sammenlign hvert råd med global indeks og relevant lokal benchmark i samme periode
+* [x] Sammenlign hvert discovery-råd med global og relevant lokal benchmark i samme periode
 * [ ] Lag en aggregert rapport for faktisk fremoverskuende presisjon og avkastning
 * [ ] Vis datadekning og marker råd som ikke kan evalueres pålitelig
 
