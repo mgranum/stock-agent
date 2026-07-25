@@ -58,6 +58,7 @@ from src.strategy_classification import STRATEGY_TYPES, add_strategy_types
 from src.analysis import analyze_stock
 from src.company_names import get_company_name
 from src.opportunity_advisor import build_opportunity_advisor
+from src.discovery import format_discovery_coverage
 from src.screener import (
     SCREEN_OUTPUT_COLUMNS,
     SCREEN_PRESETS,
@@ -929,25 +930,9 @@ with tab_dashboard:
     st.caption("Funnet av discovery-screeningen, ikke hentet fra watchlist.")
     discovery_coverage = st.session_state.context.get("discovery_coverage") or {}
     coverage_regions = discovery_coverage.get("regions") or {}
-    coverage_parts = []
-    for region in ("USA", "NORDEN", "OBX"):
-        coverage = coverage_regions.get(region) or {}
-        universe_size = coverage.get("universe_size", 0)
-        coarse_passed = coverage.get("coarse_passed", 0)
-        selected = coverage.get("selected_for_analysis", analyzed)
-        analyzed = coverage.get("analyzed", 0)
-        passed = coverage.get("passed_filters", 0)
-        failed = coverage.get("failed", 0)
-        if universe_size:
-            coverage_parts.append(
-                f"{region}: {universe_size} i universet → "
-                f"{coarse_passed} bestod grovfilter → "
-                f"{selected} valgt for fullanalyse → "
-                f"{analyzed} analysert → {passed} kvalifiserte, "
-                f"{failed} analysefeil"
-            )
-    if coverage_parts:
-        st.caption(" · ".join(coverage_parts))
+    coverage_text = format_discovery_coverage(discovery_coverage)
+    if coverage_text:
+        st.caption(coverage_text)
     discovery_advisor = st.session_state.context.get("opportunity_advisor") or {}
     discovery_items = list(discovery_advisor.get("items") or [])
     if not discovery_items:

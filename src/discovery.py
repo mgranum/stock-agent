@@ -85,3 +85,24 @@ def build_discovery_coverage(screening_results) -> dict:
         ),
         "snapshot": screening_results.get("universe_snapshot"),
     }
+
+
+def format_discovery_coverage(coverage) -> str:
+    regions = (coverage or {}).get("regions") or {}
+    parts = []
+    for region in DISCOVERY_REGIONS:
+        values = regions.get(region) or {}
+        universe_size = int(values.get("universe_size") or 0)
+        if not universe_size:
+            continue
+        analyzed = int(values.get("analyzed") or 0)
+        selected = int(values.get("selected_for_analysis") or analyzed)
+        parts.append(
+            f"{region}: {universe_size} i universet → "
+            f"{int(values.get('coarse_passed') or 0)} bestod grovfilter → "
+            f"{selected} valgt for fullanalyse → "
+            f"{analyzed} analysert → "
+            f"{int(values.get('passed_filters') or 0)} kvalifiserte, "
+            f"{int(values.get('failed') or 0)} analysefeil"
+        )
+    return " · ".join(parts)

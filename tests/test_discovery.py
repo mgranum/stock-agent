@@ -2,7 +2,11 @@ import unittest
 
 import pandas as pd
 
-from src.discovery import build_discovery_coverage, combine_discovery_candidates
+from src.discovery import (
+    build_discovery_coverage,
+    combine_discovery_candidates,
+    format_discovery_coverage,
+)
 
 
 class CombineDiscoveryCandidatesTests(unittest.TestCase):
@@ -69,6 +73,24 @@ class CombineDiscoveryCandidatesTests(unittest.TestCase):
         self.assertEqual(coverage["regions"]["NORDEN"]["failed"], 20)
         self.assertEqual(coverage["candidates"], 75)
         self.assertEqual(coverage["snapshot"], "snapshot.json")
+
+    def test_formats_legacy_coverage_without_selected_count(self):
+        text = format_discovery_coverage(
+            {
+                "regions": {
+                    "USA": {
+                        "universe_size": 50,
+                        "coarse_passed": 50,
+                        "analyzed": 50,
+                        "passed_filters": 16,
+                        "failed": 0,
+                    }
+                }
+            }
+        )
+
+        self.assertIn("50 valgt for fullanalyse", text)
+        self.assertIn("16 kvalifiserte", text)
 
 
 if __name__ == "__main__":
