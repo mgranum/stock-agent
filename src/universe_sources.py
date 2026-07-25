@@ -5,7 +5,8 @@ import io
 import json
 from datetime import date, datetime, timezone
 from pathlib import Path
-from urllib.request import urlopen
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 NASDAQ_LISTED_URL = (
     "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"
@@ -17,6 +18,15 @@ EURONEXT_OSLO_URL = (
     "https://live.euronext.com/en/product_directory/data/"
     "stocks-oslo/download?mics=MERK%2CXOAS%2CXOSL"
 )
+NASDAQ_NORDIC_SCREENER_URL = (
+    "https://api.nasdaq.com/api/nordic/screener/shares"
+)
+NASDAQ_NORDIC_MARKETS = {
+    "CPH": ".CO",
+    "STO": ".ST",
+    "HEL": ".HE",
+}
+NASDAQ_NORDIC_SEGMENTS = ("LARGE_CAP", "MID_CAP", "SMALL_CAP")
 
 _EXCLUDED_NAME_PARTS = (
     " warrant",
@@ -40,6 +50,10 @@ def official_us_snapshot_path() -> Path:
 
 def official_norway_snapshot_path() -> Path:
     return _project_root() / "data" / "universes" / "norway_official.json"
+
+
+def official_nordics_snapshot_path() -> Path:
+    return _project_root() / "data" / "universes" / "nordics_official.json"
 
 
 def _yahoo_symbol(symbol: str) -> str:
@@ -174,6 +188,98 @@ def load_official_norway_universe() -> list[str] | None:
     return [str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()]
 
 
+def parse_nasdaq_nordic_rows(payload: dict, suffix: str) -> list[str]:
+    rows = (
+        payload.get("data", {})
+        .get("instrumentListing", {})
+        .get("rows", [])
+    )
+    symbols = []
+    for row in rows:
+        if row.get("assetClass") != "SHARES":
+            continue
+        symbol = str(row.get("symbol") or "").strip().upper()
+        if not symbol:
+            continue
+        yahoo_symbol = "-".join(symbol.replace(".", "-").split())
+        symbols.append(f"{yahoo_symbol}{suffix}")
+    return sorted(set(symbols))
+
+
+def _nasdaq_nordic_url(market: str, segment: str) -> str:
+    query = urlencode(
+        {
+            "category": "MAIN_MARKET",
+            "market": market,
+            "segment": segment,
+            "tableonly": "true",
+        }
+    )
+    return f"{NASDAQ_NORDIC_SCREENER_URL}?{query}"
+
+
+def refresh_official_nordics_universe() -> Path:
+    symbols_by_market = {}
+    source_urls = []
+    for market, suffix in NASDAQ_NORDIC_MARKETS.items():
+        market_symbols = []
+        for segment in NASDAQ_NORDIC_SEGMENTS:
+            url = _nasdaq_nordic_url(market, segment)
+            source_urls.append(url)
+            request = Request(
+                url,
+                headers={
+                    "Accept": "application/json, text/plain, */*",
+                    "Origin": "https://www.nasdaq.com",
+                    "Referer": "https://www.nasdaq.com/",
+                    "User-Agent": "Mozilla/5.0",
+                },
+            )
+            with urlopen(request, timeout=30) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            market_symbols.extend(parse_nasdaq_nordic_rows(payload, suffix))
+        symbols_by_market[market] = sorted(set(market_symbols))
+
+    symbols = sorted(
+        {
+            symbol
+            for market_symbols in symbols_by_market.values()
+            for symbol in market_symbols
+        }
+    )
+    if not symbols or any(not values for values in symbols_by_market.values()):
+        raise ValueError("Nasdaq ga et tomt eller ufullstendig Norden-univers.")
+
+    path = official_nordics_snapshot_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot = {
+        "snapshot_version": 1,
+        "snapshot_date": date.today().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "source_urls": source_urls,
+        "category": "MAIN_MARKET",
+        "segments": list(NASDAQ_NORDIC_SEGMENTS),
+        "symbols_by_market": symbols_by_market,
+        "symbols": symbols,
+    }
+    with open(path, "w", encoding="utf-8") as stream:
+        json.dump(snapshot, stream, indent=2, ensure_ascii=False)
+    return path
+
+
+def load_official_nordics_universe() -> list[str] | None:
+    path = official_nordics_snapshot_path()
+    if not path.exists():
+        return None
+    with open(path, "r", encoding="utf-8") as stream:
+        payload = json.load(stream)
+    symbols = payload.get("symbols")
+    if not isinstance(symbols, list) or not symbols:
+        return None
+    return [str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()]
+
+
 if __name__ == "__main__":
     print(refresh_official_us_universe())
     print(refresh_official_norway_universe())
+    print(refresh_official_nordics_universe())

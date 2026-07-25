@@ -8,6 +8,7 @@ from src.screener import (
     IN_WATCHLIST_YES,
     SCREEN_PRESETS,
     get_preset_filters,
+    load_screening_universe,
     screen_explore_universe,
     screen_stocks,
     screening_universe_options,
@@ -37,6 +38,33 @@ def _analysis_result(
 
 
 class ScreenStocksTests(unittest.TestCase):
+    @patch("src.screener.load_official_norway_universe")
+    @patch("src.screener.load_official_nordics_universe")
+    @patch("src.screener.load_official_us_universe")
+    @patch("src.screener.load_json_config")
+    def test_official_nordic_universes_are_merged_and_deduplicated(
+        self,
+        mock_load_json,
+        mock_us,
+        mock_nordics,
+        mock_norway,
+    ):
+        mock_load_json.return_value = {
+            "US_LARGE_CAP": ["OLD"],
+            "NORDICS": ["VOLV-B.ST", "LEGACY.CO"],
+        }
+        mock_us.return_value = ["AAPL"]
+        mock_nordics.return_value = ["VOLV-B.ST", "NOKIA.HE"]
+        mock_norway.return_value = ["EQNR.OL"]
+
+        result = load_screening_universe()
+
+        self.assertEqual(result["US_LARGE_CAP"], ["AAPL"])
+        self.assertEqual(
+            result["NORDICS"],
+            ["EQNR.OL", "LEGACY.CO", "NOKIA.HE", "VOLV-B.ST"],
+        )
+
     def test_mixed_selection_keeps_top_mid_and_rotation(self):
         candidates = [(f"T{i:02d}", float(100 - i)) for i in range(20)]
         config = {

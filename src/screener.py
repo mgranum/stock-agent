@@ -12,6 +12,7 @@ from src.ranking import rank_watchlist
 from src.strategy_classification import add_strategy_types
 from src.strategy_profiles import INVESTMENT_PROFILES, build_strategy_profile
 from src.universe_sources import (
+    load_official_nordics_universe,
     load_official_norway_universe,
     load_official_us_universe,
 )
@@ -111,11 +112,13 @@ def load_screening_universe():
     if official_us:
         universes = dict(universes)
         universes["US_LARGE_CAP"] = official_us
-    official_norway = load_official_norway_universe()
-    if official_norway:
+    official_nordics = load_official_nordics_universe() or []
+    official_norway = load_official_norway_universe() or []
+    official_regions = official_nordics + official_norway
+    if official_regions:
         universes = dict(universes)
         nordics = list(universes.get("NORDICS") or [])
-        universes["NORDICS"] = sorted(set(nordics + official_norway))
+        universes["NORDICS"] = sorted(set(nordics + official_regions))
     return universes
 
 

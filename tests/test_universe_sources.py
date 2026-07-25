@@ -5,9 +5,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.universe_sources import (
+    load_official_nordics_universe,
     load_official_us_universe,
     parse_euronext_oslo,
     parse_nasdaq_listed,
+    parse_nasdaq_nordic_rows,
     parse_other_listed,
 )
 
@@ -67,3 +69,37 @@ class NasdaqSymbolParserTests(unittest.TestCase):
             parse_euronext_oslo(text),
             ["ABC-B.OL", "EQNR.OL"],
         )
+
+    def test_parses_nasdaq_nordic_share_symbols_for_yahoo(self):
+        payload = {
+            "data": {
+                "instrumentListing": {
+                    "rows": [
+                        {"symbol": "VOLV B", "assetClass": "SHARES"},
+                        {"symbol": "NDA.SE", "assetClass": "SHARES"},
+                        {"symbol": "OMXS30", "assetClass": "INDEX"},
+                        {"symbol": "", "assetClass": "SHARES"},
+                    ]
+                }
+            }
+        }
+
+        self.assertEqual(
+            parse_nasdaq_nordic_rows(payload, ".ST"),
+            ["NDA-SE.ST", "VOLV-B.ST"],
+        )
+
+    def test_loads_local_nordics_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "nordics_official.json"
+            path.write_text(
+                json.dumps({"symbols": ["NOVO-B.CO", "NOKIA.HE", "VOLV-B.ST"]}),
+                encoding="utf-8",
+            )
+            with patch(
+                "src.universe_sources.official_nordics_snapshot_path",
+                return_value=path,
+            ):
+                result = load_official_nordics_universe()
+
+        self.assertEqual(result, ["NOVO-B.CO", "NOKIA.HE", "VOLV-B.ST"])

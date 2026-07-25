@@ -40,7 +40,7 @@ ikke allerede kjenner, før de eventuelt legges i watchlist.
 
 * [x] Erstatt håndplukket USA-liste med Nasdaq Symbol Directory-snapshot
 * [x] Utvid Norge med offisielt regulert Oslo Børs-univers fra Euronext
-* [ ] Erstatt resterende håndplukkede Norden-lister med dokumenterte børsunivers
+* [x] Erstatt resterende håndplukkede Norden-lister med Nasdaq Main Market-univers for Sverige, Danmark og Finland
 * [x] Lag daterte univers-snapshots slik at kjøringer kan reproduseres
 * [ ] Definer regler for notering og markedsverdi
 * [x] Innfør konfigurerbare minimumskrav til likviditet, kurshistorikk og prisdata
