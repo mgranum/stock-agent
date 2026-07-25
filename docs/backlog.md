@@ -51,6 +51,7 @@ ikke allerede kjenner, før de eventuelt legges i watchlist.
 * [x] Bruk et billig pris-/likviditetsfilter før full analyse
 * [x] Hent prisdata batchvis og gjenbruk dags-cache i grovfilteret
 * [x] Begrens fullanalyse per region ved å prioritere mest likvide grovfiltertreff
+* [x] Migrer eldre discovery-konfigurasjon når nye sikkerhetsgrenser legges til
 * [ ] Kjør full analyse bare på et begrenset antall topprangerte kandidater
 * [x] Dokumenter ticker, trinn og årsak for filtrerte og feilede analyser
 * [ ] Begrens sektor- og regionskonsentrasjon i kandidatlisten

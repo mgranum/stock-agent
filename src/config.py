@@ -161,7 +161,7 @@ DEFAULT_DISCOVERY_CONFIG = {
         "min_history_days": 60,
         "min_price": 1.0,
         "min_average_traded_value_20d": 2_000_000,
-        "max_full_analysis": 150,
+        "max_full_analysis": 40,
     },
 }
 
@@ -234,10 +234,23 @@ def load_backtest_config():
 
 
 def load_discovery_config():
-    return load_json_config(
+    loaded = load_json_config(
         "discovery_config.json",
         DEFAULT_DISCOVERY_CONFIG,
     )
+    loaded_coarse = (
+        loaded.get("coarse_filter")
+        if isinstance(loaded, dict)
+        else {}
+    )
+    return {
+        **DEFAULT_DISCOVERY_CONFIG,
+        **(loaded if isinstance(loaded, dict) else {}),
+        "coarse_filter": {
+            **DEFAULT_DISCOVERY_CONFIG["coarse_filter"],
+            **(loaded_coarse if isinstance(loaded_coarse, dict) else {}),
+        },
+    }
 
 
 def load_backtest_validation_config():
