@@ -26,6 +26,8 @@ ikke alene styre kjøp eller salg.
 * Legg et tynt, typet FastAPI-lag mellom frontend og Python-kjernen.
 * Behold Daily Refresh som en separat Python-jobb.
 * Behold lokal drift, TEST/PROD-separasjon og lokale datafiler i første omgang.
+* Bruk kun dagsdata; laveste periode i alle flater er 1u. Intradagdata er ikke
+  del av målbildet.
 * Migrer trinnvis; Streamlit skal fungere til ny løsning har dokumentert paritet.
 * Ikke endre scoring, anbefalinger, trend, stop-loss eller porteføljelogikk som
   del av UI-migrasjonen.
@@ -119,32 +121,32 @@ Streamlit kan avvikles.
 
 ### Fase 0 – beslutninger og migrasjonsvern
 
-* [ ] Skriv en kort arkitekturbeslutning som dokumenterer React + TypeScript +
+* [x] Skriv en kort arkitekturbeslutning som dokumenterer React + TypeScript +
   Vite, FastAPI, Lightweight Charts og hvorfor Streamlit fases ut
-* [ ] Dokumenter hvilke moduler som er domene-/applikasjonslogikk og hvilke
+* [x] Dokumenter hvilke moduler som er domene-/applikasjonslogikk og hvilke
   deler av `app.py` som kun er presentasjon
-* [ ] Definer paritetsmatrise for I dag, selskapsdetaljer, søk, chat, Utforsk,
+* [x] Definer paritetsmatrise for I dag, selskapsdetaljer, søk, chat, Utforsk,
   Administrer og Modell og data
-* [ ] Definer eksplisitte rollback-kriterier og sikkerhetskopi av brukerdata før
+* [x] Definer eksplisitte rollback-kriterier og sikkerhetskopi av brukerdata før
   hver fase med skriveoperasjoner
-* [ ] Frys nye Streamlit-flater; tillat bare feilretting frem til avvikling
+* [x] Frys nye Streamlit-flater; tillat bare feilretting frem til avvikling
 
 ### Fase 1 – skrivebeskyttet arkitekturspike
 
-* [ ] Sett opp en minimal FastAPI-applikasjon og en minimal React/TypeScript/Vite-
+* [x] Sett opp en minimal FastAPI-applikasjon og en minimal React/TypeScript/Vite-
   klient uten å flytte eksisterende logikk
-* [ ] Server ferdigbygget frontend fra FastAPI på samme origin ved lokal kjøring
-* [ ] Lag én typet, skrivebeskyttet API-ressurs for selskapsdetaljer basert på
+* [x] Server ferdigbygget frontend fra FastAPI på samme origin ved lokal kjøring
+* [x] Lag én typet, skrivebeskyttet API-ressurs for selskapsdetaljer basert på
   eksisterende Python-funksjoner
-* [ ] Lag én selskapsdetaljside med direkte URL, eksempelvis `/stocks/NVDA`
-* [ ] Vis virkelig kursdata med felles periodevalg: 1d, 1u, 1m, 3m, 6m,
+* [x] Lag én selskapsdetaljside med direkte URL, eksempelvis `/stocks/NVDA`
+* [x] Vis virkelig kursdata med felles periodevalg: 1u, 1m, 3m, 6m,
   i år, 1 år, 3 år og maks
-* [ ] Verifiser candlesticks, volum og glidende snitt uten å kjøre hele analysen
+* [x] Verifiser candlesticks, volum og glidende snitt uten å kjøre hele analysen
   på nytt ved hver UI-interaksjon
-* [ ] Bevar nettleserens tilbake-/fremoverhistorikk og last siden korrekt fra en
+* [x] Bevar nettleserens tilbake-/fremoverhistorikk og last siden korrekt fra en
   direkte ticker-URL
-* [ ] Dokumenter én lokal startkommando for spiken og bevar TEST/PROD
-* [ ] Stopp og vurder rammeverksvalget før videre migrasjon dersom spiken ikke
+* [x] Dokumenter én lokal startkommando for spiken og bevar TEST/PROD
+* [x] Stopp og vurder rammeverksvalget før videre migrasjon dersom spiken ikke
   oppfyller akseptansekriteriene
 
 ### Fase 2 – API-grense og datatrygghet
@@ -351,7 +353,7 @@ out-of-sample-resultater før det kan påvirke produksjonsråd.
 * [x] Samle discovery, screening og strategiprofiler i Utforsk
 * [x] Samle eide aksjer, GAV og watchlist-vedlikehold i Administrer
 * [x] Samle modell- og datastatus, journal og validering i Modell og data
-* [x] Bruk samme periodevalg i I dag og selskapsdetaljer: 1d, 1u, 1m, 3m, 6m,
+* [x] Bruk samme periodevalg i I dag og selskapsdetaljer: 1u, 1m, 3m, 6m,
   i år, 1 år, 3 år og maks
 * [x] Ikke vis samlet porteføljeverdi; dette følges i Nordnet
 * [x] Definer kjøp som å markere en aksje som eid og registrere GAV
