@@ -19,8 +19,6 @@ WATCHLIST_ITEM_LIMIT = 2
 CANDIDATE_ITEM_LIMIT = 2
 CHANGE_ITEM_LIMIT = 3
 EARNINGS_AVVENT_DAYS = 3
-SUMMARY_ITEM_LIMIT = 2
-
 _PRIORITY_SELL_ORDER = 1
 _PRIORITY_TRAILING_STOP_TRIGGERED = 2
 _PRIORITY_REDUSER = 3
@@ -35,7 +33,6 @@ _PRIORITY_ANALYST_MAJOR = 11
 
 _CHANGE_PRIORITY_RECOMMENDATION = 1
 _CHANGE_PRIORITY_SCORE = 2
-_CHANGE_PRIORITY_NEW_BUY = 3
 
 _BUY_RECOMMENDATION = "KJØP / ØK"
 _SELL_RECOMMENDATION = "UNNGÅ / SELG"
@@ -352,9 +349,9 @@ def _format_recommendation_change_text(ticker, previous_recommendation, current_
     if current_recommendation == _SELL_RECOMMENDATION:
         return f"{display} nedgradert til UNNGÅ / SELG"
     if previous_recommendation == _BUY_RECOMMENDATION:
-        return f"{display} nedgradert fra KJØP / ØK"
+        return f"{display} nedgradert til {current_recommendation}"
     if previous_recommendation == _SELL_RECOMMENDATION:
-        return f"{display} oppgradert fra UNNGÅ / SELG"
+        return f"{display} oppgradert til {current_recommendation}"
     return f"{display} anbefaling endret til {current_recommendation}"
 
 
@@ -399,54 +396,26 @@ def _change_item_from_score_row(row):
     )
 
 
-def _change_item_from_new_buy(ticker):
-    display = _display_ticker(ticker)
-    return _briefing_item(
-        ticker,
-        f"{display} ny kjøpskandidat",
-        category="change",
-        rule="new_buy_candidate",
-        change_priority=_CHANGE_PRIORITY_NEW_BUY,
-        change_type="new_buy",
-    )
-
-
 def _collect_change_candidates(context):
     context = context or {}
     dashboard = context.get("dashboard") or {}
-    daily_flow = context.get("daily_flow") or {}
     changes = dashboard.get("changes_since_last_snapshot")
     if changes is None:
         return []
 
     candidates = []
-    covered_tickers: set[str] = set()
 
     recommendation_changed = changes.get("recommendation_changed")
     if recommendation_changed is not None and not recommendation_changed.empty:
         for _, row in recommendation_changed.iterrows():
             item = _change_item_from_recommendation_row(row)
             candidates.append(item)
-            covered_tickers.add(item["ticker"])
 
     large_score_changes = changes.get("large_score_changes")
     if large_score_changes is not None and not large_score_changes.empty:
         for _, row in large_score_changes.iterrows():
             item = _change_item_from_score_row(row)
             candidates.append(item)
-            covered_tickers.add(item["ticker"])
-
-    key_opportunities = daily_flow.get("key_opportunities") or {}
-    new_buy_candidates = key_opportunities.get("new_buy_candidates")
-    if new_buy_candidates is not None and not new_buy_candidates.empty:
-        for _, row in new_buy_candidates.iterrows():
-            ticker = row.get("ticker", "")
-            display = _display_ticker(ticker)
-            if not display or display in covered_tickers:
-                continue
-            item = _change_item_from_new_buy(ticker)
-            candidates.append(item)
-            covered_tickers.add(display)
 
     return candidates
 
@@ -523,72 +492,6 @@ def _build_headline(
     return "Handlingspunkter krever oppmerksomhet i dag."
 
 
-def _headline_implies_portfolio_risk(headline: str) -> bool:
-    normalized = headline.lower()
-    return (
-        "handlingspunkter krever oppmerksomhet" in normalized
-        or "risikostyring" in normalized
-    )
-
-
-def _summary_briefing_items(
-    critical_items,
-    important_items,
-    candidate_items,
-    *,
-    headline="",
-    has_changes=False,
-):
-    summary_items = []
-
-    if has_changes:
-        summary_items.append(
-            {
-                "text": "Flere nye signaler har oppstått siden forrige snapshot.",
-                "rule": "snapshot_changes",
-            }
-        )
-
-    if _has_earnings_today(critical_items):
-        summary_items.append(
-            {
-                "text": "Sjekk posisjoner med rapport i dag",
-                "rule": "earnings_today",
-            }
-        )
-
-    portfolio_critical = [
-        item
-        for item in critical_items
-        if item.get("category") in {"reduser", "sell", "trailing_stop"}
-    ]
-    if portfolio_critical and not _headline_implies_portfolio_risk(headline):
-        summary_items.append(
-            {
-                "text": "Porteføljen har signaler som krever risikostyring",
-                "rule": "portfolio_risk",
-            }
-        )
-
-    if _has_strong_candidates(candidate_items) and not critical_items:
-        summary_items.append(
-            {
-                "text": "Markedet tilbyr interessante kandidater",
-                "rule": "strong_candidates",
-            }
-        )
-
-    if important_items and not summary_items and not has_changes:
-        summary_items.append(
-            {
-                "text": "Støttende signaler er verdt et raskt blikk",
-                "rule": "supporting_signals",
-            }
-        )
-
-    return summary_items[:SUMMARY_ITEM_LIMIT]
-
-
 def build_daily_briefing(context, today=None, recommendations=None):
     context = context or {}
     today = today or date.today()
@@ -627,14 +530,6 @@ def build_daily_briefing(context, today=None, recommendations=None):
         earnings_summary=earnings_summary,
         has_changes=has_changes,
     )
-    summary = _summary_briefing_items(
-        critical_items,
-        important_items,
-        candidate_items,
-        headline=headline,
-        has_changes=has_changes,
-    )
-
     return {
         "generated_at": _utc_now_iso(),
         "date": today.isoformat(),
@@ -644,7 +539,7 @@ def build_daily_briefing(context, today=None, recommendations=None):
         "important_items": important_items,
         "watchlist_items": watchlist_items,
         "candidate_items": candidate_items,
-        "summary": summary,
+        "summary": [],
         "recommendations": recommendations,
     }
 
@@ -655,7 +550,6 @@ _SECTION_LABELS = [
     ("important_items", "Viktig"),
     ("watchlist_items", "Watchlist"),
     ("candidate_items", "Nye kandidater"),
-    ("summary", "Oppsummering"),
 ]
 
 

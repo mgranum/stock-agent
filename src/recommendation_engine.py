@@ -648,14 +648,21 @@ def _collect_from_watchlist_advisor(context) -> list[dict]:
     return recommendations
 
 
+def _opportunity_advisor_sort_key(item) -> tuple:
+    priority = _safe_int(item.get("priority"))
+    rank = _safe_int(item.get("rank"))
+    profile_rank = _safe_int(item.get("profile_rank"))
+    return (
+        priority if priority is not None else 99,
+        rank if rank is not None else 99,
+        profile_rank if profile_rank is not None else 99,
+        item.get("ticker", ""),
+    )
+
+
 def _collect_from_opportunity_advisor(context) -> list[dict]:
     items = list((context.get("opportunity_advisor") or {}).get("items") or [])
-    items.sort(
-        key=lambda item: (
-            item.get("priority", 99),
-            item.get("ticker", ""),
-        ),
-    )
+    items.sort(key=_opportunity_advisor_sort_key)
 
     recommendations = []
     for item in items[:2]:

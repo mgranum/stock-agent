@@ -288,6 +288,41 @@ class BuildRecommendationsTests(unittest.TestCase):
         self.assertEqual(result["actions"][0]["category"], CATEGORY_BUYING)
         self.assertIn("SUBC", result["actions"][0]["action"])
 
+    def test_opportunity_recommendations_follow_rank_before_ticker(self):
+        result = build_recommendations(
+            _sample_context(
+                opportunity_advisor={
+                    "items": [
+                        {
+                            "ticker": "AORT",
+                            "headline": "Candidate",
+                            "priority": 1,
+                            "rank": 4,
+                        },
+                        {
+                            "ticker": "PLTR",
+                            "headline": "Candidate",
+                            "priority": 1,
+                            "rank": 1,
+                        },
+                        {
+                            "ticker": "WTS",
+                            "headline": "Candidate",
+                            "priority": 1,
+                            "rank": 2,
+                        },
+                    ],
+                },
+            ),
+        )
+
+        opportunity_tickers = {
+            item["ticker"]
+            for item in result["actions"]
+            if item["source"] == "opportunity_advisor"
+        }
+        self.assertEqual(opportunity_tickers, {"PLTR", "WTS"})
+
     def test_risk_recommendation(self):
         result = build_recommendations(
             _sample_context(

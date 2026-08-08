@@ -19,155 +19,258 @@ Inntil modellen er validert, skal faktiske kjøp behandles som eksperimenter med
 begrenset kapital. Sentiment, analytikervurderinger eller språkmodelltekst skal
 ikke alene styre kjøp eller salg.
 
----
+### Arkitekturprinsipper for neste versjon
 
-## 🔥 Neste milepæl – Discovery Universe & Candidate Selection v1
-
-Målet er å gjøre watchlist til et sted for oppfølging, ikke kilden til hvilke
-aksjer modellen får lov til å vurdere. Discovery skal finne kandidater brukeren
-ikke allerede kjenner, før de eventuelt legges i watchlist.
-
-### 1. Skill discovery fra watchlist
-
-* [x] Kombiner regionale screeningresultater til én deduplisert kandidatliste
-* [x] Behold kandidater uavhengig av watchlist og marker bare watchlist-status
-* [x] Bygg Opportunity Advisor automatisk fra discovery-kandidatene
-* [x] La Recommendation Engine konsumere discovery-kandidater i daglig context
-* [x] Vis discovery-kandidater i en egen, alltid synlig Dashboard-seksjon
-* [x] Skjul dupliserte detaljer og støttedata bak utvidbare Dashboard-seksjoner
-
-### 2. Etabler et bredt og reproduserbart univers
-
-* [x] Erstatt håndplukket USA-liste med Nasdaq Symbol Directory-snapshot
-* [x] Utvid Norge med offisielt regulert Oslo Børs-univers fra Euronext
-* [x] Erstatt resterende håndplukkede Norden-lister med Nasdaq Main Market-univers for Sverige, Danmark og Finland
-* [x] Lag daterte univers-snapshots slik at kjøringer kan reproduseres
-* [ ] Definer regler for notering og markedsverdi
-* [x] Innfør konfigurerbare minimumskrav til likviditet, kurshistorikk og prisdata
-* [x] Avvis manglende Yahoo-symboler og gamle kurser før fullanalyse
-* [ ] Håndter nye noteringer, avnoteringer og tickerendringer
-* [x] Rapporter antall vurderte, analyserte, filtrerte og feilede selskaper per kjøring
-
-### 3. To-trinns kandidatvalg
-
-* [x] Bruk et billig pris-/likviditetsfilter før full analyse
-* [x] Hent prisdata batchvis og gjenbruk dags-cache i grovfilteret
-* [x] Begrens fullanalyse per region ved å prioritere mest likvide grovfiltertreff
-* [x] Migrer eldre discovery-konfigurasjon når nye sikkerhetsgrenser legges til
-* [x] Fordel analysekapasitet mellom topp likviditet, mellomsegment og daglig rotasjon
-* [x] Oppsummer filtreringsårsaker og tilby full liste som CSV
-* [ ] Kjør full analyse bare på et begrenset antall topprangerte kandidater
-* [x] Dokumenter ticker, trinn og årsak for filtrerte og feilede analyser
-* [ ] Begrens sektor- og regionskonsentrasjon i kandidatlisten
-
-### 4. Valider discovery-pipelinen
-
-* [ ] Backtest hele kjeden fra historisk univers til kandidat og neste-dags utførelse
-* [x] Start fremoverskuende journal for de tre faktiske discovery-kandidatene
-* [x] Sammenlign modne discovery-kohorter mot global og lokal referanse
-* [ ] Mål hit-rate, turnover, drawdown og meravkastning uten dagens watchlist
-* [x] Ikke utvikle nye features før kandidatvalg og benchmarkdata er troverdige
+* Behold Python og eksisterende domene-, analyse- og anbefalingslogikk.
+* Bygg ny frontend med React, TypeScript og Vite.
+* Legg et tynt, typet FastAPI-lag mellom frontend og Python-kjernen.
+* Behold Daily Refresh som en separat Python-jobb.
+* Behold lokal drift, TEST/PROD-separasjon og lokale datafiler i første omgang.
+* Migrer trinnvis; Streamlit skal fungere til ny løsning har dokumentert paritet.
+* Ikke endre scoring, anbefalinger, trend, stop-loss eller porteføljelogikk som
+  del av UI-migrasjonen.
 
 ---
 
-## Model Validation & Decision Journal v1
+## Arbeidsrekkefølge
+
+1. Fortsett fremoverskuende modellvalidering uten å endre den frosne modellen.
+2. Gjennomfør en avgrenset, skrivebeskyttet arkitekturspike.
+3. Etabler API-kontrakter og migrer leseflatene trinnvis.
+4. Migrer vedlikehold av eide aksjer, GAV og watchlists med bare én aktiv skriver.
+5. Migrer Utforsk, chat og Modell og data.
+6. Verifiser funksjonell paritet og avvikle Streamlit kontrollert.
+
+Hver fase skal kunne stoppes eller rulles tilbake uten å ødelegge eksisterende
+data eller den fungerende Streamlit-appen.
+
+---
+
+## 🔥 Aktivt – Model Validation & Decision Journal v1
 
 Målet er å finne ut om agenten faktisk tilfører verdi, ikke å optimalisere den
 før målegrunnlaget er troverdig.
 
-### 1. Frys og dokumenter dagens modell
+### Discovery-univers og kandidatvalg
 
-* [x] Gi produksjonsmodellen en eksplisitt `model_version`
-* [x] Lagre modellversjon i context snapshots, model snapshots og anbefalinger
-* [x] Dokumenter dagens score-, anbefalings-, stop- og porteføljeregler uten å endre dem
-* [ ] Definer én strukturert anbefalingskontrakt:
-  action, scope, tidshorisont, inngangsbetingelse, kursmål, stop, begrunnelser,
-  invalidasjon, konfidens og datakvalitet
+* [ ] Definer regler for notering og markedsverdi
+* [ ] Håndter nye noteringer, avnoteringer og tickerendringer
+* [ ] Kjør full analyse bare på et begrenset antall topprangerte kandidater
+* [ ] Begrens sektor- og regionskonsentrasjon i kandidatlisten
+* [ ] Backtest hele kjeden fra historisk univers til kandidat og neste-dags
+  utførelse når point-in-time-data gjør dette forsvarlig
+* [ ] Mål hit-rate, turnover, drawdown og meravkastning uten dagens watchlist
+
+### Strukturert anbefalingskontrakt
+
+* [ ] Definer én kontrakt for action, scope, tidshorisont,
+  inngangsbetingelse, kursmål, stop, begrunnelser, invalidasjon, konfidens og
+  datakvalitet
 * [ ] La Recommendation Engine være eneste eier av det endelige rådet
-* [x] Kartlegg hvilke moduler som produserer signaler, og hvilke som i dag produserer konkurrerende råd
 
-### 2. Valider backtesten
+### Bias, referanser og beslutningsgrunnlag
 
-* [x] Audit for look-ahead bias
 * [ ] Audit for survivorship bias i screening-univers
-* [ ] Verifiser at historiske fundamentaler bare bruker informasjon som var kjent på analysetidspunktet
-* [x] Verifiser realistisk signaltidspunkt og inngangskurs
-* [x] Legg inn konfigurerbar kurtasje, spread og eventuell valutaeffekt
-* [x] Dokumenter håndtering av splits, utbytte og manglende data
+* [ ] Verifiser at historiske fundamentaler bare bruker informasjon som var
+  kjent på analysetidspunktet
 * [ ] Dokumenter og implementer håndtering av avnoterte selskaper
-* [x] Skill tydelig mellom in-sample, kalibrering, historisk test og urørt out-of-sample
-* [x] Bruk kronologisk rolling walk-forward som obligatorisk kontroll før modellendringer
-
-### 3. Etabler referanser agenten må slå
-
-* [x] Velg og dokumenter ACWI som investerbar global indeksreferanse
-* [ ] Sammenlign også mot relevante lokale markedsindekser per region
-* [x] Implementer kostnadsjustert buy-and-hold-referanse
+* [ ] Sammenlign mot relevante lokale markedsindekser per region
 * [ ] Implementer en enkel trend-/momentumreferanse
-* [ ] Sammenlign dagens komplette modell mot referansene på identiske perioder og kostnadsantakelser
-* [x] Rapporter CAGR/annualisert avkastning, maksimal drawdown, Sharpe/Sortino,
-  treffprosent, gevinst/tap-forhold, turnover, antall handler og gjennomsnittlig holdetid
-* [x] Rapporter resultat separat for USA, Norge og øvrige Norden
+* [ ] Sammenlign dagens komplette modell mot referansene på identiske perioder
+  og kostnadsantakelser
 * [ ] Rapporter resultat separat per strategiprofil
-* [ ] Definer skriftlige godkjenningskriterier før modellen kan sies å skape merverdi
+* [ ] Definer skriftlige godkjenningskriterier før modellen kan sies å skape
+  merverdi
 
-### 4. Bygg Decision Journal
+### Decision Journal
 
-* [ ] Lagre alle materielle råd med tidspunkt, modellversjon og tilgjengelige inputdata
-* [ ] Lagre anbefalt inngang, kursmål, stop, tidshorisont, konfidens og invalidasjonsgrunn
-* [ ] Registrer om brukeren fulgte rådet, uten å blande dette med modellresultatet
-* [x] Evaluer discovery-råd etter 5, 10, 20 og 40 handelsdager
+* [ ] Lagre alle materielle råd med tidspunkt, modellversjon og tilgjengelige
+  inputdata
+* [ ] Lagre anbefalt inngang, kursmål, stop, tidshorisont, konfidens og
+  invalidasjonsgrunn
+* [ ] Registrer om brukeren fulgte rådet, uten å blande dette med
+  modellresultatet
 * [ ] Mål maksimal positiv og negativ kursutvikling etter rådet
 * [ ] Registrer om kursmål eller stop ble truffet først
-* [x] Sammenlign hvert discovery-råd med global og relevant lokal benchmark i samme periode
-* [ ] Lag en aggregert rapport for faktisk fremoverskuende presisjon og avkastning
+* [ ] Lag en aggregert rapport for faktisk fremoverskuende presisjon og
+  avkastning
 * [ ] Vis datadekning og marker råd som ikke kan evalueres pålitelig
 
-### 5. Beslutningsport
+### Beslutningsport
 
-* [ ] Ikke endre scoring eller anbefalingsregler før baseline og bias-audit er ferdig
-* [ ] Ikke øk kapital basert på modellen før et tilstrekkelig fremoverskuende datagrunnlag foreligger
-* [ ] Behold modellen uendret dersom en foreslått forbedring bare virker in-sample
-* [ ] Forenkle modellen dersom den komplette modellen ikke stabilt slår en enklere referanse etter risiko og kostnader
-* [ ] Dokumenter beslutningen: fortsett, juster, forenkle eller stopp aktiv aksjeplukking
+* [ ] Ikke endre scoring eller anbefalingsregler før baseline og bias-audit er
+  ferdig
+* [ ] Ikke øk kapital basert på modellen før et tilstrekkelig fremoverskuende
+  datagrunnlag foreligger
+* [ ] Behold modellen uendret dersom en foreslått forbedring bare virker
+  in-sample
+* [ ] Forenkle modellen dersom den komplette modellen ikke stabilt slår en
+  enklere referanse etter risiko og kostnader
+* [ ] Dokumenter beslutningen: fortsett, juster, forenkle eller stopp aktiv
+  aksjeplukking
 
 ---
 
-## 🚀 Deretter – Daily Product v1
+## 🧭 Neste – trygg migrasjon til React og FastAPI
 
-Startes etter at målegrunnlaget er på plass. Målet er at hovedbildet skal svare
-på hva investoren bør gjøre i dag, uten å lete gjennom mange faner.
+Migrasjonen skal erstatte presentasjonslaget, ikke investeringsmodellen. Ny og
+gammel frontend skal bruke samme Python-logikk og de samme lokale dataene til
+Streamlit kan avvikles.
 
-* [ ] Gjør Daily Briefing til primærvisningen
-* [ ] Prioriter «Krever handling», «Endret siden sist», «Risiko» og «Beste nye mulighet»
+### Fase 0 – beslutninger og migrasjonsvern
+
+* [ ] Skriv en kort arkitekturbeslutning som dokumenterer React + TypeScript +
+  Vite, FastAPI, Lightweight Charts og hvorfor Streamlit fases ut
+* [ ] Dokumenter hvilke moduler som er domene-/applikasjonslogikk og hvilke
+  deler av `app.py` som kun er presentasjon
+* [ ] Definer paritetsmatrise for I dag, selskapsdetaljer, søk, chat, Utforsk,
+  Administrer og Modell og data
+* [ ] Definer eksplisitte rollback-kriterier og sikkerhetskopi av brukerdata før
+  hver fase med skriveoperasjoner
+* [ ] Frys nye Streamlit-flater; tillat bare feilretting frem til avvikling
+
+### Fase 1 – skrivebeskyttet arkitekturspike
+
+* [ ] Sett opp en minimal FastAPI-applikasjon og en minimal React/TypeScript/Vite-
+  klient uten å flytte eksisterende logikk
+* [ ] Server ferdigbygget frontend fra FastAPI på samme origin ved lokal kjøring
+* [ ] Lag én typet, skrivebeskyttet API-ressurs for selskapsdetaljer basert på
+  eksisterende Python-funksjoner
+* [ ] Lag én selskapsdetaljside med direkte URL, eksempelvis `/stocks/NVDA`
+* [ ] Vis virkelig kursdata med felles periodevalg: 1d, 1u, 1m, 3m, 6m,
+  i år, 1 år, 3 år og maks
+* [ ] Verifiser candlesticks, volum og glidende snitt uten å kjøre hele analysen
+  på nytt ved hver UI-interaksjon
+* [ ] Bevar nettleserens tilbake-/fremoverhistorikk og last siden korrekt fra en
+  direkte ticker-URL
+* [ ] Dokumenter én lokal startkommando for spiken og bevar TEST/PROD
+* [ ] Stopp og vurder rammeverksvalget før videre migrasjon dersom spiken ikke
+  oppfyller akseptansekriteriene
+
+### Fase 2 – API-grense og datatrygghet
+
+* [ ] Innfør små presentasjons-/query-tjenester mellom API-et og eksisterende
+  context; ikke eksponer hele interne context-objektet
+* [ ] Definer Pydantic-kontrakter og eksplisitt håndtering av tomme, manglende,
+  ugyldige og utdaterte data
+* [ ] Etabler API-er for `today`, selskapsdetaljer, søk, Utforsk,
+  posisjoner, watchlists, modellstatus, chat og refresh-status
+* [ ] Sikre at ticker, selskapsnavn, anbefaling og modellversjon har én felles
+  identitet på tvers av API-ressursene
+* [ ] Gjør lokale JSON-skrivinger atomiske og beskytt dem mot samtidige
+  skriveoperasjoner før ny frontend får skrive
+* [ ] Bruk ordinær HTTP og kontrollert polling først; innfør bare streaming eller
+  WebSocket ved dokumentert behov
+* [ ] Legg til kontraktstester for API-et og regresjonstester mot eksisterende
+  Python-resultater
+
+### Fase 3 – leseflater
+
+* [ ] Bygg I dag som primærflate med eide aksjer, watchlist og tre sidestilte
+  nye kandidater
+* [ ] Bygg full selskapsdetalj med kursutvikling, agentvurdering,
+  selskapsvurdering, fundamentalt og nyheter/neste hendelser
+* [ ] Bruk samme periodevalg i I dag og selskapsdetaljer
+* [ ] Gjør alle ticker- og selskapsnavn til lenker til samme selskapsdetalj
+* [ ] Bygg globalt søk etter ticker og selskapsnavn
+* [ ] Bevar valgt flate, ticker og periode når søk eller chat åpnes og lukkes
+* [ ] Bygg responsiv oppførsel og tastaturnavigasjon for de viktigste flytene
+* [ ] Sammenlign innhold og råd med Streamlit på et fast sett tickere og
+  datasituasjoner
+
+### Fase 4 – Administrer og kontrollerte skriveoperasjoner
+
+* [ ] Bygg én redigeringsflyt for eid/ikke eid, GAV og watchlist-medlemskap fra
+  søk, ticker-rad, selskapsdetaljer og Administrer
+* [ ] Behold risiko-, stop-loss- og gevinstsikringslogikk for eide aksjer
+* [ ] Avklar om antall aksjer fortsatt skal lagres for konsentrasjonsrisiko, uten
+  at samlet porteføljeverdi vises i grensesnittet
+* [ ] La bare én applikasjon skrive eide aksjer, GAV og watchlists under
+  overgangsperioden
+* [ ] Valider input, vis tydelig lagringsstatus og test avbrutte/feilede
+  skriveoperasjoner
+* [ ] Verifiser sikkerhetskopi og rollback med kopier av TEST-data før PROD-data
+  kan endres
+
+### Fase 5 – øvrige flater
+
+* [ ] Bygg Utforsk med rangering av watchlist, kjøpskandidater,
+  kvalitetsselskaper, sykliske, underdogs, strategiprofiler og screening
+* [ ] Bygg kontekstuell chat som forklarer strukturerte analyser uten en
+  parallell investeringsmodell
+* [ ] Bygg Modell og data med modellversjon, datakvalitet, refresh-status,
+  snapshots, Decision Journal, backtest og walk-forward
+* [ ] Flytt detaljerte grafverktøy og analyseindikatorer til selskapsdetaljer
+* [ ] Legg til tilgjengelige feilmeldinger og tomtilstander uten å eksponere
+  interne stack traces
+
+### Fase 6 – paritet, overgang og avvikling
+
+* [ ] Kjør paritetsmatrisen i TEST og deretter en kontrollert PROD-verifikasjon
+* [ ] Verifiser at anbefaling, risiko, stop-loss og gevinstsikring er uendret for
+  representative eide aksjer og kandidater
+* [ ] Verifiser refresh, cache, direkte ticker-lenker, tilbakeknapp og
+  gjenoppretting etter omstart
+* [ ] Kjør automatiserte backend-, API- og frontendtester samt manuelle kritiske
+  brukerflyter
+* [ ] Dokumenter installasjon, lokal drift, bygging, backup og rollback
+* [ ] Gjør ny løsning til standard først etter godkjent brukerakseptanse
+* [ ] Behold Streamlit som kortvarig fallback etter første cutover
+* [ ] Fjern Streamlit og tilhørende presentasjonskode først når paritet og
+  datatrygghet er dokumentert
+
+---
+
+## 🚀 Produktfunksjoner etter grunnmigrasjonen
+
+Disse punktene skal bygges på de nye API-kontraktene og den vedtatte
+informasjonsarkitekturen.
+
+### I dag og anbefalinger
+
+* [ ] Prioriter «Krever handling», «Endret siden sist», «Risiko» og «Beste nye
+  mulighet»
 * [ ] Samle motstridende signaler i ett råd med eksplisitt konfliktforklaring
 * [ ] Vis forventet oppside, risiko til stop og reward/risk for kjøpskandidater
 * [ ] Vis hvorfor et råd er nytt eller endret
-* [ ] Flytt backtest, walk-forward og detaljerte analyseverktøy til sekundære visninger
-* [ ] Reduser støy og antall likestilte faner
 * [ ] Vis datatidspunkt, datakvalitet og modellversjon sammen med rådene
-* [ ] Daily Briefing v3 – bygges på den strukturerte anbefalingskontrakten
-* [ ] Agentisk overvåkning/endringsvarsler uten dupliserte handlinger
+* [ ] Bygg Daily Briefing v3 på den strukturerte anbefalingskontrakten
+* [ ] Legg til agentisk overvåkning/endringsvarsler uten dupliserte handlinger
 
----
-
-## 🧠 Agent Chat – etter strukturert anbefalingskontrakt
-
-Chat skal forklare og utforske strukturerte analyser. Den skal ikke ha en
-parallell investeringsmodell eller finne på manglende fakta.
+### Chat
 
 * [ ] Skill agent-routing fra svarformatering i `agent.py`
-* [ ] Definer et lite verktøygrensesnitt for daglige råd, risiko, tickerforklaring,
-  sammenligning, screening og endringer siden sist
+* [ ] Definer et lite verktøygrensesnitt for daglige råd, risiko,
+  tickerforklaring, sammenligning, screening og endringer siden sist
 * [ ] La chat bruke Recommendation Engine som kilde til endelige råd
 * [ ] Lag en chat-eksempelsamling med regresjonstester
 * [ ] Bedre samtalekontekst: «disse», «dem», «den andre» og «forrige resultat»
 * [ ] Bedre synonym- og intensjonsmatching
 * [ ] Dedupliser topplister og kandidatlister
-* [ ] Kontekstbevisst sammenligning basert på tidshorisont, investeringsmål,
-  portefølje og watchlist
-* [ ] Porteføljesammenligning per ticker
-* [ ] Bruk eventuell LLM til språk, oppsummering og forklaring – ikke til å beregne score eller fatte råd
+* [ ] Gjør sammenligninger kontekstbevisste for tidshorisont, investeringsmål,
+  eide aksjer og watchlist
+* [ ] Bruk eventuell LLM til språk, oppsummering og forklaring – ikke til å
+  beregne score eller fatte råd
+
+---
+
+## 🗑️ Skal avvikles – ordre og ordrehistorikk
+
+Ordre er ikke en del av målbildet. Kjøp registreres ved å markere en aksje som
+eid og angi GAV. Salg registreres ved å markere den som ikke eid eller fjerne
+den fra listen over eide aksjer.
+
+* [ ] Fjern Ordre- og Historikk-flatene
+* [ ] Fjern pending ordre fra context, Alerts, Daily Flow, Recommendation Engine
+  og Agent Chat uten å endre øvrig anbefalings- eller porteføljelogikk
+* [ ] Arkiver eller migrer lokal lagring av pending ordre og ordrehistorikk på
+  en kontrollert og gjenopprettelig måte
+* [ ] Erstatt ordrebasert oppdatering med direkte vedlikehold av eid-status og
+  GAV
+* [ ] Legg til regresjonstester som bekrefter at ordrehandlinger og ordrespørsmål
+  er fjernet
+* [ ] Hold Decision Journal adskilt fra tidligere ordrehistorikk; journalen skal
+  dokumentere agentens råd og resultater, ikke simulere handler
 
 ---
 
@@ -179,7 +282,6 @@ parallell investeringsmodell eller finne på manglende fakta.
 * [ ] Lag datakvalitetsscore og eksplisitt «ikke nok data til råd»
 * [ ] Oppdag ekstreme eller åpenbart feilaktige leverandørverdier
 * [ ] Sikre robusthet mot Yahoo/yfinance-feil
-* [ ] Gjennomgang av `session_state`/refresh-logikk
 * [ ] Strukturere testmiljø bedre
 * [ ] Kjør sekundære datakilder i shadow mode før de påvirker råd
 * [ ] Vurder sekundær kilde for historiske regnskapstall og rapporteringsdatoer
@@ -190,19 +292,17 @@ parallell investeringsmodell eller finne på manglende fakta.
 ## 🧹 Dokumentasjon og teknisk gjeld
 
 * [ ] Skriv README med formål, begrensninger, installasjon og kjøring
-* [ ] Dokumenter `streamlit run app.py`, Daily Refresh og TEST/PROD
 * [ ] Erstatt placeholder-metadata i `pyproject.toml`
 * [ ] Dokumenter datafiler, cache, snapshots og backupbehov
 * [ ] Definer retention- og `.gitignore`-policy for logger og snapshots
 * [ ] Gjør utviklingskommandoer eksplisitt TEST der det er praktisk
-* [ ] Del Streamlit-visninger gradvis ut av `app.py` uten stor refaktor
 * [ ] Reduser brede eller ignorerte `except Exception` der feil bør være synlige
-* [ ] Vurder SQLite når Decision Journal eller historikk gjør JSON upraktisk
+* [ ] Vurder SQLite når Decision Journal gjør JSON upraktisk
 * [ ] Rydd gamle worktrees og agent-branches
 
 ---
 
-## 📊 Senere modellutvikling – bare etter validert baseline
+## 📊 Senere – modellutvikling etter validert baseline
 
 Hvert punkt må ha en hypotese, en forhåndsdefinert evalueringsmetode og
 out-of-sample-resultater før det kan påvirke produksjonsråd.
@@ -219,6 +319,7 @@ out-of-sample-resultater før det kan påvirke produksjonsråd.
 * [ ] FinBERT-evaluering
 * [ ] Monte Carlo/porteføljesimulering
 * [ ] Automatisk watchlist-generering
+* [ ] Historisk porteføljesammenligning per ticker i chat
 
 ---
 
@@ -233,56 +334,73 @@ out-of-sample-resultater før det kan påvirke produksjonsråd.
 * [ ] Broker-import fra Nordnet
 * [ ] Automatisk ordreimport
 * [ ] E-postrapport/morgenrapport
-* [ ] Bedre grafer og heatmaps
 * [ ] Deployment på Mac Mini/lokal server
 * [ ] Cloud/VPS
-* [ ] SQLite/Postgres før datamengden krever det
+* [ ] Postgres eller annen hosted database
 
 ---
 
-## ✅ Ferdig (siste)
+## ✅ Ferdig – grunnlag og vedtatte beslutninger
+
+### Produkt- og designbeslutninger
+
+* [x] Erstatt 13 likestilte faner med færre, prioriterte flater og en enkel meny
+* [x] Bruk I dag som primærflate og selskapsdetaljer som felles mål for ticker-
+  og selskapslenker
+* [x] Bruk globalt søk og kontekstuell chat på tvers av flatene
+* [x] Samle discovery, screening og strategiprofiler i Utforsk
+* [x] Samle eide aksjer, GAV og watchlist-vedlikehold i Administrer
+* [x] Samle modell- og datastatus, journal og validering i Modell og data
+* [x] Bruk samme periodevalg i I dag og selskapsdetaljer: 1d, 1u, 1m, 3m, 6m,
+  i år, 1 år, 3 år og maks
+* [x] Ikke vis samlet porteføljeverdi; dette følges i Nordnet
+* [x] Definer kjøp som å markere en aksje som eid og registrere GAV
+* [x] Definer salg som å markere aksjen som ikke eid eller fjerne den fra listen
+  over eide aksjer
+* [x] Beslutt at pending ordre og ordrehistorikk ikke skal videreføres
+* [x] Velg React + TypeScript + Vite og FastAPI som målarkitektur, med
+  eksisterende Python-kjerne og trinnvis migrasjon
+
+### Discovery og modellvalidering levert
+
+* [x] Skill discovery-kandidater fra watchlist og dedupliser regionale treff
+* [x] Bygg Opportunity Advisor og Recommendation Engine fra
+  discovery-kandidater
+* [x] Etabler reproduserbare univers-snapshots for USA og Norden
+* [x] Innfør pris-, likviditets- og datakvalitetsfiltre før fullanalyse
+* [x] Hent prisdata batchvis, gjenbruk cache og fordel analysekapasitet mellom
+  likviditetssegmenter og rotasjon
+* [x] Rapporter filtreringsårsaker, feil og antall vurderte/analyserte selskaper
+* [x] Start fremoverskuende discovery-journal og evaluer etter 5, 10, 20 og 40
+  handelsdager
+* [x] Sammenlign modne discovery-kohorter med ACWI og relevant lokal benchmark
+* [x] Frys produksjonsmodellen med eksplisitt `model_version` og dokumenter
+  dagens regler og konkurrerende råd
+* [x] Gjennomfør look-ahead-audit, realistisk signaltidspunkt og
+  kostnadsjustering
+* [x] Skill in-sample, kalibrering, historisk test og urørt out-of-sample
+* [x] Bruk rolling walk-forward som obligatorisk kontroll før modellendringer
+* [x] Implementer buy-and-hold-referanse og rapportering av sentrale risiko- og
+  avkastningsmål per region
+
+### Produktfunksjoner levert i eksisterende app
 
 * [x] Recommendation Engine v1 som felles orkestrator for daglige handlinger
-* [x] Stabilisering av agent-routing og felles screening-deduplisering
-* [x] Comparison Engine v1.1 – bedre forklaring av hvorfor én kandidat vinner
-* [x] Comparison Engine v1 – ticker-parser, deduplisering og konsistent profilscore
-* [x] Strategy Screening v1
-* [x] Opportunity Advisor v2 og relativ rangering
-* [x] Full screening snapshot
-* [x] Daily Refresh v2.1 – network preflight og retry
-* [x] Daily Briefing v2.2
-* [x] Score Explainability v1
-* [x] Watchlist Advisor
-* [x] Portfolio Snapshot – average cost
-* [x] Strategy Profiles v2
-* [x] Agent Chat v2 – Watchlist Advisor
-* [x] Screening Engine v1
-* [x] Opportunity Advisor (watchlist)
-* [x] Daily Briefing v1
-* [x] Daily Refresh v1
-* [x] Screening Engine – Agent Chat
-* [x] Analyst Consensus v1 steg 2 og 3
-* [x] Analyst Advisor Layer v1
-* [x] Sentiment v1
-* [x] News v1
-* [x] Earnings v1 (datoer, kalender og varsler)
-* [x] Porteføljerisiko v1: posisjonsstørrelse, konsentrasjon, sektor, USA/Norden/OBX
-* [x] Daily Flow v2: tydeligere «hva bør jeg gjøre i dag?»
-* [x] Alerts v2: bedre handlingsvarsler
-* [x] Full audit etter NaN-cache-fix
-* [x] Fundamental historikk og ranking
-* [x] Watchlist-ranking
-* [x] Research Ideas
-* [x] Watchlist-editor i UI
-* [x] Dashboard redesign
-* [x] Daily Flow/Morning Briefing
-* [x] Alerts Engine v1
-* [x] Agent Chat koblet til Daily Flow, portefølje og ordre
-* [x] Portfolio- og ordrehistorikk
-* [x] Pending orders, effektuering og kansellering
-* [x] Test/prod-miljø
-* [x] Alle brukerdata flyttet til JSON
-* [x] Strategy classification og strategy profiles
+* [x] Daily Briefing v2.2, Daily Flow v2, Alerts v2 og Daily Refresh v2.1
+* [x] Dokumenterte snapshot-endringer i «Endret siden sist», korrekt Watchlist-
+  bevaring og rangering av discovery-kandidater etter rank
+* [x] Screening Engine, Strategy Screening, Strategy Profiles og Research Ideas
+* [x] Opportunity Advisor v2, Watchlist Advisor og watchlist-ranking
+* [x] Comparison Engine v1.1 og Score Explainability v1
+* [x] Agent Chat v2 med screening, Daily Flow, eide aksjer og watchlist
+* [x] Selskapsdata for analytikerkonsensus, sentiment, nyheter og earnings
+* [x] Porteføljerisiko, GAV, trailing-exit-analyse og grunnleggende historikk
 * [x] Strategy-specific backtesting og walk-forward
-* [x] Trailing-exit analyse
-* [x] NaN-cache bug i Yahoo-data løst
+* [x] TEST/PROD-miljø og JSON-basert lagring av brukerdata
+* [x] Stabilisering av agent-routing, screening-deduplisering, Yahoo-cache og
+  Daily Refresh ved nettverksfeil
+
+### Historisk levert, men besluttet avviklet
+
+* [x] Pending orders, effektuering og kansellering
+* [x] Ordre- og ordrehistorikk

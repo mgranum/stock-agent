@@ -304,9 +304,12 @@ def _profit_protection_message(row):
 
 
 def _near_trailing_stop_message(row, distance_pct):
+    price = row.get("current_price")
     trailing = row.get("trailing_stop_loss")
     return (
-        f"Kursen er {round(distance_pct, 1)} % over stop {float(trailing):.2f}. "
+        f"Dagens kurs er {float(price):.2f}. "
+        f"Stop loss er {float(trailing):.2f}, "
+        f"{round(distance_pct, 1)} % under dagens kurs. "
         "Behold posisjonen, men vær klar til å handle hvis stop brytes."
     )
 
