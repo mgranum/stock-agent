@@ -64,9 +64,12 @@ starter ikke refresh, laster ikke kursdata og skriver ikke brukerdata.
 
 ## Backup og rollback
 
-Administrer er foreløpig skrivbar bare i TEST. Før hver lagring opprettes én
-tidsstemplet backup som inneholder både `portfolio.json` og `watchlists.json` i
-miljøets `backups`-mappe. API-svaret inneholder `backup_id`.
+Administrer er skrivbar i TEST. PROD er skrivebeskyttet som standard og krever
+at serverprosessen startes med den eksplisitte bryteren
+`STOCK_AGENT_ENABLE_PROD_WRITES=1`. Før hver lagring opprettes én tidsstemplet
+backup som inneholder `portfolio.json`, `watchlists.json` og status for
+`writer_owner.json` i miljøets `backups`-mappe. API-svaret inneholder
+`backup_id`.
 
 Rollback i TEST:
 
@@ -74,13 +77,22 @@ Rollback i TEST:
 POST /api/admin/rollback/{backup_id}
 ```
 
-Backup-id og miljø valideres før begge filene gjenopprettes. Dersom andre
-skriving i en mutasjon feiler, gjenoppretter tjenesten begge originalfilene
-automatisk.
+Backup-id og miljø valideres før brukerdata og writer-eierskap gjenopprettes.
+Dersom andre skriving i en mutasjon feiler, gjenoppretter tjenesten all
+opprinnelig tilstand automatisk.
 
-PROD-skriving er fortsatt hardt sperret med HTTP 403. React skal derfor ikke
-gjøres til eneste PROD-grensesnitt før en egen fase har aktivert og verifisert
-PROD-backup, mutasjon og rollback.
+Kontrollert PROD-verifikasjon krever tre samtidige vern:
+
+```bash
+STOCK_AGENT_ENV=prod STOCK_AGENT_ENABLE_PROD_WRITES=1 \
+  uv run python scripts/verify_prod_admin_rollback.py \
+  --ticker SUBC.OL --confirm-prod-write-rollback
+```
+
+Verifikasjonen gjenbruker tickerens eksisterende eid-status, GAV og
+watchlist-medlemskap, ruller umiddelbart tilbake og sammenligner alle tre
+datatilstandene med originalen. Bryteren skal ikke settes permanent før den nye
+løsningen faktisk gjøres til standard.
 
 ## Cutover og tilbakeføring
 

@@ -231,6 +231,12 @@ den godkjente skissen.
 
 ### Fase 6 – paritet, overgang og avvikling
 
+* [x] Innfør eksplisitt PROD-skrivebryter; behold skrivebeskyttet standard
+* [x] Ta backup av writer-eierskap sammen med portefølje og watchlists
+* [x] Verifiser én semantisk uendret PROD-mutasjon med umiddelbar rollback
+  * [x] SUBC.OL beholdt eid-status, GAV 355 og medlemskap i OBX
+  * [x] Portefølje, watchlists og fravær av writer-owner ble gjenopprettet
+  * [x] Read-only PROD-paritet bestod 83/83 etter rollback
 * [x] Kjør paritetsmatrisen i TEST og deretter en kontrollert PROD-verifikasjon
   * [x] Automatisert TEST-paritet: 73/73 kontroller bestått
   * [x] Read-only driftskontroll: 9/9 kontroller bestått

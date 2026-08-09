@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
+import json
+import os
 import re
 import threading
 from uuid import uuid4
@@ -22,18 +24,40 @@ class AdminWritesDisabled(RuntimeError):
 
 
 class AdminMutationService:
-    """Single TEST-only writer for portfolio and watchlist user data."""
+    """Single guarded writer for portfolio and watchlist user data."""
+
+    def is_writable(self) -> bool:
+        environment = get_environment()
+        return environment == "test" or (
+            environment == "prod"
+            and os.getenv("STOCK_AGENT_ENABLE_PROD_WRITES") == "1"
+        )
 
     def _assert_writable(self):
-        if get_environment() != "test":
+        if not self.is_writable():
             raise AdminWritesDisabled(
-                "Skriveoperasjoner er foreløpig bare aktivert i TEST."
+                "Skriveoperasjoner er deaktivert. PROD krever "
+                "STOCK_AGENT_ENABLE_PROD_WRITES=1."
             )
 
     def _raw_watchlists(self):
         return load_json("watchlists.json", DEFAULT_WATCHLISTS)
 
-    def _backup(self, portfolio, watchlists) -> str:
+    def _writer_owner_snapshot(self) -> dict:
+        path = data_path("writer_owner.json")
+        if not path.exists():
+            return {"exists": False, "value": None}
+        with open(path, "r", encoding="utf-8") as stream:
+            return {"exists": True, "value": json.load(stream)}
+
+    def _restore_writer_owner(self, snapshot: dict):
+        path = data_path("writer_owner.json")
+        if snapshot.get("exists"):
+            atomic_write_json(path, snapshot.get("value") or {})
+        else:
+            path.unlink(missing_ok=True)
+
+    def _backup(self, portfolio, watchlists, writer_owner) -> str:
         backup_id = (
             datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             + "-"
@@ -49,6 +73,7 @@ class AdminMutationService:
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "portfolio": portfolio,
                 "watchlists": watchlists,
+                "writer_owner": writer_owner,
             },
         )
         return backup_id
@@ -69,6 +94,7 @@ class AdminMutationService:
         with _MUTATION_LOCK:
             portfolio = load_json("portfolio.json", [])
             current_watchlists = self._raw_watchlists()
+            writer_owner = self._writer_owner_snapshot()
             editable = set(current_watchlists)
             requested = {str(name).strip() for name in watchlists}
             unknown = requested - editable
@@ -76,9 +102,9 @@ class AdminMutationService:
                 raise ValueError(
                     "Ukjent watchlist: " + ", ".join(sorted(unknown))
                 )
-            claim_writer("react")
-
-            backup_id = self._backup(portfolio, current_watchlists)
+            backup_id = self._backup(
+                portfolio, current_watchlists, writer_owner
+            )
             updated_portfolio = []
             existing = None
             for position in portfolio:
@@ -110,11 +136,13 @@ class AdminMutationService:
                 updated_watchlists[name] = normalized
 
             try:
+                claim_writer("react")
                 save_json("portfolio.json", updated_portfolio)
                 save_json("watchlists.json", updated_watchlists)
             except Exception:
                 save_json("portfolio.json", portfolio)
                 save_json("watchlists.json", current_watchlists)
+                self._restore_writer_owner(writer_owner)
                 raise
 
         return {
@@ -134,12 +162,14 @@ class AdminMutationService:
             raise FileNotFoundError("Backup finnes ikke.")
 
         with _MUTATION_LOCK:
-            import json
-
             with open(backup_path, "r", encoding="utf-8") as stream:
                 backup = json.load(stream)
-            if backup.get("environment") != "test":
-                raise ValueError("Backup tilhører ikke TEST.")
+            if backup.get("environment") != get_environment():
+                raise ValueError("Backup tilhører et annet miljø.")
             save_json("portfolio.json", backup.get("portfolio") or [])
             save_json("watchlists.json", backup.get("watchlists") or {})
+            self._restore_writer_owner(
+                backup.get("writer_owner")
+                or {"exists": False, "value": None}
+            )
         return {"backup_id": backup_id, "restored": True}

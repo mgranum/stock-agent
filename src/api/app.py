@@ -120,7 +120,7 @@ def create_app(
         watchlists = presentation.watchlists()
         return {
             "meta": positions["meta"],
-            "writable": get_environment() == "test",
+            "writable": admin.is_writable(),
             "positions": positions["positions"],
             "watchlists": watchlists["watchlists"],
         }

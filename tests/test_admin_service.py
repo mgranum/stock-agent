@@ -57,6 +57,7 @@ def test_backup_can_restore_both_files(test_data):
     assert restored["restored"] is True
     assert load_json("portfolio.json", [])[0]["ticker"] == "NVDA"
     assert load_json("watchlists.json", {})["USA"] == ["NVDA"]
+    assert not (test_data / "writer_owner.json").exists()
 
 
 def test_invalid_input_does_not_create_backup(test_data):
@@ -69,10 +70,33 @@ def test_invalid_input_does_not_create_backup(test_data):
 
 def test_prod_writes_are_blocked(monkeypatch):
     monkeypatch.setenv("STOCK_AGENT_ENV", "prod")
-    with pytest.raises(AdminWritesDisabled, match="bare aktivert i TEST"):
+    monkeypatch.delenv("STOCK_AGENT_ENABLE_PROD_WRITES", raising=False)
+    with pytest.raises(AdminWritesDisabled, match="PROD krever"):
         AdminMutationService().update_stock(
             "NVDA", owned=False, average_cost=None, watchlists=[]
         )
+
+
+def test_prod_write_flag_allows_reversible_update(monkeypatch, tmp_path):
+    monkeypatch.setenv("STOCK_AGENT_ENV", "prod")
+    monkeypatch.setenv("STOCK_AGENT_ENABLE_PROD_WRITES", "1")
+    monkeypatch.setattr("src.storage._data_dir", lambda: tmp_path)
+    save_json("portfolio.json", [{"ticker": "SUBC.OL", "buy_price": 355}])
+    save_json("watchlists.json", {"OBX": ["SUBC.OL"]})
+
+    service = AdminMutationService()
+    result = service.update_stock(
+        "SUBC.OL", owned=True, average_cost=355, watchlists=["OBX"]
+    )
+    assert load_json("writer_owner.json", {}) == {"owner": "react"}
+
+    service.rollback(result["backup_id"])
+
+    assert load_json("portfolio.json", []) == [
+        {"ticker": "SUBC.OL", "buy_price": 355}
+    ]
+    assert load_json("watchlists.json", {}) == {"OBX": ["SUBC.OL"]}
+    assert not (tmp_path / "writer_owner.json").exists()
 
 
 def test_failed_second_write_restores_previous_data(test_data, monkeypatch):
@@ -96,6 +120,7 @@ def test_failed_second_write_restores_previous_data(test_data, monkeypatch):
 
     assert load_json("portfolio.json", [])[0]["ticker"] == "NVDA"
     assert load_json("watchlists.json", {})["USA"] == ["NVDA"]
+    assert not (test_data / "writer_owner.json").exists()
 
 
 def test_react_claim_blocks_legacy_watchlist_writer(test_data):

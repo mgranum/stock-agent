@@ -118,6 +118,9 @@ class PresentationStub:
 
 
 class AdminStub:
+    def is_writable(self):
+        return True
+
     def update_stock(self, ticker, **values):
         return {
             "ticker": ticker.upper(),
