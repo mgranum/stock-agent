@@ -250,7 +250,10 @@ den godkjente skissen.
   brukerflyter
 * [x] Dokumenter installasjon, lokal drift, bygging, backup og rollback
 * [ ] Gjør ny løsning til standard først etter godkjent brukerakseptanse
-* [ ] Behold Streamlit som kortvarig fallback etter første cutover
+  * [x] Legg til én standardkommando for samme-origin React/FastAPI mot PROD
+  * [x] Aktiver PROD-skriving bare i standardstarteren og behold backup per endring
+  * [ ] Gjennomfør siste brukerakseptanse mot ordinære PROD-data
+* [x] Behold Streamlit som kortvarig fallback etter første cutover
 * [ ] Fjern Streamlit og tilhørende presentasjonskode først når paritet og
   datatrygghet er dokumentert
 

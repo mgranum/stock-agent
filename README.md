@@ -1,9 +1,10 @@
 # Stock Agent
 
-Lokal beslutningsstøtte for manuell aksjeinvestering. Den eksisterende
-Streamlit-appen beholdes mens et nytt presentasjonslag migreres trinnvis.
+Lokal beslutningsstøtte for manuell aksjeinvestering. React og FastAPI er
+standardgrensesnittet. Den eksisterende Streamlit-appen beholdes midlertidig
+som fallback.
 
-## Arkitekturspike: React og FastAPI
+## Start Stock Agent
 
 Installer Python-avhengigheter og frontend-avhengigheter:
 
@@ -13,32 +14,33 @@ cd frontend
 npm install
 ```
 
-Start FastAPI og Vite sammen fra prosjektroten:
+Start standardløsningen mot PROD-data fra prosjektroten:
+
+```sh
+./scripts/start_web.sh
+```
+
+Åpne deretter `http://127.0.0.1:8000`. Skriptet bygger React-klienten og lar
+FastAPI servere frontend og API fra samme adresse. Administrer skriver til PROD
+med backup før hver endring.
+
+Utvikling og TEST-bruk kjøres fortsatt med Vite:
 
 ```sh
 ./scripts/dev_web.sh
 ```
 
-Åpne deretter `http://127.0.0.1:5173/stocks/NVDA`. API-dokumentasjonen ligger på
+Dette åpnes på `http://127.0.0.1:5173`. API-dokumentasjonen ligger på
 `http://127.0.0.1:8000/docs`.
 
-Skriptet bruker `STOCK_AGENT_ENV=test` som standard. Et eksplisitt miljø kan
-velges slik:
+Midlertidig Streamlit-fallback:
 
 ```sh
-STOCK_AGENT_ENV=prod ./scripts/dev_web.sh
+STOCK_AGENT_ENV=prod uv run streamlit run app.py
 ```
 
-For å verifisere samme-origin-produksjonsbygg:
-
-```sh
-cd frontend
-npm run build
-cd ..
-uv run uvicorn src.api.app:app --host 127.0.0.1 --port 8000
-```
-
-Da åpnes selskapsdetaljen på `http://127.0.0.1:8000/stocks/NVDA`.
+Fallbacken kan lese PROD-data. Etter at React har tatt writer-eierskap, skal
+endringer i eide aksjer og watchlists gjøres i React.
 
 Se [lokal drifts- og migrasjonsveiledning](docs/operations/react-fastapi-local.md)
 for Daily Refresh, paritetskontroller, backup, rollback og cutover-kriterier.

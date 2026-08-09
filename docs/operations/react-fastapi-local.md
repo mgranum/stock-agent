@@ -6,6 +6,22 @@
 * Node.js og npm tilgjengelig
 * frontend-avhengigheter installert med `npm install` i `frontend/`
 
+## Standard – PROD
+
+Start fra prosjektroten:
+
+```bash
+./scripts/start_web.sh
+```
+
+Skriptet bygger frontend og starter samme-origin React/FastAPI på
+`http://127.0.0.1:8000` med `STOCK_AGENT_ENV=prod`. Dette er den eneste
+standardkommandoen som aktiverer `STOCK_AGENT_ENABLE_PROD_WRITES=1`.
+Administrer tar backup før hver endring.
+
+Stopp med `Ctrl-C`. Direkte ticker-ruter som `/stocks/AAPL?period=3m` skal
+fungere etter omstart.
+
 ## TEST – utvikling og brukerakseptanse
 
 Start begge prosessene fra prosjektroten:
@@ -36,7 +52,7 @@ npm run build
 npm test -- --run
 ```
 
-## Samme-origin produksjonsbygg
+## Manuell samme-origin-kjøring i TEST
 
 Bygg klienten og la FastAPI servere den:
 
@@ -96,12 +112,20 @@ løsningen faktisk gjøres til standard.
 
 ## Cutover og tilbakeføring
 
-React kan gjøres til standard først når:
+Cutover-portene er oppfylt:
 
 1. fersk TEST- og read-only PROD-paritet består
 2. full regresjon og kritiske brukerflyter består
 3. PROD-skriving og rollback er eksplisitt godkjent og verifisert
-4. brukeren har godkjent grensesnittet i PROD
+4. brukeren har godkjent grensesnittet i TEST før første ordinære PROD-start
 
-Ved avvik skal React-serveren stoppes og Streamlit brukes som fallback. Ikke
-fjern `app.py` eller Streamlit-avhengigheter før fallbackperioden er avsluttet.
+Ved avvik skal React-serveren stoppes og Streamlit startes midlertidig:
+
+```bash
+STOCK_AGENT_ENV=prod uv run streamlit run app.py
+```
+
+Streamlit kan lese PROD-data. Når React har tatt writer-eierskap skal
+portefølje- og watchlist-endringer fortsatt gjøres i React, med mindre en egen
+kontrollert tilbakeføring av writer-eierskap gjennomføres. Ikke fjern `app.py`
+eller Streamlit-avhengigheter før fallbackperioden er avsluttet.
