@@ -102,7 +102,18 @@ class PresentationStub:
     def model_status(self):
         return {"meta": self.meta, "refresh": self.refresh_status()}
 
-    def chat(self, question):
+    def model_data(self):
+        return {
+            "meta": self.meta,
+            "refresh": self.refresh_status(),
+            "market_regime": {},
+            "strategy_profiles": [],
+            "research_ideas": {},
+            "snapshots": {},
+            "discovery_journal": {},
+        }
+
+    def chat(self, question, **_context):
         return {"meta": self.meta, "answer": f"Svar: {question}"}
 
 
@@ -163,6 +174,7 @@ def test_phase_two_read_contracts_are_available():
         "/api/positions",
         "/api/watchlists",
         "/api/model-status",
+        "/api/model-data",
         "/api/refresh/status",
     ):
         response = _get(app, path)
@@ -179,6 +191,14 @@ def test_chat_contract_and_input_validation():
     response = _post(app, "/api/chat", {"question": "Oppsummer"})
     assert response.status_code == 200
     assert response.json()["answer"] == "Svar: Oppsummer"
+
+    contextual = _post(app, "/api/chat", {
+        "question": "Hva bør jeg følge med på?",
+        "view": "detail",
+        "ticker": "AAPL",
+        "company_name": "Apple Inc.",
+    })
+    assert contextual.status_code == 200
 
     assert _post(app, "/api/chat", {"question": ""}).status_code == 422
     assert _get(app, "/api/search", params={"q": ""}).status_code == 422

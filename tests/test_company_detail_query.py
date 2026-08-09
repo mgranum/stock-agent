@@ -54,6 +54,21 @@ def test_supports_every_product_period():
         result = query.get("NVDA", period)
         assert result.candles
         assert result.period == period
+
+
+def test_bypasses_short_daily_cache_for_long_chart_periods():
+    calls = []
+
+    def loader(symbol, period, use_cache):
+        calls.append((symbol, period, use_cache))
+        return _prices(900)
+
+    query = CompanyDetailQuery(loader, str)
+
+    query.get("NVDA", "3 år")
+    query.get("NVDA", "maks")
+
+    assert calls == [("NVDA", "5y", False), ("NVDA", "max", False)]
 @pytest.mark.parametrize("ticker", ["", "NVDA/../../", "NVDA $", "A" * 21])
 def test_rejects_invalid_ticker(ticker):
     with pytest.raises(ValueError, match="Ugyldig ticker"):

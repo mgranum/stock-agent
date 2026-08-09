@@ -26,10 +26,7 @@ _TICKER_PATTERN = re.compile(r"^[A-Z0-9^][A-Z0-9.^-]{0,19}$")
 
 @lru_cache(maxsize=128)
 def _load_chart_prices(symbol: str, period: str, use_cache: bool = True):
-    # The existing disk cache is keyed only by ticker and can contain a shorter
-    # history than the chart requests. Fetch once per process and period until
-    # the shared cache gains period-aware metadata.
-    return get_daily_prices(symbol, period=period, use_cache=False)
+    return get_daily_prices(symbol, period=period, use_cache=use_cache)
 
 
 @dataclass(frozen=True)
@@ -123,7 +120,9 @@ class CompanyDetailQuery:
         prices = self._price_loader(
             symbol,
             period=_DOWNLOAD_PERIOD[period],
-            use_cache=True,
+            # Daily Refresh normally provides about one year of cached prices.
+            # Longer chart periods still need a dedicated history download.
+            use_cache=period not in {"3 år", "maks"},
         )
         candles = _candles(prices, period)
         first_close = candles[0]["close"]

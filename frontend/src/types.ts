@@ -139,3 +139,38 @@ export type StockMutation = {
   watchlists: string[];
   backup_id: string;
 };
+
+export type StrategyProfile = {
+  key: string;
+  label: string;
+  count: number;
+  stocks: StockSummary[];
+};
+
+export type ExploreResponse = {
+  meta: DataMeta;
+  watchlist_ranking: StockSummary[];
+  candidates: StockSummary[];
+  profiles: StrategyProfile[];
+  research_ideas: Record<string, unknown>;
+  candidate_source: { kind?: string; label?: string; date?: string | null };
+};
+
+export type ModelDataResponse = {
+  meta: DataMeta;
+  refresh: {
+    status: string;
+    status_label: string;
+    updated_at: string | null;
+    last_successful_date: string | null;
+    last_error_count: number | null;
+  };
+  market_regime: Record<string, unknown>;
+  strategy_profiles: Record<string, unknown>[];
+  research_ideas: Record<string, unknown>;
+  snapshots: { rows?: number; dates?: number; latest_date?: string | null };
+  discovery_journal: { rows?: number; cohorts?: number; latest_signal_date?: string | null; status?: string };
+  backtest_validation: { status?: string; approved?: boolean; blocked_count?: number; warning_count?: number; checks?: Record<string, unknown>[] };
+};
+
+export type ChatResponse = { meta: DataMeta; answer: string };

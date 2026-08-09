@@ -8,13 +8,18 @@ from typing import Any
 import pandas as pd
 
 from src.agent import ask_agent
+from src.backtest_validation import build_backtest_validation_report
 from src.company_names import get_company_name
+from src.company_detail_query import normalize_ticker
 from src.config import load_watchlists
 from src.context import reload_context_from_snapshot
 from src.daily_refresh import format_refresh_panel_status, load_refresh_state
+from src.discovery_validation import load_discovery_journal
 from src.environment import get_environment
 from src.model_version import MODEL_VERSION
+from src.model_backtest import load_snapshots
 from src.storage import load_portfolio
+from src.strategy_classification import STRATEGY_TYPES, add_strategy_types
 
 
 @dataclass(frozen=True)
@@ -91,6 +96,9 @@ class PresentationQueries:
         refresh_state_loader: Callable = load_refresh_state,
         chat_handler: Callable = ask_agent,
         now: Callable = lambda: datetime.now(timezone.utc),
+        snapshots_loader: Callable = load_snapshots,
+        discovery_journal_loader: Callable = load_discovery_journal,
+        backtest_validation_builder: Callable = build_backtest_validation_report,
     ):
         self._context_loader = context_loader
         self._portfolio_loader = portfolio_loader
@@ -99,6 +107,9 @@ class PresentationQueries:
         self._refresh_state_loader = refresh_state_loader
         self._chat_handler = chat_handler
         self._now = now
+        self._snapshots_loader = snapshots_loader
+        self._discovery_journal_loader = discovery_journal_loader
+        self._backtest_validation_builder = backtest_validation_builder
 
     def _state(self) -> ContextState:
         loaded = self._context_loader(max_age_hours=24, now=self._now())
@@ -450,11 +461,12 @@ class PresentationQueries:
         state = self._state()
         portfolio, _watchlists, watch_rows, portfolio_rows, candidates = self._sources(state)
         owned = {_ticker(row) for row in portfolio if _ticker(row)}
+        watchlist_rows = [row for row in watch_rows if _ticker(row) not in owned]
         names = self._identity_names(portfolio, watch_rows, portfolio_rows, candidates)
         ranking = [
             card
             for row in sorted(
-                watch_rows,
+                watchlist_rows,
                 key=lambda item: _finite_number(item.get("score")) or -1,
                 reverse=True,
             )
@@ -463,18 +475,87 @@ class PresentationQueries:
                     row,
                     names=names,
                     owned=_ticker(row) in owned,
+                    extra={
+                        **self._watch_card_details(row, None),
+                        "strategy_type": _text(row, "strategy_type"),
+                    },
                 )
             ) is not None
         ]
+        discovery_rows = _records(state.context.get("discovery_candidates"))
+        candidate_rows = candidates or [
+            row for row in discovery_rows if not bool(row.get("in_watchlist"))
+        ]
+        candidate_source = {
+            "kind": "current_snapshot" if candidate_rows else "none",
+            "label": "Siste screening-snapshot",
+            "date": (state.context.get("screening_results") or {}).get("generated_at"),
+        }
+        if not candidate_rows:
+            journal = self._discovery_journal_loader()
+            if isinstance(journal, pd.DataFrame) and not journal.empty and "signal_date" in journal:
+                latest_date = sorted(str(value) for value in journal["signal_date"].dropna().unique())[-1]
+                candidate_rows = [
+                    row for row in _records(journal[journal["signal_date"].astype(str) == latest_date])
+                    if not bool(row.get("in_watchlist"))
+                ]
+                candidate_source = {
+                    "kind": "discovery_journal",
+                    "label": "Siste fullførte screening",
+                    "date": latest_date,
+                }
         candidate_cards = [
             card
-            for row in candidates
+            for row in candidate_rows
             if (card := self._stock_card(row, names=names)) is not None
         ]
+        classified = add_strategy_types(pd.DataFrame(watchlist_rows)) if watchlist_rows else pd.DataFrame()
+        profiles = []
+        labels = {
+            "QUALITY_COMPOUNDER": "Kvalitetsselskaper",
+            "COMPOUNDER": "Kvalitet med trend",
+            "MOMENTUM": "Vekst med trend",
+            "CYCLICAL": "Sykliske",
+            "WEAK/AVOID": "Svak / unngå",
+            "UNKNOWN": "Øvrige",
+        }
+        for strategy_type in STRATEGY_TYPES:
+            rows = (
+                classified[classified["strategy_type"] == strategy_type]
+                .sort_values("score", ascending=False)
+                .to_dict(orient="records")
+                if not classified.empty
+                else []
+            )
+            profiles.append(
+                {
+                    "key": strategy_type,
+                    "label": labels[strategy_type],
+                    "count": len(rows),
+                    "stocks": [
+                        card
+                        for row in rows
+                        if (card := self._stock_card(
+                            row,
+                            names=names,
+                            owned=_ticker(row) in owned,
+                            extra={
+                                **self._watch_card_details(row, None),
+                                "strategy_type": strategy_type,
+                            },
+                        )) is not None
+                    ],
+                }
+            )
         return {
             "meta": self._meta(state),
             "watchlist_ranking": ranking,
             "candidates": candidate_cards,
+            "profiles": profiles,
+            "research_ideas": state.context.get("research_ideas")
+            or (state.context.get("dashboard") or {}).get("research_ideas")
+            or {},
+            "candidate_source": candidate_source,
         }
 
     def positions(self) -> dict[str, Any]:
@@ -582,9 +663,61 @@ class PresentationQueries:
         state = self._state()
         return {"meta": self._meta(state), "refresh": self.refresh_status()}
 
-    def chat(self, question: str) -> dict[str, Any]:
+    def model_data(self) -> dict[str, Any]:
+        state = self._state()
+        dashboard = state.context.get("dashboard") or {}
+        snapshots = self._snapshots_loader()
+        journal = self._discovery_journal_loader()
+        backtest_validation = self._backtest_validation_builder()
+        snapshot_dates = (
+            sorted(str(value) for value in snapshots["date"].dropna().unique())
+            if isinstance(snapshots, pd.DataFrame) and not snapshots.empty and "date" in snapshots
+            else []
+        )
+        signal_dates = (
+            sorted(str(value) for value in journal["signal_date"].dropna().unique())
+            if isinstance(journal, pd.DataFrame) and not journal.empty and "signal_date" in journal
+            else []
+        )
+        return {
+            "meta": self._meta(state),
+            "refresh": self.refresh_status(),
+            "market_regime": dashboard.get("market_regime") or {},
+            "strategy_profiles": _records(dashboard.get("strategy_profiles")),
+            "research_ideas": dashboard.get("research_ideas") or {},
+            "snapshots": {
+                "rows": len(snapshots) if isinstance(snapshots, pd.DataFrame) else 0,
+                "dates": len(snapshot_dates),
+                "latest_date": snapshot_dates[-1] if snapshot_dates else None,
+            },
+            "discovery_journal": {
+                "rows": len(journal) if isinstance(journal, pd.DataFrame) else 0,
+                "cohorts": len(signal_dates),
+                "latest_signal_date": signal_dates[-1] if signal_dates else None,
+                "status": "Prospektiv validering pågår" if signal_dates else "Ingen journaldata",
+            },
+            "backtest_validation": backtest_validation,
+        }
+
+    def chat(
+        self,
+        question: str,
+        view: str | None = None,
+        ticker: str | None = None,
+        company_name: str | None = None,
+    ) -> dict[str, Any]:
         state = self._state()
         if not state.context:
             raise LookupError(state.message or "Analysedata er ikke tilgjengelig.")
-        answer = self._chat_handler(question, state.context)
+        contextual_question = question
+        symbol = normalize_ticker(ticker) if ticker else None
+        if symbol and symbol not in question.upper():
+            company = str(company_name or symbol).strip()
+            contextual_question = (
+                f"{question}\nKontekst: Spørsmålet gjelder {symbol} ({company}) "
+                f"på selskapsdetaljer-siden."
+            )
+        elif view:
+            contextual_question = f"{question}\nKontekst: Aktiv flate er {view}."
+        answer = self._chat_handler(contextual_question, state.context)
         return {"meta": self._meta(state), "answer": str(answer)}

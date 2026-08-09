@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fetchAdmin, fetchCompanyDetail, fetchToday, searchCompanies, updateStock } from "./api";
+import { askChat, fetchAdmin, fetchCompanyDetail, fetchExplore, fetchModelData, fetchToday, searchCompanies, updateStock } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -49,6 +49,34 @@ describe("read API client", () => {
       owned: true,
       average_cost: 125.5,
       watchlists: ["USA"],
+    });
+  });
+
+  it("loads explore and model status from their presentation endpoints", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ watchlist_ranking: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ snapshots: {} }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchExplore();
+    await fetchModelData();
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/explore");
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/model-data");
+  });
+
+  it("sends chat questions as JSON to the existing agent endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ answer: "Svar" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await askChat("Hva bør jeg følge med på?", { view: "detail", ticker: "AAPL", companyName: "Apple Inc." });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/chat", expect.objectContaining({ method: "POST" }));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      question: "Hva bør jeg følge med på?",
+      view: "detail",
+      ticker: "AAPL",
+      company_name: "Apple Inc.",
     });
   });
 });

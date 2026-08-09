@@ -131,6 +131,13 @@ def _queries(context_result=None):
         },
         chat_handler=lambda question, context: f"{question}: {context['model_version']}",
         now=lambda: NOW,
+        snapshots_loader=lambda: pd.DataFrame([
+            {"date": "2026-08-07", "ticker": "NVDA"},
+            {"date": "2026-08-08", "ticker": "NVDA"},
+        ]),
+        discovery_journal_loader=lambda: pd.DataFrame([
+            {"signal_date": "2026-08-08", "ticker": "GOOGL"},
+        ]),
     )
 
 
@@ -163,11 +170,6 @@ def test_identity_is_consistent_across_resources():
     queries = _queries()
 
     today_name = queries.today()["owned"][0]["company_name"]
-    ranking_item = next(
-        item
-        for item in queries.explore()["watchlist_ranking"]
-        if item["ticker"] == "NVDA"
-    )
     today_item = queries.today()["owned"][0]
     position_item = queries.positions()["positions"][0]
     search_name = queries.search("nvidia")["results"][0]["company_name"]
@@ -175,7 +177,6 @@ def test_identity_is_consistent_across_resources():
 
     assert {
         today_name,
-        ranking_item["company_name"],
         position_item["company_name"],
         search_name,
         company["company_name"],
@@ -184,7 +185,6 @@ def test_identity_is_consistent_across_resources():
     }
     assert {
         today_item["recommendation"],
-        ranking_item["recommendation"],
         position_item["recommendation"],
         company["recommendation"],
     } == {"KJØP / ØK"}
@@ -225,6 +225,14 @@ def test_search_requires_a_match_and_limits_results():
 def test_chat_uses_existing_agent_and_rejects_missing_context():
     assert _queries().chat("Oppsummer")["answer"] == "Oppsummer: test-model-v1"
 
+    contextual = _queries().chat(
+        "Hva bør jeg følge med på?",
+        view="detail",
+        ticker="NVDA",
+        company_name="NVIDIA Corporation",
+    )["answer"]
+    assert "Spørsmålet gjelder NVDA (NVIDIA Corporation)" in contextual
+
     missing = _queries(_context_result(loaded=False, reason="missing"))
     with pytest.raises(LookupError, match="Daily Refresh"):
         missing.chat("Oppsummer")
@@ -238,3 +246,31 @@ def test_model_and_refresh_status_share_environment(monkeypatch):
     assert result["meta"]["model_version"] == "test-model-v1"
     assert result["refresh"]["environment"] == "test"
     assert result["refresh"]["last_error_count"] == 0
+
+
+def test_explore_groups_existing_classifications():
+    result = _queries().explore()
+
+    assert [stock["ticker"] for stock in result["watchlist_ranking"]] == ["MSFT"]
+    assert {profile["key"] for profile in result["profiles"]} == {
+        "QUALITY_COMPOUNDER", "COMPOUNDER", "MOMENTUM", "CYCLICAL", "WEAK/AVOID", "UNKNOWN"
+    }
+    assert sum(profile["count"] for profile in result["profiles"]) == 1
+    assert next(profile for profile in result["profiles"] if profile["key"] == "UNKNOWN")["label"] == "Øvrige"
+
+
+def test_model_data_reports_observed_status_without_alpha_claim():
+    result = _queries().model_data()
+
+    assert result["snapshots"] == {
+        "rows": 2,
+        "dates": 2,
+        "latest_date": "2026-08-08",
+    }
+    assert result["discovery_journal"]["cohorts"] == 1
+    assert result["discovery_journal"]["status"] == "Prospektiv validering pågår"
+    assert result["backtest_validation"]["status"] == "BLOCKED"
+    assert any(
+        check["check_id"] == "rolling_walk_forward"
+        for check in result["backtest_validation"]["checks"]
+    )

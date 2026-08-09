@@ -1,4 +1,4 @@
-import type { AdminState, CompanyDetail, Period, SearchResponse, StockMutation, TodayResponse } from "./types";
+import type { AdminState, ChatResponse, CompanyDetail, ExploreResponse, ModelDataResponse, Period, SearchResponse, StockMutation, TodayResponse } from "./types";
 
 async function readJson<T>(response: Response, fallback: string): Promise<T> {
   if (!response.ok) {
@@ -42,5 +42,32 @@ export async function updateStock(
       body: JSON.stringify(values),
     }),
     "Kunne ikke lagre endringene",
+  );
+}
+
+export async function fetchExplore(signal?: AbortSignal): Promise<ExploreResponse> {
+  return readJson(await fetch("/api/explore", { signal }), "Kunne ikke hente Utforsk");
+}
+
+export async function fetchModelData(signal?: AbortSignal): Promise<ModelDataResponse> {
+  return readJson(await fetch("/api/model-data", { signal }), "Kunne ikke hente modell- og datastatus");
+}
+
+export async function askChat(
+  question: string,
+  context?: { view?: string; ticker?: string | null; companyName?: string | null },
+): Promise<ChatResponse> {
+  return readJson(
+    await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        question,
+        view: context?.view,
+        ticker: context?.ticker,
+        company_name: context?.companyName,
+      }),
+    }),
+    "Agenten kunne ikke svare",
   );
 }

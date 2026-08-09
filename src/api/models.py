@@ -78,6 +78,7 @@ class StockSummary(BaseModel):
     relative_strength_pct: float | None = None
     changed_today: bool = False
     change_label: str | None = None
+    strategy_type: str | None = None
 
 
 class ActionSummary(BaseModel):
@@ -101,6 +102,9 @@ class ExploreResponse(BaseModel):
     meta: DataMeta
     watchlist_ranking: list[StockSummary]
     candidates: list[StockSummary]
+    profiles: list[dict] = Field(default_factory=list)
+    research_ideas: dict = Field(default_factory=dict)
+    candidate_source: dict = Field(default_factory=dict)
 
 
 class Position(BaseModel):
@@ -159,8 +163,22 @@ class ModelStatusResponse(BaseModel):
     refresh: RefreshStatusResponse
 
 
+class ModelDataResponse(BaseModel):
+    meta: DataMeta
+    refresh: RefreshStatusResponse
+    market_regime: dict = Field(default_factory=dict)
+    strategy_profiles: list[dict] = Field(default_factory=list)
+    research_ideas: dict = Field(default_factory=dict)
+    snapshots: dict = Field(default_factory=dict)
+    discovery_journal: dict = Field(default_factory=dict)
+    backtest_validation: dict = Field(default_factory=dict)
+
+
 class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
+    view: str | None = Field(default=None, max_length=50)
+    ticker: str | None = Field(default=None, max_length=20)
+    company_name: str | None = Field(default=None, max_length=200)
 
 
 class ChatResponse(BaseModel):

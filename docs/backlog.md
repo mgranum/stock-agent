@@ -219,14 +219,14 @@ den godkjente skissen.
 
 ### Fase 5 – øvrige flater
 
-* [ ] Bygg Utforsk med rangering av watchlist, kjøpskandidater,
-  kvalitetsselskaper, sykliske, underdogs, strategiprofiler og screening
-* [ ] Bygg kontekstuell chat som forklarer strukturerte analyser uten en
+* [x] Bygg Utforsk med rangering av watchlist, kjøpskandidater,
+  kvalitetsselskaper, sykliske, strategiprofiler og eksisterende screening
+* [x] Bygg kontekstuell chat som forklarer strukturerte analyser uten en
   parallell investeringsmodell
-* [ ] Bygg Modell og data med modellversjon, datakvalitet, refresh-status,
+* [x] Bygg Modell og data med modellversjon, datakvalitet, refresh-status,
   snapshots, Decision Journal, backtest og walk-forward
-* [ ] Flytt detaljerte grafverktøy og analyseindikatorer til selskapsdetaljer
-* [ ] Legg til tilgjengelige feilmeldinger og tomtilstander uten å eksponere
+* [x] Flytt detaljerte grafverktøy og analyseindikatorer til selskapsdetaljer
+* [x] Legg til tilgjengelige feilmeldinger og tomtilstander uten å eksponere
   interne stack traces
 
 ### Fase 6 – paritet, overgang og avvikling
@@ -338,6 +338,8 @@ out-of-sample-resultater før det kan påvirke produksjonsråd.
 * [ ] OBX-/commodity-spesifikk modell
 * [ ] Sektorbasert screening
 * [ ] Flere screening-univers
+* [ ] Screening-univers utenfor etablerte indekser for å finne undervurderte
+  selskaper med stort potensial; definer egen verdiprofil før dette påvirker råd
 * [ ] Guidance v1 og analytikerendringer
 * [ ] Sentiment v2 – aggregert ticker-sentiment og chat
 * [ ] Sentimenthistorikk og endringsvarsler

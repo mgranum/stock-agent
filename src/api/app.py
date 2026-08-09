@@ -13,6 +13,7 @@ from src.api.models import (
     ExploreResponse,
     HealthResponse,
     ModelStatusResponse,
+    ModelDataResponse,
     PositionsResponse,
     RefreshStatusResponse,
     SearchResponse,
@@ -93,6 +94,10 @@ def create_app(
     def model_status():
         return presentation.model_status()
 
+    @app.get("/api/model-data", response_model=ModelDataResponse)
+    def model_data():
+        return presentation.model_data()
+
     @app.get("/api/refresh/status", response_model=RefreshStatusResponse)
     def refresh_status():
         return presentation.refresh_status()
@@ -100,7 +105,12 @@ def create_app(
     @app.post("/api/chat", response_model=ChatResponse)
     def chat(request: ChatRequest):
         try:
-            return presentation.chat(request.question.strip())
+            return presentation.chat(
+                request.question.strip(),
+                view=request.view,
+                ticker=request.ticker,
+                company_name=request.company_name,
+            )
         except LookupError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
