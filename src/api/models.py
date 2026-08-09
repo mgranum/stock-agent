@@ -67,6 +67,17 @@ class StockSummary(BaseModel):
     owned: bool = False
     average_cost: float | None = None
     requires_attention: bool = False
+    currency: str | None = None
+    rationale: str | None = None
+    action_label: str | None = None
+    stop_level: float | None = None
+    stop_kind: str | None = None
+    distance_to_stop_pct: float | None = None
+    gain_pct: float | None = None
+    benchmark: str | None = None
+    relative_strength_pct: float | None = None
+    changed_today: bool = False
+    change_label: str | None = None
 
 
 class ActionSummary(BaseModel):

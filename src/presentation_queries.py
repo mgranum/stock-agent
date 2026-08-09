@@ -67,6 +67,20 @@ def _ticker(row: dict[str, Any]) -> str | None:
     return value.upper() if value else None
 
 
+def _currency_for(ticker: str, explicit: str | None = None) -> str:
+    if explicit:
+        return explicit.upper()
+    if ticker.endswith(".OL"):
+        return "NOK"
+    if ticker.endswith(".ST"):
+        return "SEK"
+    if ticker.endswith(".CO"):
+        return "DKK"
+    if ticker.endswith(".HE"):
+        return "EUR"
+    return "USD"
+
+
 class PresentationQueries:
     def __init__(
         self,
@@ -155,6 +169,8 @@ class PresentationQueries:
         owned: bool = False,
         average_cost: float | None = None,
         requires_attention: bool = False,
+        currency: str | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         ticker = _ticker(row)
         if not ticker:
@@ -176,7 +192,42 @@ class PresentationQueries:
             "owned": owned,
             "average_cost": _finite_number(average_cost),
             "requires_attention": requires_attention,
+            "currency": _currency_for(ticker, currency),
+            "rationale": None,
+            "action_label": None,
+            "stop_level": None,
+            "stop_kind": None,
+            "distance_to_stop_pct": None,
+            "gain_pct": None,
+            "benchmark": None,
+            "relative_strength_pct": None,
+            "changed_today": False,
+            "change_label": None,
+            **(extra or {}),
         }
+
+    def _documented_changes(self, state: ContextState) -> dict[str, str]:
+        changes = (state.context.get("dashboard") or {}).get(
+            "changes_since_last_snapshot"
+        ) or {}
+        labels: dict[str, str] = {}
+        for key in ("recommendation_changed", "large_score_changes"):
+            for row in _records(changes.get(key)):
+                ticker = _ticker(row)
+                if not ticker:
+                    continue
+                previous = _text(row, "previous_recommendation")
+                current = _text(row, "current_recommendation")
+                if previous and current and previous != current:
+                    labels[ticker] = f"Endret fra {previous} til {current}"
+                else:
+                    score_change = _finite_number(row.get("score_change"))
+                    labels[ticker] = (
+                        f"Score endret {score_change:+g}"
+                        if score_change is not None
+                        else "Endret siden sist"
+                    )
+        return labels
 
     def _attention(self, state: ContextState) -> list[dict[str, Any]]:
         briefing = state.context.get("daily_briefing") or {}
@@ -286,6 +337,15 @@ class PresentationQueries:
         )
         attention = self._attention(state)
         attention_tickers = {item["ticker"] for item in attention if item["ticker"]}
+        changes = self._documented_changes(state)
+        analyst_rows = _records(
+            (state.context.get("analyst_summary") or {}).get("items")
+        )
+        currencies = {
+            _ticker(row): _text(row, "currency")
+            for row in analyst_rows
+            if _ticker(row)
+        }
 
         owned = []
         for ticker, position in raw_positions.items():
@@ -299,6 +359,12 @@ class PresentationQueries:
                 owned=True,
                 average_cost=position.get("buy_price", position.get("average_cost")),
                 requires_attention=ticker in attention_tickers,
+                currency=currencies.get(ticker),
+                extra=self._owned_card_details(
+                    analysis,
+                    portfolio_by_ticker.get(ticker) or {},
+                    changes.get(ticker),
+                ),
             )
             if card:
                 owned.append(card)
@@ -313,6 +379,11 @@ class PresentationQueries:
                 watch_by_ticker.get(ticker) or {"ticker": ticker},
                 names=names,
                 requires_attention=ticker in attention_tickers,
+                currency=currencies.get(ticker),
+                extra=self._watch_card_details(
+                    watch_by_ticker.get(ticker) or {},
+                    changes.get(ticker),
+                ),
             )
             if card:
                 watchlist.append(card)
@@ -328,6 +399,51 @@ class PresentationQueries:
             "owned": owned,
             "watchlist": watchlist,
             "candidates": candidate_cards,
+        }
+
+    def _owned_card_details(
+        self,
+        analysis: dict[str, Any],
+        portfolio_row: dict[str, Any],
+        change_label: str | None,
+    ) -> dict[str, Any]:
+        current = _finite_number(
+            portfolio_row.get("current_price", analysis.get("kurs"))
+        )
+        trailing = _finite_number(portfolio_row.get("trailing_stop_loss"))
+        ordinary = _finite_number(portfolio_row.get("stop_loss"))
+        stop_level = trailing if trailing is not None else ordinary
+        distance = None
+        if current is not None and stop_level not in (None, 0):
+            distance = round((current / stop_level - 1) * 100, 2)
+        rationale = _text(portfolio_row, "begrunnelse")
+        if not rationale:
+            rationale = _texts(analysis.get("begrunnelse"))[0] if _texts(analysis.get("begrunnelse")) else None
+        return {
+            "rationale": rationale,
+            "action_label": _text(portfolio_row, "portefølje_råd"),
+            "stop_level": stop_level,
+            "stop_kind": "trailing stop" if trailing is not None else ("stop-loss" if ordinary is not None else None),
+            "distance_to_stop_pct": distance,
+            "gain_pct": _finite_number(portfolio_row.get("unrealized_gain_pct")),
+            "benchmark": _text(analysis, "benchmark"),
+            "relative_strength_pct": _finite_number(analysis.get("relative_strength_20d")),
+            "changed_today": change_label is not None,
+            "change_label": change_label,
+        }
+
+    def _watch_card_details(
+        self,
+        row: dict[str, Any],
+        change_label: str | None,
+    ) -> dict[str, Any]:
+        reasons = _texts(row.get("begrunnelse"))
+        return {
+            "rationale": change_label or (reasons[0] if reasons else None),
+            "benchmark": _text(row, "benchmark"),
+            "relative_strength_pct": _finite_number(row.get("relative_strength_20d")),
+            "changed_today": change_label is not None,
+            "change_label": change_label,
         }
 
     def explore(self) -> dict[str, Any]:

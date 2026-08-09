@@ -23,6 +23,12 @@ function tone(value: number | null | undefined) {
   return value > 0 ? "positive" : "negative";
 }
 
+function signed(value: number | null | undefined, suffix = "%") {
+  if (value == null) return "–";
+  const prefix = value > 0 ? "+" : "";
+  return `${prefix}${formatNumber(value)} ${suffix}`;
+}
+
 function PeriodSelector({ period, onChange }: { period: Period; onChange: (period: Period) => void }) {
   return <div className="periods" aria-label="Velg tidsperiode">{PERIODS.map((value) => (
     <button key={value} type="button" className={period === value ? "active" : ""} aria-pressed={period === value} onClick={() => onChange(value)}>{value}</button>
@@ -53,11 +59,11 @@ function Performance({ ticker, period }: { ticker: string; period: Period }) {
 function StockRow({ stock, period, onOpen, onEdit }: { stock: StockSummary; period: Period; onOpen: (ticker: string) => void; onEdit: (ticker: string, companyName?: string) => void }) {
   return <article className={`stock-row ${stock.requires_attention ? "needs-attention" : ""}`}>
     <button className="stock-identity" onClick={() => onOpen(stock.ticker)}>
-      <span className="ticker-avatar">{stock.ticker.slice(0, 2)}</span><span><strong>{stock.ticker}</strong><small>{stock.company_name}</small></span>
+      <span className="ticker-avatar">{stock.ticker.slice(0, 2)}</span><span><strong>{stock.ticker} · {stock.company_name}</strong><small>Kurs {formatNumber(stock.current_price)} {stock.currency ?? ""}</small></span>
     </button>
-    <div className="recommendation"><span className="signal-dot" /> <strong>{stock.recommendation ?? "Ikke vurdert"}</strong><small>{stock.trend_regime ?? "Trend mangler"}</small></div>
+    <div className={`recommendation ${stock.changed_today ? "changed" : ""}`}><span className="signal-dot" /> <strong>{stock.action_label ?? stock.recommendation ?? "Ikke vurdert"}</strong><small>{stock.change_label ?? stock.rationale ?? stock.trend_regime ?? "Begrunnelse mangler"}</small></div>
     <Performance ticker={stock.ticker} period={period} />
-    <div className="key-level"><small>{stock.owned ? "GAV" : "Kurs"}</small><strong>{formatNumber(stock.owned ? stock.average_cost : stock.current_price)}</strong></div>
+    {stock.owned ? <div className="decision-signal owned-signal"><strong className={tone(stock.distance_to_stop_pct)}>{stock.distance_to_stop_pct == null ? "–" : `${formatNumber(Math.abs(stock.distance_to_stop_pct))} %`}</strong><small>{stock.distance_to_stop_pct == null ? "Stop mangler" : `${stock.distance_to_stop_pct > 0 ? "over" : stock.distance_to_stop_pct < 0 ? "under" : "ved"} ${stock.stop_kind ?? "stop"} ${formatNumber(stock.stop_level)}`}</small><span>GAV {formatNumber(stock.average_cost)} · <b className={tone(stock.gain_pct)}>{signed(stock.gain_pct)}</b></span></div> : <div className="decision-signal watch-signal"><strong className={tone(stock.relative_strength_pct)}>{signed(stock.relative_strength_pct)}</strong><small>mot {stock.benchmark ?? "benchmark"}</small><span>Trend: {stock.trend_regime?.toLocaleLowerCase("nb-NO") ?? "mangler"}</span></div>}
     <div className="score"><small>Score</small><strong>{formatNumber(stock.score, 0)}</strong></div>
     <button className="arrow-button edit-row-button" aria-label={`Administrer ${stock.ticker}`} onClick={() => onEdit(stock.ticker, stock.company_name)}>✎</button>
   </article>;
@@ -71,7 +77,7 @@ function StockSection({ title, items, period, onOpen, onEdit, attentionFilter = 
   const attentionCount = items.filter((item) => item.requires_attention).length;
   return <section className="list-section">
     <div className="section-heading"><div><h2>{title}</h2><span className="count">{items.length}</span>{attentionCount > 0 && <button className={`attention-filter ${onlyAttention ? "selected" : ""}`} onClick={() => { setOnlyAttention(!onlyAttention); setExpanded(true); }}>{attentionCount} krever oppmerksomhet</button>}</div><small>{attentionFilter ? "GAV brukes kun til beslutningsstøtte" : "Klikk ticker for full analyse"}</small></div>
-    <div className="stock-table"><div className="table-labels"><span>Aksje</span><span>Agent</span><span>Utvikling</span><span>{attentionFilter ? "GAV" : "Kurs"}</span><span>Score</span><span /></div>
+    <div className="stock-table"><div className="table-labels"><span>Aksje</span><span>Agent</span><span>Utvikling</span><span>{attentionFilter ? "Nøkkelnivå" : "Beslutningssignal"}</span><span>Score</span><span /></div>
       {visible.map((stock) => <StockRow key={stock.ticker} stock={stock} period={period} onOpen={onOpen} onEdit={onEdit} />)}
       {!visible.length && <div className="list-empty">Ingen aksjer i denne visningen.</div>}
     </div>

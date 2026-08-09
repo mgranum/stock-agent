@@ -21,6 +21,8 @@ def _context_result(*, expired=False, loaded=True, reason="loaded"):
                     "anbefaling": "KJØP / ØK",
                     "kurs": 180,
                     "trend_regime": "STERK OPPTREND",
+                    "benchmark": "SPY",
+                    "relative_strength_20d": 8.2,
                     "technical_score": 80,
                     "fundamental_score": 70,
                     "fundamental_history_score": 60,
@@ -34,6 +36,9 @@ def _context_result(*, expired=False, loaded=True, reason="loaded"):
                     "anbefaling": "HOLD / OBSERVER",
                     "kurs": float("nan"),
                     "trend_regime": "MODERAT OPPTREND",
+                    "benchmark": "SPY",
+                    "relative_strength_20d": -1.5,
+                    "begrunnelse": ["Kurs over SMA50"],
                 },
             ]
         ),
@@ -47,6 +52,7 @@ def _context_result(*, expired=False, loaded=True, reason="loaded"):
                     "portefølje_råd": "BEHOLD",
                     "stop_loss": 150,
                     "trailing_stop_loss": 165,
+                    "begrunnelse": "Beskytt gevinst",
                 }
             ]
         ),
@@ -71,11 +77,22 @@ def _context_result(*, expired=False, loaded=True, reason="loaded"):
             ]
         },
         "watchlist": ["NVDA", "MSFT"],
-        "analyst_summary": {
-            "items": [{"ticker": "NVDA", "recommendation_key": "buy", "analyst_count": 42, "target_mean": 220, "upside_pct": 22.2}]
-        },
         "earnings_summary": {"items": [{"ticker": "NVDA", "event_label": "Q2-rapport"}]},
         "news_summary": {"items": [{"ticker": "NVDA", "headline": "Ny produktlansering", "url": "https://example.com/news"}]},
+        "analyst_summary": {
+            "items": [
+                {"ticker": "NVDA", "currency": "USD", "recommendation_key": "buy", "analyst_count": 42, "target_mean": 220, "upside_pct": 22.2},
+                {"ticker": "MSFT", "currency": "USD"},
+            ]
+        },
+        "dashboard": {
+            "changes_since_last_snapshot": {
+                "recommendation_changed": pd.DataFrame([
+                    {"ticker": "MSFT", "previous_recommendation": "KJØP / ØK", "current_recommendation": "HOLD / OBSERVER", "score_change": -6}
+                ]),
+                "large_score_changes": pd.DataFrame(),
+            }
+        },
     }
     return {
         "loaded": loaded,
@@ -125,8 +142,20 @@ def test_today_is_small_normalized_contract():
     assert result["owned"][0]["ticker"] == "NVDA"
     assert result["owned"][0]["average_cost"] == 116.0
     assert result["owned"][0]["requires_attention"] is True
+    assert result["owned"][0]["action_label"] == "BEHOLD"
+    assert result["owned"][0]["stop_level"] == 165.0
+    assert result["owned"][0]["stop_kind"] == "trailing stop"
+    assert result["owned"][0]["distance_to_stop_pct"] == 9.09
+    assert result["owned"][0]["gain_pct"] == 55.2
+    assert result["owned"][0]["currency"] == "USD"
     assert result["watchlist"][0]["ticker"] == "MSFT"
     assert result["watchlist"][0]["current_price"] is None
+    assert result["watchlist"][0]["relative_strength_pct"] == -1.5
+    assert result["watchlist"][0]["benchmark"] == "SPY"
+    assert result["watchlist"][0]["changed_today"] is True
+    assert result["watchlist"][0]["change_label"] == (
+        "Endret fra KJØP / ØK til HOLD / OBSERVER"
+    )
     assert result["candidates"][0]["ticker"] == "GOOGL"
 
 
@@ -177,7 +206,12 @@ def test_stale_and_missing_context_are_explicit():
     assert stale["meta"]["message"] == "Analysedata er eldre enn 24 timer."
     assert missing["meta"]["status"] == "missing"
     assert missing["owned"][0]["ticker"] == "NVDA"
+    assert missing["owned"][0]["stop_level"] is None
+    assert missing["owned"][0]["distance_to_stop_pct"] is None
+    assert missing["owned"][0]["currency"] == "USD"
     assert missing["watchlist"][0]["ticker"] == "MSFT"
+    assert missing["watchlist"][0]["relative_strength_pct"] is None
+    assert missing["watchlist"][0]["changed_today"] is False
 
 
 def test_search_requires_a_match_and_limits_results():

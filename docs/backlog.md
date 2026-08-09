@@ -200,21 +200,21 @@ Dette er en nødvendig oppfølging av fase 3 før nye sekundærflater prioritere
 Radene skal beholde den visuelle enkelheten, men gi samme beslutningsstøtte som
 den godkjente skissen.
 
-* [ ] Utvid eide aksjer med valutamerket kurs, handlingsstatus med kort
+* [x] Utvid eide aksjer med valutamerket kurs, handlingsstatus med kort
   begrunnelse, avstand til relevant stop, stop-nivå, GAV og gevinst/tap siden
   GAV
-* [ ] Utvid watchlist-rader med valutamerket kurs, kort årsak til råd eller
+* [x] Utvid watchlist-rader med valutamerket kurs, kort årsak til råd eller
   endring, relativ styrke i prosentpoeng mot riktig benchmark og lesbar
   trendstatus
-* [ ] Vis «endret i dag» bare fra dokumenterte snapshot-endringer; ikke utled
+* [x] Vis «endret i dag» bare fra dokumenterte snapshot-endringer; ikke utled
   endring fra dagens rangering eller nåtilstand
-* [ ] Definer prioritet og fallback for stop-loss kontra trailing stop, og vis
+* [x] Definer prioritet og fallback for stop-loss kontra trailing stop, og vis
   tydelig tomtilstand når nøkkelnivå eller benchmarkdata mangler
-* [ ] Utvid presentasjonskontraktene uten å beregne score, risiko eller råd på
+* [x] Utvid presentasjonskontraktene uten å beregne score, risiko eller råd på
   nytt i frontend
-* [ ] Legg til regresjonstester for representative eide aksjer, watchlist-aksjer,
+* [x] Legg til regresjonstester for representative eide aksjer, watchlist-aksjer,
   manglende data og positive/negative verdier
-* [ ] Verifiser desktop og mobil mot den godkjente skissen før punktet regnes som
+* [x] Verifiser desktop og mobil mot den godkjente skissen før punktet regnes som
   fullført
 
 ### Fase 5 – øvrige flater

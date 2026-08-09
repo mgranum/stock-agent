@@ -59,6 +59,17 @@ export type StockSummary = {
   owned: boolean;
   average_cost: number | null;
   requires_attention: boolean;
+  currency: string | null;
+  rationale: string | null;
+  action_label: string | null;
+  stop_level: number | null;
+  stop_kind: string | null;
+  distance_to_stop_pct: number | null;
+  gain_pct: number | null;
+  benchmark: string | null;
+  relative_strength_pct: number | null;
+  changed_today: boolean;
+  change_label: string | null;
 };
 
 export type ActionSummary = {
