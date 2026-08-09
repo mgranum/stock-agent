@@ -386,13 +386,20 @@ class PresentationQueries:
             ticker = str(ticker).upper()
             if ticker in raw_positions:
                 continue
+            # A ticker can move from portfolio to watchlist between Daily
+            # Refresh runs. Reuse its existing snapshot analysis so the UI
+            # does not temporarily lose recommendation, score and trend.
+            analysis = {
+                **(portfolio_by_ticker.get(ticker) or {}),
+                **(watch_by_ticker.get(ticker) or {}),
+            } or {"ticker": ticker}
             card = self._stock_card(
-                watch_by_ticker.get(ticker) or {"ticker": ticker},
+                analysis,
                 names=names,
                 requires_attention=ticker in attention_tickers,
                 currency=currencies.get(ticker),
                 extra=self._watch_card_details(
-                    watch_by_ticker.get(ticker) or {},
+                    analysis,
                     changes.get(ticker),
                 ),
             )

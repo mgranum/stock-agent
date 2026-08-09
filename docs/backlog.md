@@ -249,13 +249,16 @@ den godkjente skissen.
 * [x] Kjør automatiserte backend-, API- og frontendtester samt manuelle kritiske
   brukerflyter
 * [x] Dokumenter installasjon, lokal drift, bygging, backup og rollback
-* [ ] Gjør ny løsning til standard først etter godkjent brukerakseptanse
+* [x] Gjør ny løsning til standard først etter godkjent brukerakseptanse
   * [x] Legg til én standardkommando for samme-origin React/FastAPI mot PROD
   * [x] Aktiver PROD-skriving bare i standardstarteren og behold backup per endring
-  * [ ] Gjennomfør siste brukerakseptanse mot ordinære PROD-data
+  * [x] Gjennomfør siste brukerakseptanse mot ordinære PROD-data
+  * [x] Verifiser reell watchlist-/porteføljemutasjon og post-cutover-paritet
 * [x] Behold Streamlit som kortvarig fallback etter første cutover
 * [ ] Fjern Streamlit og tilhørende presentasjonskode først når paritet og
   datatrygghet er dokumentert
+  * [ ] Verifiser første ordinære planlagte PROD Daily Refresh etter cutover
+  * [ ] Verifiser omstart av standardstarteren etter denne refreshen
 
 ---
 

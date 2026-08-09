@@ -166,6 +166,36 @@ def test_today_is_small_normalized_contract():
     assert result["candidates"][0]["ticker"] == "GOOGL"
 
 
+def test_moved_position_keeps_snapshot_analysis_until_next_refresh():
+    result = _context_result()
+    result["context"]["portfolio_report"] = pd.DataFrame(
+        [
+            {
+                "ticker": "KMAR.OL",
+                "score": 93,
+                "anbefaling": "KJØP / ØK",
+                "trend_regime": "STERK OPPTREND",
+                "relative_strength_20d": 8.14,
+            }
+        ]
+    )
+    queries = PresentationQueries(
+        context_loader=lambda **_kwargs: result,
+        portfolio_loader=lambda _default=None: [],
+        watchlists_loader=lambda: {"OBX": ["KMAR.OL"], "Alle": ["KMAR.OL"]},
+        company_name_loader=lambda _ticker: "KMC Properties",
+        now=lambda: NOW,
+    )
+
+    card = queries.today()["watchlist"][0]
+
+    assert card["ticker"] == "KMAR.OL"
+    assert card["recommendation"] == "KJØP / ØK"
+    assert card["score"] == 93.0
+    assert card["trend_regime"] == "STERK OPPTREND"
+    assert card["relative_strength_pct"] == 8.14
+
+
 def test_identity_is_consistent_across_resources():
     queries = _queries()
 
