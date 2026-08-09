@@ -106,6 +106,18 @@ class PresentationStub:
         return {"meta": self.meta, "answer": f"Svar: {question}"}
 
 
+class AdminStub:
+    def update_stock(self, ticker, **values):
+        return {
+            "ticker": ticker.upper(),
+            **values,
+            "backup_id": "20260809T120000Z-1234abcd",
+        }
+
+    def rollback(self, backup_id):
+        return {"backup_id": backup_id, "restored": True}
+
+
 def test_health_preserves_environment(monkeypatch):
     monkeypatch.setenv("STOCK_AGENT_ENV", "test")
     response = _get(create_app(_query()), "/api/health")
@@ -170,3 +182,39 @@ def test_chat_contract_and_input_validation():
 
     assert _post(app, "/api/chat", {"question": ""}).status_code == 422
     assert _get(app, "/api/search", params={"q": ""}).status_code == 422
+
+
+def test_admin_contract_reads_and_writes_in_test(monkeypatch):
+    monkeypatch.setenv("STOCK_AGENT_ENV", "test")
+    app = create_app(_query(), PresentationStub(), AdminStub())
+
+    state = _get(app, "/api/admin")
+    assert state.status_code == 200
+    assert state.json()["writable"] is True
+
+    response = asyncio.run(_put(app, "/api/admin/stocks/nvda", {
+        "owned": True,
+        "average_cost": 125.5,
+        "watchlists": ["USA"],
+    }))
+    assert response.status_code == 200
+    assert response.json()["ticker"] == "NVDA"
+
+
+def _put(app, path, json):
+    async def request():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.put(path, json=json)
+    return request()
+
+
+def test_admin_requires_gav_when_owned(monkeypatch):
+    monkeypatch.setenv("STOCK_AGENT_ENV", "test")
+    app = create_app(_query(), PresentationStub(), AdminStub())
+    response = asyncio.run(_put(app, "/api/admin/stocks/NVDA", {
+        "owned": True,
+        "average_cost": None,
+        "watchlists": [],
+    }))
+    assert response.status_code == 422

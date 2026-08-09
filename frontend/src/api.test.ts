@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fetchCompanyDetail, fetchToday, searchCompanies } from "./api";
+import { fetchAdmin, fetchCompanyDetail, fetchToday, searchCompanies, updateStock } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -31,5 +31,24 @@ describe("read API client", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: "Ugyldig ticker" }), { status: 422 })));
 
     await expect(fetchCompanyDetail("?", "3m")).rejects.toThrow("Ugyldig ticker");
+  });
+
+  it("loads admin state and sends a typed stock mutation", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ positions: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ticker: "NVDA" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchAdmin();
+    await updateStock("NVDA", { owned: true, average_cost: 125.5, watchlists: ["USA"] });
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/admin");
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/admin/stocks/NVDA");
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: "PUT" });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      owned: true,
+      average_cost: 125.5,
+      watchlists: ["USA"],
+    });
   });
 });

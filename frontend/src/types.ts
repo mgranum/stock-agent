@@ -95,3 +95,36 @@ export type NewsItem = {
   published_at?: string;
   sentiment?: string;
 };
+
+export type Position = {
+  ticker: string;
+  company_name: string;
+  average_cost: number | null;
+  shares: number | null;
+  current_price: number | null;
+  recommendation: string | null;
+  portfolio_action: string | null;
+  stop_loss: number | null;
+  trailing_stop_loss: number | null;
+};
+
+export type WatchlistGroup = {
+  name: string;
+  tickers: string[];
+  editable: boolean;
+};
+
+export type AdminState = {
+  meta: DataMeta;
+  writable: boolean;
+  positions: Position[];
+  watchlists: WatchlistGroup[];
+};
+
+export type StockMutation = {
+  ticker: string;
+  owned: boolean;
+  average_cost: number | null;
+  watchlists: string[];
+  backup_id: string;
+};

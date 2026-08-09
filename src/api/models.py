@@ -155,3 +155,29 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     meta: DataMeta
     answer: str
+
+
+class AdminStateResponse(BaseModel):
+    meta: DataMeta
+    writable: bool
+    positions: list[Position]
+    watchlists: list[WatchlistGroup]
+
+
+class StockMutationRequest(BaseModel):
+    owned: bool
+    average_cost: float | None = Field(default=None, gt=0)
+    watchlists: list[str] = Field(default_factory=list, max_length=50)
+
+
+class StockMutationResponse(BaseModel):
+    ticker: str
+    owned: bool
+    average_cost: float | None
+    watchlists: list[str]
+    backup_id: str
+
+
+class RollbackResponse(BaseModel):
+    backup_id: str
+    restored: bool

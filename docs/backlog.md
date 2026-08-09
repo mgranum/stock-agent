@@ -182,17 +182,40 @@ Streamlit kan avvikles.
 
 ### Fase 4 – Administrer og kontrollerte skriveoperasjoner
 
-* [ ] Bygg én redigeringsflyt for eid/ikke eid, GAV og watchlist-medlemskap fra
+* [x] Bygg én redigeringsflyt for eid/ikke eid, GAV og watchlist-medlemskap fra
   søk, ticker-rad, selskapsdetaljer og Administrer
-* [ ] Behold risiko-, stop-loss- og gevinstsikringslogikk for eide aksjer
-* [ ] Avklar om antall aksjer fortsatt skal lagres for konsentrasjonsrisiko, uten
+* [x] Behold risiko-, stop-loss- og gevinstsikringslogikk for eide aksjer
+* [x] Avklar om antall aksjer fortsatt skal lagres for konsentrasjonsrisiko, uten
   at samlet porteføljeverdi vises i grensesnittet
-* [ ] La bare én applikasjon skrive eide aksjer, GAV og watchlists under
+* [x] La bare én applikasjon skrive eide aksjer, GAV og watchlists under
   overgangsperioden
-* [ ] Valider input, vis tydelig lagringsstatus og test avbrutte/feilede
+* [x] Valider input, vis tydelig lagringsstatus og test avbrutte/feilede
   skriveoperasjoner
-* [ ] Verifiser sikkerhetskopi og rollback med kopier av TEST-data før PROD-data
+* [x] Verifiser sikkerhetskopi og rollback med kopier av TEST-data før PROD-data
   kan endres
+
+### Fase 4.1 – informasjonsparitet i I dag
+
+Dette er en nødvendig oppfølging av fase 3 før nye sekundærflater prioriteres.
+Radene skal beholde den visuelle enkelheten, men gi samme beslutningsstøtte som
+den godkjente skissen.
+
+* [ ] Utvid eide aksjer med valutamerket kurs, handlingsstatus med kort
+  begrunnelse, avstand til relevant stop, stop-nivå, GAV og gevinst/tap siden
+  GAV
+* [ ] Utvid watchlist-rader med valutamerket kurs, kort årsak til råd eller
+  endring, relativ styrke i prosentpoeng mot riktig benchmark og lesbar
+  trendstatus
+* [ ] Vis «endret i dag» bare fra dokumenterte snapshot-endringer; ikke utled
+  endring fra dagens rangering eller nåtilstand
+* [ ] Definer prioritet og fallback for stop-loss kontra trailing stop, og vis
+  tydelig tomtilstand når nøkkelnivå eller benchmarkdata mangler
+* [ ] Utvid presentasjonskontraktene uten å beregne score, risiko eller råd på
+  nytt i frontend
+* [ ] Legg til regresjonstester for representative eide aksjer, watchlist-aksjer,
+  manglende data og positive/negative verdier
+* [ ] Verifiser desktop og mobil mot den godkjente skissen før punktet regnes som
+  fullført
 
 ### Fase 5 – øvrige flater
 

@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from src.storage import atomic_write_json, load_json, update_json
+from src.write_ownership import assert_writer
 
 
 def _project_root():
@@ -182,6 +183,7 @@ def load_watchlists():
 
 
 def add_symbol_to_watchlist(list_name, symbol):
+    assert_writer("legacy")
     if list_name == "Alle":
         raise ValueError("Kan ikke redigere watchlisten 'Alle'.")
 
@@ -201,6 +203,7 @@ def add_symbol_to_watchlist(list_name, symbol):
 
 
 def remove_symbol_from_watchlist(list_name, symbol):
+    assert_writer("legacy")
     if list_name == "Alle":
         raise ValueError("Kan ikke redigere watchlisten 'Alle'.")
 

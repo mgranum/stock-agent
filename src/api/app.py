@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api.models import (
+    AdminStateResponse,
     ChatRequest,
     ChatResponse,
     CompanyDetailResponse,
@@ -16,8 +17,12 @@ from src.api.models import (
     RefreshStatusResponse,
     SearchResponse,
     TodayResponse,
+    RollbackResponse,
+    StockMutationRequest,
+    StockMutationResponse,
     WatchlistsResponse,
 )
+from src.admin_service import AdminMutationService, AdminWritesDisabled
 from src.company_detail_query import CompanyDetailQuery, PERIODS
 from src.environment import get_environment
 from src.presentation_queries import PresentationQueries
@@ -26,9 +31,11 @@ from src.presentation_queries import PresentationQueries
 def create_app(
     query: CompanyDetailQuery | None = None,
     presentation_queries: PresentationQueries | None = None,
+    admin_service: AdminMutationService | None = None,
 ) -> FastAPI:
     company_query = query or CompanyDetailQuery()
     presentation = presentation_queries or PresentationQueries()
+    admin = admin_service or AdminMutationService()
     app = FastAPI(
         title="Stock Agent API",
         version="0.2.0",
@@ -96,6 +103,50 @@ def create_app(
             return presentation.chat(request.question.strip())
         except LookupError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.get("/api/admin", response_model=AdminStateResponse)
+    def admin_state():
+        positions = presentation.positions()
+        watchlists = presentation.watchlists()
+        return {
+            "meta": positions["meta"],
+            "writable": get_environment() == "test",
+            "positions": positions["positions"],
+            "watchlists": watchlists["watchlists"],
+        }
+
+    @app.put("/api/admin/stocks/{ticker}", response_model=StockMutationResponse)
+    def update_stock(ticker: str, request: StockMutationRequest):
+        if request.owned and request.average_cost is None:
+            raise HTTPException(
+                status_code=422,
+                detail="GAV må oppgis for en eid aksje.",
+            )
+        try:
+            return admin.update_stock(
+                ticker,
+                owned=request.owned,
+                average_cost=request.average_cost,
+                watchlists=request.watchlists,
+            )
+        except AdminWritesDisabled as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post(
+        "/api/admin/rollback/{backup_id}",
+        response_model=RollbackResponse,
+    )
+    def rollback(backup_id: str):
+        try:
+            return admin.rollback(backup_id)
+        except AdminWritesDisabled as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
     assets_dir = frontend_dist / "assets"

@@ -1,4 +1,5 @@
 from src.storage import save_portfolio
+from src.write_ownership import assert_writer
 
 
 def add_or_update_position(
@@ -7,6 +8,7 @@ def add_or_update_position(
     shares,
     buy_price,
 ):
+    assert_writer("legacy")
     ticker = ticker.upper()
 
     updated = []
@@ -40,6 +42,7 @@ def remove_position(
     portfolio,
     ticker,
 ):
+    assert_writer("legacy")
     ticker = ticker.upper()
 
     updated = [
