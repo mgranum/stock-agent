@@ -28,6 +28,7 @@ from src.model_version import MODEL_VERSION
 from src.sentiment import build_sentiment_summary, merge_sentiment_into_news_summary
 from src.screener import screen_nordics, screen_obx, screen_us_large
 from src.screener import load_screening_universe
+from src.storage import atomic_write_json
 from src.universe_snapshot import save_universe_snapshot
 from src.watchlist_advisor import build_watchlist_advisor
 
@@ -257,10 +258,7 @@ def save_context_snapshot(
         "context": _serialize_context(context),
     }
 
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, ensure_ascii=False)
-
-    return path
+    return atomic_write_json(path, payload)
 
 
 def _load_context_snapshot_payload() -> dict[str, Any] | None:

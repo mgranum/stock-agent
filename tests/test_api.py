@@ -37,6 +37,75 @@ def _get(app, path, params=None):
     return asyncio.run(request())
 
 
+def _post(app, path, json):
+    async def request():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+        ) as client:
+            return await client.post(path, json=json)
+
+    return asyncio.run(request())
+
+
+class PresentationStub:
+    meta = {
+        "status": "fresh",
+        "environment": "test",
+        "model_version": "test-v1",
+        "built_at": "2026-08-08T08:00:00+00:00",
+        "snapshot_date": "2026-08-08",
+        "message": None,
+    }
+
+    def today(self):
+        return {
+            "meta": self.meta,
+            "attention": [],
+            "owned": [],
+            "watchlist": [],
+            "candidates": [],
+        }
+
+    def company_context(self, ticker):
+        return {
+            "meta": self.meta,
+            "company_name": "NVIDIA Corporation",
+            "recommendation": "KJØP / ØK",
+            "score": 78,
+        }
+
+    def explore(self):
+        return {"meta": self.meta, "watchlist_ranking": [], "candidates": []}
+
+    def positions(self):
+        return {"meta": self.meta, "positions": []}
+
+    def watchlists(self):
+        return {"meta": self.meta, "watchlists": []}
+
+    def search(self, query, limit=20):
+        return {"meta": self.meta, "query": query, "results": []}
+
+    def refresh_status(self):
+        return {
+            "environment": "test",
+            "status": "ok",
+            "status_label": "OK",
+            "updated_at": "2026-08-08 10:00",
+            "updated_at_source": "refresh_state",
+            "last_successful_date": "2026-08-08",
+            "last_error_count": 0,
+        }
+
+    def model_status(self):
+        return {"meta": self.meta, "refresh": self.refresh_status()}
+
+    def chat(self, question):
+        return {"meta": self.meta, "answer": f"Svar: {question}"}
+
+
 def test_health_preserves_environment(monkeypatch):
     monkeypatch.setenv("STOCK_AGENT_ENV", "test")
     response = _get(create_app(_query()), "/api/health")
@@ -47,7 +116,7 @@ def test_health_preserves_environment(monkeypatch):
 
 def test_company_detail_contract():
     response = _get(
-        create_app(_query()),
+        create_app(_query(), PresentationStub()),
         "/api/stocks/nvda",
         params={"period": "1u"},
     )
@@ -56,6 +125,8 @@ def test_company_detail_contract():
     body = response.json()
     assert body["ticker"] == "NVDA"
     assert body["company_name"] == "NVIDIA Corporation"
+    assert body["recommendation"] == "KJØP / ØK"
+    assert body["meta"]["model_version"] == "test-v1"
     assert body["period"] == "1u"
     assert body["candles"][-1]["close"] == 102.0
 
@@ -69,3 +140,33 @@ def test_invalid_period_is_422():
 
     assert response.status_code == 422
     assert response.json()["detail"] == "Ugyldig periode"
+
+
+def test_phase_two_read_contracts_are_available():
+    app = create_app(_query(), PresentationStub())
+
+    for path in (
+        "/api/today",
+        "/api/explore",
+        "/api/positions",
+        "/api/watchlists",
+        "/api/model-status",
+        "/api/refresh/status",
+    ):
+        response = _get(app, path)
+        assert response.status_code == 200, path
+
+    search = _get(app, "/api/search", params={"q": "NVDA"})
+    assert search.status_code == 200
+    assert search.json()["query"] == "NVDA"
+
+
+def test_chat_contract_and_input_validation():
+    app = create_app(_query(), PresentationStub())
+
+    response = _post(app, "/api/chat", {"question": "Oppsummer"})
+    assert response.status_code == 200
+    assert response.json()["answer"] == "Svar: Oppsummer"
+
+    assert _post(app, "/api/chat", {"question": ""}).status_code == 422
+    assert _get(app, "/api/search", params={"q": ""}).status_code == 422

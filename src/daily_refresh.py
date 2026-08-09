@@ -33,6 +33,7 @@ from src.network import check_network_ready
 from src.research_ideas import load_research_ideas
 from src.sentiment import build_sentiment_summary
 from src.storage import load_pending_orders, load_portfolio
+from src.storage import atomic_write_json
 from src.technicals import analyze_technicals, get_benchmark_for_symbol
 
 _lock_file_handle: Any | None = None
@@ -90,9 +91,7 @@ def load_refresh_state() -> dict[str, Any] | None:
 
 def save_refresh_state(state: dict[str, Any]) -> Path:
     path = refresh_state_path()
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2, ensure_ascii=False)
-    return path
+    return atomic_write_json(path, state)
 
 
 def should_run_refresh(

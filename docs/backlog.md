@@ -151,33 +151,33 @@ Streamlit kan avvikles.
 
 ### Fase 2 – API-grense og datatrygghet
 
-* [ ] Innfør små presentasjons-/query-tjenester mellom API-et og eksisterende
+* [x] Innfør små presentasjons-/query-tjenester mellom API-et og eksisterende
   context; ikke eksponer hele interne context-objektet
-* [ ] Definer Pydantic-kontrakter og eksplisitt håndtering av tomme, manglende,
+* [x] Definer Pydantic-kontrakter og eksplisitt håndtering av tomme, manglende,
   ugyldige og utdaterte data
-* [ ] Etabler API-er for `today`, selskapsdetaljer, søk, Utforsk,
+* [x] Etabler API-er for `today`, selskapsdetaljer, søk, Utforsk,
   posisjoner, watchlists, modellstatus, chat og refresh-status
-* [ ] Sikre at ticker, selskapsnavn, anbefaling og modellversjon har én felles
+* [x] Sikre at ticker, selskapsnavn, anbefaling og modellversjon har én felles
   identitet på tvers av API-ressursene
-* [ ] Gjør lokale JSON-skrivinger atomiske og beskytt dem mot samtidige
+* [x] Gjør lokale JSON-skrivinger atomiske og beskytt dem mot samtidige
   skriveoperasjoner før ny frontend får skrive
-* [ ] Bruk ordinær HTTP og kontrollert polling først; innfør bare streaming eller
+* [x] Bruk ordinær HTTP og kontrollert polling først; innfør bare streaming eller
   WebSocket ved dokumentert behov
-* [ ] Legg til kontraktstester for API-et og regresjonstester mot eksisterende
+* [x] Legg til kontraktstester for API-et og regresjonstester mot eksisterende
   Python-resultater
 
 ### Fase 3 – leseflater
 
-* [ ] Bygg I dag som primærflate med eide aksjer, watchlist og tre sidestilte
+* [x] Bygg I dag som primærflate med eide aksjer, watchlist og tre sidestilte
   nye kandidater
-* [ ] Bygg full selskapsdetalj med kursutvikling, agentvurdering,
+* [x] Bygg full selskapsdetalj med kursutvikling, agentvurdering,
   selskapsvurdering, fundamentalt og nyheter/neste hendelser
-* [ ] Bruk samme periodevalg i I dag og selskapsdetaljer
-* [ ] Gjør alle ticker- og selskapsnavn til lenker til samme selskapsdetalj
-* [ ] Bygg globalt søk etter ticker og selskapsnavn
-* [ ] Bevar valgt flate, ticker og periode når søk eller chat åpnes og lukkes
-* [ ] Bygg responsiv oppførsel og tastaturnavigasjon for de viktigste flytene
-* [ ] Sammenlign innhold og råd med Streamlit på et fast sett tickere og
+* [x] Bruk samme periodevalg i I dag og selskapsdetaljer
+* [x] Gjør alle ticker- og selskapsnavn til lenker til samme selskapsdetalj
+* [x] Bygg globalt søk etter ticker og selskapsnavn
+* [x] Bevar valgt flate, ticker og periode når søk åpnes og lukkes
+* [x] Bygg responsiv oppførsel og tastaturnavigasjon for de viktigste flytene
+* [x] Sammenlign innhold og råd med Streamlit på et fast sett tickere og
   datasituasjoner
 
 ### Fase 4 – Administrer og kontrollerte skriveoperasjoner

@@ -1,0 +1,206 @@
+from datetime import date, datetime, timezone
+
+import pandas as pd
+import pytest
+
+from src.presentation_queries import PresentationQueries
+
+
+NOW = datetime(2026, 8, 8, 12, 0, tzinfo=timezone.utc)
+
+
+def _context_result(*, expired=False, loaded=True, reason="loaded"):
+    context = {
+        "model_version": "test-model-v1",
+        "watchlist_report": pd.DataFrame(
+            [
+                {
+                    "ticker": "NVDA",
+                    "company_name": "NVIDIA Corporation",
+                    "score": 78,
+                    "anbefaling": "KJØP / ØK",
+                    "kurs": 180,
+                    "trend_regime": "STERK OPPTREND",
+                    "technical_score": 80,
+                    "fundamental_score": 70,
+                    "fundamental_history_score": 60,
+                    "begrunnelse": ["Sterk trend", "God kvalitet"],
+                    "fundamental_reasons": ["Vekst i inntjening"],
+                },
+                {
+                    "ticker": "MSFT",
+                    "company_name": "Microsoft Corporation",
+                    "score": 65,
+                    "anbefaling": "HOLD / OBSERVER",
+                    "kurs": float("nan"),
+                    "trend_regime": "MODERAT OPPTREND",
+                },
+            ]
+        ),
+        "portfolio_report": pd.DataFrame(
+            [
+                {
+                    "ticker": "NVDA",
+                    "current_price": 180,
+                    "unrealized_gain_pct": 55.2,
+                    "anbefaling": "HOLD / OBSERVER",
+                    "portefølje_råd": "BEHOLD",
+                    "stop_loss": 150,
+                    "trailing_stop_loss": 165,
+                }
+            ]
+        ),
+        "opportunity_advisor": {
+            "items": [
+                {
+                    "ticker": "GOOGL",
+                    "company_name": "Alphabet Inc.",
+                    "score": 72,
+                    "recommendation": "KJØP / ØK",
+                }
+            ]
+        },
+        "daily_briefing": {
+            "critical_items": [
+                {
+                    "ticker": "NVDA",
+                    "title": "Vurder gevinstsikring",
+                    "priority": "high",
+                    "recommendation": "BEHOLD",
+                }
+            ]
+        },
+        "watchlist": ["NVDA", "MSFT"],
+        "analyst_summary": {
+            "items": [{"ticker": "NVDA", "recommendation_key": "buy", "analyst_count": 42, "target_mean": 220, "upside_pct": 22.2}]
+        },
+        "earnings_summary": {"items": [{"ticker": "NVDA", "event_label": "Q2-rapport"}]},
+        "news_summary": {"items": [{"ticker": "NVDA", "headline": "Ny produktlansering", "url": "https://example.com/news"}]},
+    }
+    return {
+        "loaded": loaded,
+        "reason": reason,
+        "context": context if loaded else None,
+        "metadata": {
+            "model_version": "test-model-v1",
+            "built_at": "2026-08-08T08:00:00+00:00",
+            "date": "2026-08-08",
+        },
+        "expired": expired,
+    }
+
+
+def _queries(context_result=None):
+    result = context_result or _context_result()
+    return PresentationQueries(
+        context_loader=lambda **_kwargs: result,
+        portfolio_loader=lambda _default=None: [
+            {"ticker": "NVDA", "buy_price": 116, "shares": 10}
+        ],
+        watchlists_loader=lambda: {
+            "USA": ["NVDA", "MSFT"],
+            "Alle": ["MSFT", "NVDA"],
+        },
+        company_name_loader=lambda ticker: {
+            "NVDA": "NVIDIA Corporation",
+            "MSFT": "Microsoft Corporation",
+            "GOOGL": "Alphabet Inc.",
+        }.get(ticker, ticker),
+        refresh_state_loader=lambda: {
+            "last_status": "success",
+            "last_successful_date": date.today().isoformat(),
+            "last_finished_at": "2026-08-08T08:00:00+00:00",
+            "last_error_count": 0,
+        },
+        chat_handler=lambda question, context: f"{question}: {context['model_version']}",
+        now=lambda: NOW,
+    )
+
+
+def test_today_is_small_normalized_contract():
+    result = _queries().today()
+
+    assert set(result) == {"meta", "attention", "owned", "watchlist", "candidates"}
+    assert result["meta"]["status"] == "fresh"
+    assert result["owned"][0]["ticker"] == "NVDA"
+    assert result["owned"][0]["average_cost"] == 116.0
+    assert result["owned"][0]["requires_attention"] is True
+    assert result["watchlist"][0]["ticker"] == "MSFT"
+    assert result["watchlist"][0]["current_price"] is None
+    assert result["candidates"][0]["ticker"] == "GOOGL"
+
+
+def test_identity_is_consistent_across_resources():
+    queries = _queries()
+
+    today_name = queries.today()["owned"][0]["company_name"]
+    ranking_item = next(
+        item
+        for item in queries.explore()["watchlist_ranking"]
+        if item["ticker"] == "NVDA"
+    )
+    today_item = queries.today()["owned"][0]
+    position_item = queries.positions()["positions"][0]
+    search_name = queries.search("nvidia")["results"][0]["company_name"]
+    company = queries.company_context("nvda")
+
+    assert {
+        today_name,
+        ranking_item["company_name"],
+        position_item["company_name"],
+        search_name,
+        company["company_name"],
+    } == {
+        "NVIDIA Corporation"
+    }
+    assert {
+        today_item["recommendation"],
+        ranking_item["recommendation"],
+        position_item["recommendation"],
+        company["recommendation"],
+    } == {"KJØP / ØK"}
+    assert company["meta"]["model_version"] == "test-model-v1"
+    assert company["technical_score"] == 80.0
+    assert company["fundamental_reasons"] == ["Vekst i inntjening"]
+    assert company["analyst_consensus"] == "buy"
+    assert company["next_event"]["event_label"] == "Q2-rapport"
+    assert company["news"][0]["headline"] == "Ny produktlansering"
+
+
+def test_stale_and_missing_context_are_explicit():
+    stale = _queries(_context_result(expired=True)).today()
+    missing = _queries(
+        _context_result(loaded=False, reason="missing")
+    ).today()
+
+    assert stale["meta"]["status"] == "stale"
+    assert stale["meta"]["message"] == "Analysedata er eldre enn 24 timer."
+    assert missing["meta"]["status"] == "missing"
+    assert missing["owned"][0]["ticker"] == "NVDA"
+    assert missing["watchlist"][0]["ticker"] == "MSFT"
+
+
+def test_search_requires_a_match_and_limits_results():
+    queries = _queries()
+
+    assert queries.search("micro")["results"][0]["ticker"] == "MSFT"
+    assert queries.search("unknown")["results"] == []
+    assert len(queries.search("m", limit=1)["results"]) == 1
+
+
+def test_chat_uses_existing_agent_and_rejects_missing_context():
+    assert _queries().chat("Oppsummer")["answer"] == "Oppsummer: test-model-v1"
+
+    missing = _queries(_context_result(loaded=False, reason="missing"))
+    with pytest.raises(LookupError, match="Daily Refresh"):
+        missing.chat("Oppsummer")
+
+
+def test_model_and_refresh_status_share_environment(monkeypatch):
+    monkeypatch.setenv("STOCK_AGENT_ENV", "test")
+    result = _queries().model_status()
+
+    assert result["meta"]["environment"] == "test"
+    assert result["meta"]["model_version"] == "test-model-v1"
+    assert result["refresh"]["environment"] == "test"
+    assert result["refresh"]["last_error_count"] == 0

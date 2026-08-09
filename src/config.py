@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from src.storage import load_json, save_json
+from src.storage import atomic_write_json, load_json, update_json
 
 
 def _project_root():
@@ -31,16 +31,7 @@ def load_json_config(filename, default):
 
 def save_json_config(filename, data):
     path = _config_path(filename)
-
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(
-            data,
-            f,
-            indent=2,
-            ensure_ascii=False,
-        )
-
-    return path
+    return atomic_write_json(path, data)
 
 
 DEFAULT_WATCHLISTS = {
@@ -198,16 +189,15 @@ def add_symbol_to_watchlist(list_name, symbol):
     if not symbol:
         raise ValueError("Ticker kan ikke være tom.")
 
-    watchlists = _load_editable_watchlists()
+    def add_symbol(watchlists):
+        if list_name not in watchlists:
+            raise ValueError(f"Watchlist '{list_name}' finnes ikke.")
+        if symbol not in watchlists[list_name]:
+            watchlists[list_name].append(symbol)
+        return watchlists
 
-    if list_name not in watchlists:
-        raise ValueError(f"Watchlist '{list_name}' finnes ikke.")
-
-    if symbol not in watchlists[list_name]:
-        watchlists[list_name].append(symbol)
-        save_json("watchlists.json", watchlists)
-
-    return load_watchlists()
+    updated = update_json("watchlists.json", add_symbol, DEFAULT_WATCHLISTS)
+    return _derive_alle_watchlist(updated)
 
 
 def remove_symbol_from_watchlist(list_name, symbol):
@@ -215,18 +205,18 @@ def remove_symbol_from_watchlist(list_name, symbol):
         raise ValueError("Kan ikke redigere watchlisten 'Alle'.")
 
     symbol = symbol.strip().upper()
-    watchlists = _load_editable_watchlists()
+    def remove_symbol(watchlists):
+        if list_name not in watchlists:
+            raise ValueError(f"Watchlist '{list_name}' finnes ikke.")
+        watchlists[list_name] = [
+            current
+            for current in watchlists[list_name]
+            if current != symbol
+        ]
+        return watchlists
 
-    if list_name not in watchlists:
-        raise ValueError(f"Watchlist '{list_name}' finnes ikke.")
-
-    watchlists[list_name] = [
-        s for s in watchlists[list_name]
-        if s != symbol
-    ]
-    save_json("watchlists.json", watchlists)
-
-    return load_watchlists()
+    updated = update_json("watchlists.json", remove_symbol, DEFAULT_WATCHLISTS)
+    return _derive_alle_watchlist(updated)
 
 
 def load_backtest_config():
