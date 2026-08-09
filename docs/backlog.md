@@ -231,14 +231,18 @@ den godkjente skissen.
 
 ### Fase 6 – paritet, overgang og avvikling
 
-* [ ] Kjør paritetsmatrisen i TEST og deretter en kontrollert PROD-verifikasjon
-* [ ] Verifiser at anbefaling, risiko, stop-loss og gevinstsikring er uendret for
+* [x] Kjør paritetsmatrisen i TEST og deretter en kontrollert PROD-verifikasjon
+  * [x] Automatisert TEST-paritet: 73/73 kontroller bestått
+  * [x] Read-only driftskontroll: 9/9 kontroller bestått
+  * [x] Kjør kontrollene på nytt etter en fersk, feilfri TEST Daily Refresh
+  * [x] Gjennomfør kontrollert read-only PROD-paritet: 83/83 kontroller bestått
+* [x] Verifiser at anbefaling, risiko, stop-loss og gevinstsikring er uendret for
   representative eide aksjer og kandidater
-* [ ] Verifiser refresh, cache, direkte ticker-lenker, tilbakeknapp og
+* [x] Verifiser refresh, cache, direkte ticker-lenker, tilbakeknapp og
   gjenoppretting etter omstart
-* [ ] Kjør automatiserte backend-, API- og frontendtester samt manuelle kritiske
+* [x] Kjør automatiserte backend-, API- og frontendtester samt manuelle kritiske
   brukerflyter
-* [ ] Dokumenter installasjon, lokal drift, bygging, backup og rollback
+* [x] Dokumenter installasjon, lokal drift, bygging, backup og rollback
 * [ ] Gjør ny løsning til standard først etter godkjent brukerakseptanse
 * [ ] Behold Streamlit som kortvarig fallback etter første cutover
 * [ ] Fjern Streamlit og tilhørende presentasjonskode først når paritet og

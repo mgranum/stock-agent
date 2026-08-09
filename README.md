@@ -39,3 +39,6 @@ uv run uvicorn src.api.app:app --host 127.0.0.1 --port 8000
 ```
 
 Da åpnes selskapsdetaljen på `http://127.0.0.1:8000/stocks/NVDA`.
+
+Se [lokal drifts- og migrasjonsveiledning](docs/operations/react-fastapi-local.md)
+for Daily Refresh, paritetskontroller, backup, rollback og cutover-kriterier.

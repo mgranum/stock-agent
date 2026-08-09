@@ -565,7 +565,10 @@ class PresentationQueries:
         watch_by_ticker = {_ticker(row): row for row in watch_rows if _ticker(row)}
         names = self._identity_names(portfolio, watch_rows, portfolio_rows, candidates)
         positions = []
-        for raw in portfolio:
+        unique_positions = {
+            _ticker(raw): raw for raw in portfolio if _ticker(raw)
+        }
+        for raw in unique_positions.values():
             ticker = _ticker(raw)
             if not ticker:
                 continue

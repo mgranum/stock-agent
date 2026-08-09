@@ -248,6 +248,19 @@ def test_model_and_refresh_status_share_environment(monkeypatch):
     assert result["refresh"]["last_error_count"] == 0
 
 
+def test_positions_deduplicate_repeated_ticker_rows():
+    queries = _queries()
+    queries._portfolio_loader = lambda _default=None: [
+        {"ticker": "NVDA", "buy_price": 100},
+        {"ticker": "NVDA", "buy_price": 116},
+    ]
+
+    result = queries.positions()["positions"]
+
+    assert [row["ticker"] for row in result] == ["NVDA"]
+    assert result[0]["average_cost"] == 116.0
+
+
 def test_explore_groups_existing_classifications():
     result = _queries().explore()
 
