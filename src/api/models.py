@@ -34,6 +34,9 @@ class CompanyDetailResponse(BaseModel):
     current_price: float
     period_change_pct: float
     recommendation: str | None = None
+    owned: bool = False
+    action_label: str | None = None
+    action_reason: str | None = None
     decision: StructuredRecommendation | None = None
     score: float | None = None
     trend_regime: str | None = None
@@ -175,6 +178,7 @@ class ModelDataResponse(BaseModel):
     research_ideas: dict = Field(default_factory=dict)
     snapshots: dict = Field(default_factory=dict)
     discovery_journal: dict = Field(default_factory=dict)
+    decision_journal: dict = Field(default_factory=dict)
     backtest_validation: dict = Field(default_factory=dict)
 
 

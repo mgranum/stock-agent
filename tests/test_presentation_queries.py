@@ -155,6 +155,10 @@ def _queries(context_result=None):
         discovery_journal_loader=lambda: pd.DataFrame([
             {"signal_date": "2026-08-08", "ticker": "GOOGL"},
         ]),
+        decision_journal_loader=lambda: [
+            {"signal_date": "2026-08-08", "entry_id": "one"},
+            {"signal_date": "2026-08-08", "entry_id": "two"},
+        ],
     )
 
 
@@ -238,12 +242,24 @@ def test_identity_is_consistent_across_resources():
         company["recommendation"],
     } == {"KJØP / ØK"}
     assert company["meta"]["model_version"] == "test-model-v1"
+    assert company["owned"] is True
+    assert company["action_label"] == "BEHOLD"
+    assert company["action_reason"] == "Beskytt gevinst"
     assert company["decision"]["action_code"] == "protect_position"
     assert company["technical_score"] == 80.0
     assert company["fundamental_reasons"] == ["Vekst i inntjening"]
     assert company["analyst_consensus"] == "buy"
     assert company["next_event"]["event_label"] == "Q2-rapport"
     assert company["news"][0]["headline"] == "Ny produktlansering"
+
+
+def test_non_owned_company_has_no_portfolio_action():
+    company = _queries().company_context("MSFT")
+
+    assert company["owned"] is False
+    assert company["action_label"] is None
+    assert company["action_reason"] is None
+    assert company["recommendation"] == "HOLD / OBSERVER"
 
 
 def test_stale_and_missing_context_are_explicit():
@@ -332,6 +348,9 @@ def test_model_data_reports_observed_status_without_alpha_claim():
     }
     assert result["discovery_journal"]["cohorts"] == 1
     assert result["discovery_journal"]["status"] == "Prospektiv validering pågår"
+    assert result["decision_journal"]["entries"] == 2
+    assert result["decision_journal"]["days"] == 1
+    assert result["decision_journal"]["latest_signal_date"] == "2026-08-08"
     assert result["backtest_validation"]["status"] == "BLOCKED"
     assert any(
         check["check_id"] == "rolling_walk_forward"

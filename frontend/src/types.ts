@@ -40,6 +40,9 @@ export type CompanyDetail = {
   current_price: number;
   period_change_pct: number;
   recommendation: string | null;
+  owned: boolean;
+  action_label: string | null;
+  action_reason: string | null;
   decision: StructuredRecommendation | null;
   score: number | null;
   trend_regime: string | null;
@@ -192,6 +195,7 @@ export type ModelDataResponse = {
   research_ideas: Record<string, unknown>;
   snapshots: { rows?: number; dates?: number; latest_date?: string | null };
   discovery_journal: { rows?: number; cohorts?: number; latest_signal_date?: string | null; status?: string };
+  decision_journal: { entries?: number; days?: number; latest_signal_date?: string | null; status?: string };
   backtest_validation: { status?: string; approved?: boolean; blocked_count?: number; warning_count?: number; checks?: Record<string, unknown>[] };
 };
 

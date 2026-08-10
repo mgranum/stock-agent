@@ -86,9 +86,9 @@ før målegrunnlaget er troverdig.
 
 ### Decision Journal
 
-* [ ] Lagre alle materielle råd med tidspunkt, modellversjon og tilgjengelige
+* [x] Lagre alle materielle råd med tidspunkt, modellversjon og tilgjengelige
   inputdata
-* [ ] Lagre anbefalt inngang, kursmål, stop, tidshorisont, konfidens og
+* [x] Lagre anbefalt inngang, kursmål, stop, tidshorisont, konfidens og
   invalidasjonsgrunn
 * [ ] Registrer om brukeren fulgte rådet, uten å blande dette med
   modellresultatet

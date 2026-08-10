@@ -28,6 +28,7 @@ from src.fundamentals import get_fundamentals
 from src.indicators import add_indicators
 from src.model_backtest import save_model_snapshot
 from src.discovery_validation import save_discovery_journal
+from src.decision_journal import save_decision_journal
 from src.news import build_news_summary, get_news
 from src.network import check_network_ready
 from src.research_ideas import load_research_ideas
@@ -411,6 +412,7 @@ def run_daily_refresh(
         _record_error(errors, None, "context_snapshot", exc)
 
     discovery_journal_updated = False
+    decision_journal_updated = False
     if context is not None:
         try:
             discovery_journal_updated = bool(
@@ -418,6 +420,16 @@ def run_daily_refresh(
             )
         except Exception as exc:
             _record_error(errors, None, "discovery_journal", exc)
+        try:
+            decision_journal_updated = bool(
+                save_decision_journal(
+                    context,
+                    signal_date=today,
+                    recorded_at=_parse_iso_datetime(started_at),
+                )
+            )
+        except Exception as exc:
+            _record_error(errors, None, "decision_journal", exc)
 
     screening_updated = bool(
         context is not None
@@ -442,6 +454,7 @@ def run_daily_refresh(
         "screening_updated": screening_updated,
         "snapshot_updated": snapshot_updated,
         "discovery_journal_updated": discovery_journal_updated,
+        "decision_journal_updated": decision_journal_updated,
         "errors": errors,
     }
 
@@ -511,6 +524,9 @@ def build_refresh_summary(result: dict[str, Any]) -> str:
 
     if result.get("discovery_journal_updated"):
         lines.append("- Discovery-valideringsjournal oppdatert")
+
+    if result.get("decision_journal_updated"):
+        lines.append("- Beslutningsjournal oppdatert")
 
     error_count = len(result.get("errors") or [])
     if error_count:

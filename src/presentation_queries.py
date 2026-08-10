@@ -15,6 +15,7 @@ from src.config import load_watchlists
 from src.context import reload_context_from_snapshot
 from src.daily_refresh import format_refresh_panel_status, load_refresh_state
 from src.discovery_validation import load_discovery_journal
+from src.decision_journal import load_decision_journal
 from src.environment import get_environment
 from src.model_version import MODEL_VERSION
 from src.model_backtest import load_snapshots
@@ -110,6 +111,7 @@ class PresentationQueries:
         now: Callable = lambda: datetime.now(timezone.utc),
         snapshots_loader: Callable = load_snapshots,
         discovery_journal_loader: Callable = load_discovery_journal,
+        decision_journal_loader: Callable = load_decision_journal,
         backtest_validation_builder: Callable = build_backtest_validation_report,
     ):
         self._context_loader = context_loader
@@ -121,6 +123,7 @@ class PresentationQueries:
         self._now = now
         self._snapshots_loader = snapshots_loader
         self._discovery_journal_loader = discovery_journal_loader
+        self._decision_journal_loader = decision_journal_loader
         self._backtest_validation_builder = backtest_validation_builder
 
     def _state(self) -> ContextState:
@@ -297,6 +300,11 @@ class PresentationQueries:
         portfolio, _watchlists, watch_rows, portfolio_rows, candidates = self._sources(state)
         symbol = str(ticker).strip().upper()
         decisions = _decisions_by_ticker(state.context)
+        owned_tickers = {_ticker(row) for row in portfolio if _ticker(row)}
+        portfolio_analysis = next(
+            (row for row in portfolio_rows if _ticker(row) == symbol),
+            {},
+        )
         rows = watch_rows + portfolio_rows + candidates + portfolio
         names = self._identity_names(rows)
         analysis = next(
@@ -335,6 +343,9 @@ class PresentationQueries:
             "meta": self._meta(state),
             "company_name": card["company_name"] if card else symbol,
             "recommendation": card["recommendation"] if card else None,
+            "owned": symbol in owned_tickers,
+            "action_label": _text(portfolio_analysis, "portefølje_råd"),
+            "action_reason": _text(portfolio_analysis, "begrunnelse"),
             "decision": decisions.get(symbol),
             "score": card["score"] if card else None,
             "trend_regime": _text(analysis, "trend_regime"),
@@ -712,6 +723,7 @@ class PresentationQueries:
         dashboard = state.context.get("dashboard") or {}
         snapshots = self._snapshots_loader()
         journal = self._discovery_journal_loader()
+        decision_entries = self._decision_journal_loader()
         backtest_validation = self._backtest_validation_builder()
         snapshot_dates = (
             sorted(str(value) for value in snapshots["date"].dropna().unique())
@@ -722,6 +734,13 @@ class PresentationQueries:
             sorted(str(value) for value in journal["signal_date"].dropna().unique())
             if isinstance(journal, pd.DataFrame) and not journal.empty and "signal_date" in journal
             else []
+        )
+        decision_dates = sorted(
+            {
+                str(item.get("signal_date"))
+                for item in decision_entries
+                if isinstance(item, dict) and item.get("signal_date")
+            }
         )
         return {
             "meta": self._meta(state),
@@ -739,6 +758,12 @@ class PresentationQueries:
                 "cohorts": len(signal_dates),
                 "latest_signal_date": signal_dates[-1] if signal_dates else None,
                 "status": "Prospektiv validering pågår" if signal_dates else "Ingen journaldata",
+            },
+            "decision_journal": {
+                "entries": len(decision_entries),
+                "days": len(decision_dates),
+                "latest_signal_date": decision_dates[-1] if decision_dates else None,
+                "status": "Råd logges" if decision_dates else "Ingen journaldata",
             },
             "backtest_validation": backtest_validation,
         }
