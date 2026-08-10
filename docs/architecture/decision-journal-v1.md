@@ -22,12 +22,16 @@ Hver post inneholder:
 
 * signaldato, UTC-tidspunkt og modellversjon
 * kilde, regel, prioritet og dedupliseringsnøkkel
-* hele den validerte strukturerte anbefalingskontrakten
+* hele den validerte, samlede sluttbeslutningen fra Recommendation Engine
 * et lite evidensobjekt med eksisterende begrunnelse og kategori
 
 Manglende inngangsbetingelse, kursmål, stop, invalidasjon eller datakvalitet
 beholdes som manglende. Journalen skal dokumentere hva modellen visste, ikke
 etterfylle informasjon i ettertid.
+
+Journalen lagrer bare sluttbeslutninger merket `material`. Status uten ny
+handling, som et uendret `HOLD`, er fortsatt tilgjengelig i UI og API, men
+oppretter ikke en kunstig ny journalhendelse hver dag.
 
 ## Avgrensning
 

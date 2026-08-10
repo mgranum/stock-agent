@@ -298,6 +298,66 @@ class BuildRecommendationsTests(unittest.TestCase):
         self.assertIn("NVDA", result["actions"][0]["action"])
         self.assertEqual(result["actions"][0]["decision"]["stop_level"], 250.0)
 
+    def test_final_decision_combines_portfolio_advice_model_and_risk(self):
+        portfolio_report = pd.DataFrame(
+            [
+                _portfolio_row(
+                    ticker="BOUV.OL",
+                    anbefaling="KJØP / ØK",
+                    portefølje_råd="HOLD / LA VINNER LØPE",
+                    begrunnelse="Sterk trend og posisjonen er i pluss.",
+                    trailing_stop_loss=44.41,
+                )
+            ]
+        )
+        result = build_recommendations(
+            _sample_context(
+                portfolio_report=portfolio_report,
+                daily_flow={
+                    "daily_actions": [
+                        _daily_action(
+                            ticker="BOUV.OL",
+                            action_label="Følg stop-nivå",
+                            message="Nær trailing stop.",
+                        )
+                    ]
+                },
+            )
+        )
+
+        decision = result["decisions"][0]["decision"]
+        self.assertEqual(decision["ticker"], "BOUV.OL")
+        self.assertEqual(decision["label"], "HOLD / LA VINNER LØPE")
+        self.assertEqual(decision["action_code"], "hold")
+        self.assertEqual(decision["model_recommendation"], "KJØP / ØK")
+        self.assertEqual(decision["stop_level"], 44.41)
+        self.assertEqual(
+            decision["supporting_actions"][0]["action_code"],
+            "protect_position",
+        )
+        self.assertTrue(decision["material"])
+
+    def test_non_actionable_owned_position_still_has_non_material_final_decision(self):
+        portfolio_report = pd.DataFrame(
+            [
+                _portfolio_row(
+                    ticker="DNB.OL",
+                    portefølje_råd="HOLD",
+                    anbefaling="HOLD / OBSERVER",
+                    begrunnelse="Sterk hovedtrend.",
+                )
+            ]
+        )
+
+        result = build_recommendations(
+            _sample_context(portfolio_report=portfolio_report)
+        )
+
+        decision = result["decisions"][0]["decision"]
+        self.assertEqual(decision["label"], "HOLD")
+        self.assertEqual(decision["model_recommendation"], "HOLD / OBSERVER")
+        self.assertFalse(decision["material"])
+
     def test_opportunity_recommendation(self):
         result = build_recommendations(
             _sample_context(

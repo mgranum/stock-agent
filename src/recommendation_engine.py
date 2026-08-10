@@ -805,6 +805,168 @@ def _add_known_portfolio_stops(actions: list[dict], portfolio_report) -> None:
             decision["stop_level"] = stops[ticker]
 
 
+def _row_reason(row, fallback: str) -> str:
+    value = row.get("begrunnelse")
+    if isinstance(value, list):
+        value = next((str(item).strip() for item in value if str(item).strip()), "")
+    text = str(value or "").strip()
+    return text or fallback
+
+
+def _portfolio_action_code(label: str) -> str:
+    normalized = label.upper()
+    if "REDUSER" in normalized or "SELG" in normalized:
+        return "reduce_or_exit"
+    if "GEVINSTSIKRING" in normalized:
+        return "protect_position"
+    return "hold"
+
+
+def _model_action_code(label: str) -> str:
+    normalized = label.upper()
+    if "KJØP" in normalized or "ØK" in normalized:
+        return "consider_buy"
+    if "UNNGÅ" in normalized or "SELG" in normalized:
+        return "avoid"
+    return "hold"
+
+
+def _supporting_actions(items: list[dict]) -> list[dict]:
+    supports = []
+    seen = set()
+    for item in sorted(items, key=_sort_key):
+        decision = item.get("decision") or {}
+        identity = (decision.get("action_code"), item.get("action"))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        supports.append(
+            {
+                "action_code": decision.get("action_code", "review"),
+                "label": str(item.get("action") or "Gjennomgå"),
+                "reason": str(item.get("reason") or "Begrunnelse mangler"),
+                "source": str(item.get("source") or "recommendation_engine"),
+                "stop_level": decision.get("stop_level"),
+            }
+        )
+    return supports
+
+
+def _build_final_decisions(context, actions: list[dict]) -> list[dict]:
+    actions_by_ticker: dict[str, list[dict]] = {}
+    for item in actions:
+        decision = item.get("decision") or {}
+        ticker = str(decision.get("ticker") or "").strip().upper()
+        if ticker:
+            actions_by_ticker.setdefault(ticker, []).append(item)
+
+    decisions = []
+    covered = set()
+    portfolio_rows = valid_portfolio_rows(context.get("portfolio_report"))
+    for _, row in portfolio_rows.iterrows():
+        ticker = str(row.get("ticker") or "").strip().upper()
+        if not ticker:
+            continue
+        covered.add(ticker)
+        related = actions_by_ticker.get(ticker, [])
+        label = str(row.get("portefølje_råd") or row.get("anbefaling") or "HOLD")
+        reason = _row_reason(row, label)
+        trailing = _safe_float(row.get("trailing_stop_loss"))
+        ordinary = _safe_float(row.get("stop_loss"))
+        stop_level = trailing if trailing is not None else ordinary
+        priority = min((item.get("priority", 3) for item in related), default=3)
+        decision = build_contract_fields(
+            ticker=ticker,
+            category=CATEGORY_PORTFOLIO,
+            rule="final_decision",
+            reason=reason,
+            confidence=_confidence(priority),
+            action_code=_portfolio_action_code(label),
+            scope="portfolio",
+            label=label,
+            stop_level=stop_level,
+            model_recommendation=str(row.get("anbefaling") or "").strip() or None,
+            supporting_actions=_supporting_actions(related),
+            material=bool(related),
+        )
+        decisions.append(
+            {
+                "ticker": ticker,
+                "source": "recommendation_engine",
+                "rule": "final_decision",
+                "priority": priority,
+                "dedupe_key": f"FINAL_DECISION:{ticker}",
+                "decision": decision,
+            }
+        )
+
+    watchlist_report = context.get("watchlist_report")
+    if watchlist_report is not None and hasattr(watchlist_report, "iterrows"):
+        for _, row in watchlist_report.iterrows():
+            ticker = str(row.get("ticker") or "").strip().upper()
+            if not ticker or ticker in covered:
+                continue
+            covered.add(ticker)
+            related = actions_by_ticker.get(ticker, [])
+            label = str(row.get("anbefaling") or "HOLD / OBSERVER")
+            reason = _row_reason(row, label)
+            priority = min((item.get("priority", 3) for item in related), default=3)
+            decision = build_contract_fields(
+                ticker=ticker,
+                category=CATEGORY_WATCHLIST,
+                rule="final_decision",
+                reason=reason,
+                confidence=_confidence(priority),
+                action_code=_model_action_code(label),
+                scope="watchlist",
+                label=label,
+                model_recommendation=label,
+                supporting_actions=_supporting_actions(related),
+                material=bool(related),
+            )
+            decisions.append(
+                {
+                    "ticker": ticker,
+                    "source": "recommendation_engine",
+                    "rule": "final_decision",
+                    "priority": priority,
+                    "dedupe_key": f"FINAL_DECISION:{ticker}",
+                    "decision": decision,
+                }
+            )
+
+    for ticker, related in actions_by_ticker.items():
+        if ticker in covered:
+            continue
+        primary = sorted(related, key=_sort_key)[0]
+        source_decision = primary["decision"]
+        decision = build_contract_fields(
+            ticker=ticker,
+            category=primary.get("category") or CATEGORY_GENERAL,
+            rule=primary.get("rule"),
+            reason=str(primary.get("reason") or "Begrunnelse mangler"),
+            confidence=source_decision.get("confidence", "medium"),
+            action_code=source_decision.get("action_code", "review"),
+            scope=source_decision.get("scope", "general"),
+            label=str(primary.get("action") or ticker),
+            stop_level=source_decision.get("stop_level"),
+            supporting_actions=_supporting_actions(related[1:]),
+            material=True,
+        )
+        decisions.append(
+            {
+                "ticker": ticker,
+                "source": "recommendation_engine",
+                "rule": "final_decision",
+                "priority": primary.get("priority", 3),
+                "dedupe_key": f"FINAL_DECISION:{ticker}",
+                "decision": decision,
+            }
+        )
+
+    return sorted(decisions, key=lambda item: (item.get("priority", 99), item["ticker"]))
+
+
 def _build_summary(actions) -> str:
     if not actions:
         return "Ingen viktige handlinger anbefales i dag."
@@ -834,11 +996,13 @@ def build_recommendations(context) -> dict:
     )
     actions = _dedupe_recommendations(raw_recommendations)
     _add_known_portfolio_stops(actions, context.get("portfolio_report"))
+    decisions = _build_final_decisions(context, actions)
     return {
         "contract_version": RECOMMENDATION_CONTRACT_VERSION,
         "model_version": MODEL_VERSION,
         "summary": _build_summary(actions),
         "actions": actions,
+        "decisions": decisions,
     }
 
 
@@ -853,6 +1017,7 @@ def limit_recommendations(recommendations, limit=MAX_RECOMMENDATIONS) -> dict:
         "model_version": recommendations.get("model_version") or MODEL_VERSION,
         "summary": recommendations.get("summary") or _build_summary(actions),
         "actions": actions,
+        "decisions": list(recommendations.get("decisions") or []),
     }
 
 

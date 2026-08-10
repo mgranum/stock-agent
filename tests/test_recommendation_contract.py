@@ -24,6 +24,7 @@ def test_builds_complete_contract_without_inventing_missing_levels():
         "model_version": MODEL_VERSION,
         "ticker": "NVDA",
         "action_code": "consider_buy",
+        "label": None,
         "scope": "candidate",
         "time_horizon": DEFAULT_TIME_HORIZON,
         "entry_condition": None,
@@ -32,6 +33,9 @@ def test_builds_complete_contract_without_inventing_missing_levels():
         "reasons": ["Sterk trend og kvalitet."],
         "invalidation": None,
         "confidence": "høy",
+        "model_recommendation": None,
+        "supporting_actions": [],
+        "material": False,
         "data_quality": {
             "status": "not_assessed",
             "as_of": None,

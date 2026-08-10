@@ -73,10 +73,13 @@ def build_decision_journal_entries(
 
     entries = []
     seen = set()
-    for item in recommendations.get("actions") or []:
+    items = recommendations.get("decisions") or recommendations.get("actions") or []
+    for item in items:
         if not isinstance(item, dict) or not isinstance(item.get("decision"), dict):
             continue
         decision = StructuredRecommendation.model_validate(item["decision"])
+        if not decision.material and recommendations.get("decisions"):
+            continue
         dedupe_key = str(
             item.get("dedupe_key")
             or f"{decision.scope}:{decision.ticker}:{decision.action_code}"

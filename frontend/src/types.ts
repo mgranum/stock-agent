@@ -11,11 +11,14 @@ export type Candle = {
   sma50: number | null;
 };
 
+export type RecommendationAction = "consider_buy" | "hold" | "avoid" | "reduce_or_exit" | "protect_position" | "monitor" | "prepare_event" | "review" | "wait" | "remove_from_watchlist" | "move_to_research";
+
 export type StructuredRecommendation = {
   contract_version: "1.0";
   model_version: string;
   ticker: string;
-  action_code: "consider_buy" | "reduce_or_exit" | "protect_position" | "monitor" | "prepare_event" | "review" | "wait" | "remove_from_watchlist" | "move_to_research";
+  action_code: RecommendationAction;
+  label: string | null;
   scope: "portfolio" | "watchlist" | "candidate" | "general";
   time_horizon: "days_to_weeks";
   entry_condition: string | null;
@@ -24,6 +27,9 @@ export type StructuredRecommendation = {
   reasons: string[];
   invalidation: string | null;
   confidence: "høy" | "medium" | "lav";
+  model_recommendation: string | null;
+  supporting_actions: { action_code: RecommendationAction; label: string; reason: string; source: string; stop_level: number | null }[];
+  material: boolean;
   data_quality: {
     status: "good" | "limited" | "insufficient" | "not_assessed";
     as_of: string | null;

@@ -12,6 +12,8 @@ DEFAULT_TIME_HORIZON = "days_to_weeks"
 
 RecommendationAction = Literal[
     "consider_buy",
+    "hold",
+    "avoid",
     "reduce_or_exit",
     "protect_position",
     "monitor",
@@ -32,6 +34,14 @@ class RecommendationDataQuality(BaseModel):
     issues: list[str] = Field(default_factory=list)
 
 
+class SupportingAction(BaseModel):
+    action_code: RecommendationAction
+    label: str
+    reason: str
+    source: str
+    stop_level: float | None = None
+
+
 class StructuredRecommendation(BaseModel):
     """Stable decision contract emitted by Recommendation Engine.
 
@@ -46,6 +56,7 @@ class StructuredRecommendation(BaseModel):
     model_version: str
     ticker: str = Field(min_length=1)
     action_code: RecommendationAction
+    label: str | None = None
     scope: RecommendationScope
     time_horizon: Literal["days_to_weeks"] = DEFAULT_TIME_HORIZON
     entry_condition: str | None = None
@@ -54,6 +65,9 @@ class StructuredRecommendation(BaseModel):
     reasons: list[str] = Field(min_length=1)
     invalidation: str | None = None
     confidence: RecommendationConfidence
+    model_recommendation: str | None = None
+    supporting_actions: list[SupportingAction] = Field(default_factory=list)
+    material: bool = False
     data_quality: RecommendationDataQuality = Field(
         default_factory=RecommendationDataQuality
     )
@@ -97,18 +111,25 @@ def build_contract_fields(
     rule: str | None,
     reason: str,
     confidence: RecommendationConfidence,
+    action_code: RecommendationAction | None = None,
+    scope: RecommendationScope | None = None,
+    label: str | None = None,
     entry_condition: str | None = None,
     target_price: float | None = None,
     stop_level: float | None = None,
     invalidation: str | None = None,
     data_quality: dict | RecommendationDataQuality | None = None,
+    model_recommendation: str | None = None,
+    supporting_actions: list[dict] | None = None,
+    material: bool = False,
 ) -> dict:
     payload = {
         "contract_version": RECOMMENDATION_CONTRACT_VERSION,
         "model_version": MODEL_VERSION,
         "ticker": ticker,
-        "action_code": action_code_for(rule),
-        "scope": scope_for(category),
+        "action_code": action_code or action_code_for(rule),
+        "label": label,
+        "scope": scope or scope_for(category),
         "time_horizon": DEFAULT_TIME_HORIZON,
         "entry_condition": entry_condition,
         "target_price": target_price,
@@ -116,6 +137,9 @@ def build_contract_fields(
         "reasons": [reason],
         "invalidation": invalidation,
         "confidence": confidence,
+        "model_recommendation": model_recommendation,
+        "supporting_actions": supporting_actions or [],
+        "material": material,
         "data_quality": data_quality or RecommendationDataQuality(),
     }
     return StructuredRecommendation.model_validate(payload).model_dump()

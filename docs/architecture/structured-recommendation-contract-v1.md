@@ -26,6 +26,18 @@ Hver eksisterende anbefaling har et `decision`-objekt med:
 * `confidence`
 * `data_quality` med status, tidspunkt og konkrete mangler
 
+Recommendation Engine bygger i tillegg `decisions`: nøyaktig én samlet
+sluttbeslutning per ticker. For en eid aksje er porteføljerådet hovedrådet,
+mens grunnmodellens vurdering lagres som `model_recommendation`. Risiko,
+stop-oppfølging, earnings og andre materielle signaler lagres som
+`supporting_actions`. For en ikke-eid aksje er modell-/kandidatrådet
+hovedrådet.
+
+`material` skiller nye handlinger som skal journalføres fra ren status, som et
+uendret `HOLD`. UI og Decision Journal leser de samlede sluttbeslutningene;
+`actions` beholdes som bakoverkompatibel kilde for Daily Briefing og chat under
+den videre migreringen.
+
 Manglende kursmål, stop, inngangsbetingelse eller datakvalitetsvurdering blir
 stående som manglende eller `not_assessed`. Kontrakten skal ikke finne på data
 som dagens modell ikke produserer.

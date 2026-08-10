@@ -63,6 +63,38 @@ def test_deduplicates_same_material_advice():
     assert len(entries) == 1
 
 
+def test_uses_final_decisions_and_skips_non_material_status():
+    material = _context()["recommendations"]["actions"][0]
+    material = {
+        **material,
+        "dedupe_key": "FINAL_DECISION:KMAR.OL",
+        "decision": {
+            **material["decision"],
+            "label": "Vurder kjøp",
+            "material": True,
+        },
+    }
+    non_material = {
+        **material,
+        "ticker": "DNB.OL",
+        "dedupe_key": "FINAL_DECISION:DNB.OL",
+        "decision": {
+            **material["decision"],
+            "ticker": "DNB.OL",
+            "action_code": "hold",
+            "label": "HOLD",
+            "material": False,
+        },
+    }
+    context = _context()
+    context["recommendations"]["decisions"] = [material, non_material]
+
+    entries = build_decision_journal_entries(context)
+
+    assert len(entries) == 1
+    assert entries[0]["decision"]["label"] == "Vurder kjøp"
+
+
 def test_save_and_load_are_repeatable_for_same_day(tmp_path):
     path = tmp_path / "decisions.json"
     first = save_decision_journal(

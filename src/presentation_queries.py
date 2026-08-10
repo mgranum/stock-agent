@@ -89,7 +89,9 @@ def _currency_for(ticker: str, explicit: str | None = None) -> str:
 
 def _decisions_by_ticker(context: dict[str, Any]) -> dict[str, dict[str, Any]]:
     decisions = {}
-    for item in (context.get("recommendations") or {}).get("actions") or []:
+    recommendations = context.get("recommendations") or {}
+    items = recommendations.get("decisions") or recommendations.get("actions") or []
+    for item in items:
         decision = item.get("decision")
         if not isinstance(decision, dict):
             continue
@@ -149,7 +151,7 @@ class PresentationQueries:
         return ContextState(reason, {}, metadata, message)
 
     def _meta(self, state: ContextState) -> dict[str, Any]:
-        return {
+        card = {
             "status": state.status,
             "environment": get_environment(),
             "model_version": (
@@ -161,6 +163,7 @@ class PresentationQueries:
             "snapshot_date": state.metadata.get("date"),
             "message": state.message,
         }
+        return card
 
     def _sources(self, state: ContextState):
         portfolio = self._portfolio_loader([]) or []
@@ -202,7 +205,7 @@ class PresentationQueries:
         ticker = _ticker(row)
         if not ticker:
             return None
-        return {
+        card = {
             "ticker": ticker,
             "company_name": self._name(ticker, names),
             "recommendation": _text(
@@ -233,6 +236,16 @@ class PresentationQueries:
             "decision": decision,
             **(extra or {}),
         }
+        if decision:
+            label = _text(decision, "label")
+            reasons = _texts(decision.get("reasons"))
+            if decision.get("scope") == "portfolio" and label:
+                card["action_label"] = label
+            elif label:
+                card["recommendation"] = label
+            if reasons:
+                card["rationale"] = reasons[0]
+        return card
 
     def _documented_changes(self, state: ContextState) -> dict[str, str]:
         changes = (state.context.get("dashboard") or {}).get(
@@ -301,6 +314,7 @@ class PresentationQueries:
         symbol = str(ticker).strip().upper()
         decisions = _decisions_by_ticker(state.context)
         owned_tickers = {_ticker(row) for row in portfolio if _ticker(row)}
+        final_decision = decisions.get(symbol)
         portfolio_analysis = next(
             (row for row in portfolio_rows if _ticker(row) == symbol),
             {},
@@ -344,9 +358,21 @@ class PresentationQueries:
             "company_name": card["company_name"] if card else symbol,
             "recommendation": card["recommendation"] if card else None,
             "owned": symbol in owned_tickers,
-            "action_label": _text(portfolio_analysis, "portefølje_råd"),
-            "action_reason": _text(portfolio_analysis, "begrunnelse"),
-            "decision": decisions.get(symbol),
+            "action_label": (
+                _text(final_decision or {}, "label")
+                or _text(portfolio_analysis, "portefølje_råd")
+                if symbol in owned_tickers
+                else None
+            ),
+            "action_reason": (
+                (
+                    _texts((final_decision or {}).get("reasons"))
+                    or [_text(portfolio_analysis, "begrunnelse")]
+                )[0]
+                if symbol in owned_tickers
+                else None
+            ),
+            "decision": final_decision,
             "score": card["score"] if card else None,
             "trend_regime": _text(analysis, "trend_regime"),
             "reasoning": _texts(analysis.get("begrunnelse")),
