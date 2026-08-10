@@ -12,6 +12,10 @@ from src.company_names import get_company_name
 from src.daily_flow import build_daily_actions
 from src.model_version import MODEL_VERSION
 from src.portfolio import valid_portfolio_rows
+from src.recommendation_contract import (
+    RECOMMENDATION_CONTRACT_VERSION,
+    build_contract_fields,
+)
 from src.sentiment import (
     SENTIMENT_DISPLAY_LABELS,
     SENTIMENT_NEGATIVE,
@@ -264,13 +268,15 @@ def _recommendation(
     briefing_category=None,
     **extra,
 ):
+    canonical_ticker = str(ticker or "").strip().upper()
     normalized_ticker = _display_ticker(ticker)
+    confidence = _confidence(priority)
     item = {
         "priority": priority,
         "category": category,
         "action": action,
         "reason": reason,
-        "confidence": _confidence(priority),
+        "confidence": confidence,
         "ticker": normalized_ticker,
         "source": source,
         "merge_group": merge_group,
@@ -281,6 +287,18 @@ def _recommendation(
         "briefing_category": briefing_category,
     }
     item.update(extra)
+    item["decision"] = build_contract_fields(
+        ticker=canonical_ticker,
+        category=category,
+        rule=rule,
+        reason=reason,
+        confidence=confidence,
+        entry_condition=item.get("entry_condition"),
+        target_price=item.get("target_price"),
+        stop_level=item.get("stop_level"),
+        invalidation=item.get("invalidation"),
+        data_quality=item.get("data_quality"),
+    )
     return item
 
 
@@ -762,6 +780,31 @@ def _dedupe_recommendations(recommendations) -> list[dict]:
     return sorted(best_by_key.values(), key=_sort_key)
 
 
+def _add_known_portfolio_stops(actions: list[dict], portfolio_report) -> None:
+    rows = valid_portfolio_rows(portfolio_report)
+    if rows.empty:
+        return
+
+    stops = {}
+    for _, row in rows.iterrows():
+        ticker = str(row.get("ticker") or "").strip().upper()
+        if not ticker:
+            continue
+        trailing = _safe_float(row.get("trailing_stop_loss"))
+        ordinary = _safe_float(row.get("stop_loss"))
+        stop_level = trailing if trailing is not None else ordinary
+        if stop_level is not None:
+            stops[ticker] = stop_level
+
+    for item in actions:
+        decision = item.get("decision")
+        if not isinstance(decision, dict) or decision.get("scope") != "portfolio":
+            continue
+        ticker = str(decision.get("ticker") or "").strip().upper()
+        if ticker in stops:
+            decision["stop_level"] = stops[ticker]
+
+
 def _build_summary(actions) -> str:
     if not actions:
         return "Ingen viktige handlinger anbefales i dag."
@@ -790,7 +833,9 @@ def build_recommendations(context) -> dict:
         + _collect_from_portfolio_advisor(context)
     )
     actions = _dedupe_recommendations(raw_recommendations)
+    _add_known_portfolio_stops(actions, context.get("portfolio_report"))
     return {
+        "contract_version": RECOMMENDATION_CONTRACT_VERSION,
         "model_version": MODEL_VERSION,
         "summary": _build_summary(actions),
         "actions": actions,
@@ -801,6 +846,10 @@ def limit_recommendations(recommendations, limit=MAX_RECOMMENDATIONS) -> dict:
     recommendations = recommendations or {}
     actions = list(recommendations.get("actions") or [])[:limit]
     return {
+        "contract_version": (
+            recommendations.get("contract_version")
+            or RECOMMENDATION_CONTRACT_VERSION
+        ),
         "model_version": recommendations.get("model_version") or MODEL_VERSION,
         "summary": recommendations.get("summary") or _build_summary(actions),
         "actions": actions,

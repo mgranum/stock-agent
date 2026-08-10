@@ -65,10 +65,10 @@ før målegrunnlaget er troverdig.
 
 ### Strukturert anbefalingskontrakt
 
-* [ ] Definer én kontrakt for action, scope, tidshorisont,
+* [x] Definer én kontrakt for action, scope, tidshorisont,
   inngangsbetingelse, kursmål, stop, begrunnelser, invalidasjon, konfidens og
   datakvalitet
-* [ ] La Recommendation Engine være eneste eier av det endelige rådet
+* [x] La Recommendation Engine være eneste eier av det endelige rådet
 
 ### Bias, referanser og beslutningsgrunnlag
 

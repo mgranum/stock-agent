@@ -11,6 +11,26 @@ export type Candle = {
   sma50: number | null;
 };
 
+export type StructuredRecommendation = {
+  contract_version: "1.0";
+  model_version: string;
+  ticker: string;
+  action_code: "consider_buy" | "reduce_or_exit" | "protect_position" | "monitor" | "prepare_event" | "review" | "wait" | "remove_from_watchlist" | "move_to_research";
+  scope: "portfolio" | "watchlist" | "candidate" | "general";
+  time_horizon: "days_to_weeks";
+  entry_condition: string | null;
+  target_price: number | null;
+  stop_level: number | null;
+  reasons: string[];
+  invalidation: string | null;
+  confidence: "høy" | "medium" | "lav";
+  data_quality: {
+    status: "good" | "limited" | "insufficient" | "not_assessed";
+    as_of: string | null;
+    issues: string[];
+  };
+};
+
 export type CompanyDetail = {
   ticker: string;
   company_name: string;
@@ -20,6 +40,7 @@ export type CompanyDetail = {
   current_price: number;
   period_change_pct: number;
   recommendation: string | null;
+  decision: StructuredRecommendation | null;
   score: number | null;
   trend_regime: string | null;
   reasoning: string[];
@@ -52,6 +73,7 @@ export type StockSummary = {
   ticker: string;
   company_name: string;
   recommendation: string | null;
+  decision: StructuredRecommendation | null;
   score: number | null;
   current_price: number | null;
   change_pct: number | null;

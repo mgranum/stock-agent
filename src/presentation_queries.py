@@ -86,6 +86,18 @@ def _currency_for(ticker: str, explicit: str | None = None) -> str:
     return "USD"
 
 
+def _decisions_by_ticker(context: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    decisions = {}
+    for item in (context.get("recommendations") or {}).get("actions") or []:
+        decision = item.get("decision")
+        if not isinstance(decision, dict):
+            continue
+        ticker = str(decision.get("ticker") or "").strip().upper()
+        if ticker and ticker not in decisions:
+            decisions[ticker] = decision
+    return decisions
+
+
 class PresentationQueries:
     def __init__(
         self,
@@ -181,6 +193,7 @@ class PresentationQueries:
         average_cost: float | None = None,
         requires_attention: bool = False,
         currency: str | None = None,
+        decision: dict[str, Any] | None = None,
         extra: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         ticker = _ticker(row)
@@ -214,6 +227,7 @@ class PresentationQueries:
             "relative_strength_pct": None,
             "changed_today": False,
             "change_label": None,
+            "decision": decision,
             **(extra or {}),
         }
 
@@ -282,6 +296,7 @@ class PresentationQueries:
         state = self._state()
         portfolio, _watchlists, watch_rows, portfolio_rows, candidates = self._sources(state)
         symbol = str(ticker).strip().upper()
+        decisions = _decisions_by_ticker(state.context)
         rows = watch_rows + portfolio_rows + candidates + portfolio
         names = self._identity_names(rows)
         analysis = next(
@@ -320,6 +335,7 @@ class PresentationQueries:
             "meta": self._meta(state),
             "company_name": card["company_name"] if card else symbol,
             "recommendation": card["recommendation"] if card else None,
+            "decision": decisions.get(symbol),
             "score": card["score"] if card else None,
             "trend_regime": _text(analysis, "trend_regime"),
             "reasoning": _texts(analysis.get("begrunnelse")),
@@ -349,6 +365,7 @@ class PresentationQueries:
         attention = self._attention(state)
         attention_tickers = {item["ticker"] for item in attention if item["ticker"]}
         changes = self._documented_changes(state)
+        decisions = _decisions_by_ticker(state.context)
         analyst_rows = _records(
             (state.context.get("analyst_summary") or {}).get("items")
         )
@@ -371,6 +388,7 @@ class PresentationQueries:
                 average_cost=position.get("buy_price", position.get("average_cost")),
                 requires_attention=ticker in attention_tickers,
                 currency=currencies.get(ticker),
+                decision=decisions.get(ticker),
                 extra=self._owned_card_details(
                     analysis,
                     portfolio_by_ticker.get(ticker) or {},
@@ -398,6 +416,7 @@ class PresentationQueries:
                 names=names,
                 requires_attention=ticker in attention_tickers,
                 currency=currencies.get(ticker),
+                decision=decisions.get(ticker),
                 extra=self._watch_card_details(
                     analysis,
                     changes.get(ticker),
@@ -409,7 +428,13 @@ class PresentationQueries:
         candidate_cards = [
             card
             for row in candidates[:3]
-            if (card := self._stock_card(row, names=names)) is not None
+            if (
+                card := self._stock_card(
+                    row,
+                    names=names,
+                    decision=decisions.get(_ticker(row) or ""),
+                )
+            ) is not None
         ]
         return {
             "meta": self._meta(state),
@@ -470,6 +495,7 @@ class PresentationQueries:
         owned = {_ticker(row) for row in portfolio if _ticker(row)}
         watchlist_rows = [row for row in watch_rows if _ticker(row) not in owned]
         names = self._identity_names(portfolio, watch_rows, portfolio_rows, candidates)
+        decisions = _decisions_by_ticker(state.context)
         ranking = [
             card
             for row in sorted(
@@ -482,6 +508,7 @@ class PresentationQueries:
                     row,
                     names=names,
                     owned=_ticker(row) in owned,
+                    decision=decisions.get(_ticker(row) or ""),
                     extra={
                         **self._watch_card_details(row, None),
                         "strategy_type": _text(row, "strategy_type"),
@@ -514,7 +541,13 @@ class PresentationQueries:
         candidate_cards = [
             card
             for row in candidate_rows
-            if (card := self._stock_card(row, names=names)) is not None
+            if (
+                card := self._stock_card(
+                    row,
+                    names=names,
+                    decision=decisions.get(_ticker(row) or ""),
+                )
+            ) is not None
         ]
         classified = add_strategy_types(pd.DataFrame(watchlist_rows)) if watchlist_rows else pd.DataFrame()
         profiles = []
@@ -546,6 +579,7 @@ class PresentationQueries:
                             row,
                             names=names,
                             owned=_ticker(row) in owned,
+                            decision=decisions.get(_ticker(row) or ""),
                             extra={
                                 **self._watch_card_details(row, None),
                                 "strategy_type": strategy_type,

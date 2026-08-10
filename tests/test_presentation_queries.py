@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from src.presentation_queries import PresentationQueries
+from src.recommendation_contract import build_contract_fields
 
 
 NOW = datetime(2026, 8, 8, 12, 0, tzinfo=timezone.utc)
@@ -75,6 +76,22 @@ def _context_result(*, expired=False, loaded=True, reason="loaded"):
                     "recommendation": "BEHOLD",
                 }
             ]
+        },
+        "recommendations": {
+            "contract_version": "1.0",
+            "actions": [
+                {
+                    "ticker": "NVDA",
+                    "decision": build_contract_fields(
+                        ticker="NVDA",
+                        category="Portefølje",
+                        rule="trailing_stop_near",
+                        reason="Beskytt gevinst",
+                        confidence="høy",
+                        stop_level=165,
+                    ),
+                }
+            ],
         },
         "watchlist": ["NVDA", "MSFT"],
         "earnings_summary": {"items": [{"ticker": "NVDA", "event_label": "Q2-rapport"}]},
@@ -155,6 +172,8 @@ def test_today_is_small_normalized_contract():
     assert result["owned"][0]["distance_to_stop_pct"] == 9.09
     assert result["owned"][0]["gain_pct"] == 55.2
     assert result["owned"][0]["currency"] == "USD"
+    assert result["owned"][0]["decision"]["action_code"] == "protect_position"
+    assert result["owned"][0]["decision"]["stop_level"] == 165.0
     assert result["watchlist"][0]["ticker"] == "MSFT"
     assert result["watchlist"][0]["current_price"] is None
     assert result["watchlist"][0]["relative_strength_pct"] == -1.5
@@ -219,6 +238,7 @@ def test_identity_is_consistent_across_resources():
         company["recommendation"],
     } == {"KJØP / ØK"}
     assert company["meta"]["model_version"] == "test-model-v1"
+    assert company["decision"]["action_code"] == "protect_position"
     assert company["technical_score"] == 80.0
     assert company["fundamental_reasons"] == ["Vekst i inntjening"]
     assert company["analyst_consensus"] == "buy"

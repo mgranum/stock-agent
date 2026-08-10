@@ -1,5 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.recommendation_contract import StructuredRecommendation
+
 
 class DataMeta(BaseModel):
     status: str
@@ -32,6 +34,7 @@ class CompanyDetailResponse(BaseModel):
     current_price: float
     period_change_pct: float
     recommendation: str | None = None
+    decision: StructuredRecommendation | None = None
     score: float | None = None
     trend_regime: str | None = None
     reasoning: list[str] = Field(default_factory=list)
@@ -79,6 +82,7 @@ class StockSummary(BaseModel):
     changed_today: bool = False
     change_label: str | None = None
     strategy_type: str | None = None
+    decision: StructuredRecommendation | None = None
 
 
 class ActionSummary(BaseModel):

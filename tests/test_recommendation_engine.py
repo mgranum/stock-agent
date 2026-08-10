@@ -19,6 +19,7 @@ from src.recommendation_engine import (
     is_recommendation_question,
     limit_recommendations,
 )
+from src.recommendation_contract import RECOMMENDATION_CONTRACT_VERSION
 from src.watchlist_advisor import ACTION_VURDER_KJOP
 
 
@@ -120,6 +121,31 @@ class BuildRecommendationsTests(unittest.TestCase):
         self.assertEqual(len(result["actions"]), 1)
         self.assertEqual(result["actions"][0]["ticker"], "AKRBP")
         self.assertEqual(result["actions"][0]["category"], CATEGORY_PORTFOLIO)
+        self.assertEqual(result["contract_version"], RECOMMENDATION_CONTRACT_VERSION)
+        decision = result["actions"][0]["decision"]
+        self.assertEqual(decision["action_code"], "reduce_or_exit")
+        self.assertEqual(decision["scope"], "portfolio")
+        self.assertEqual(decision["time_horizon"], "days_to_weeks")
+        self.assertEqual(decision["reasons"], ["Weakening trend."])
+
+    def test_contract_preserves_canonical_ticker_while_legacy_label_is_unchanged(self):
+        result = build_recommendations(
+            _sample_context(
+                opportunity_advisor={
+                    "items": [
+                        {
+                            "ticker": "KMAR.OL",
+                            "headline": "Sterk kandidat",
+                            "priority": 1,
+                        }
+                    ]
+                }
+            )
+        )
+
+        action = result["actions"][0]
+        self.assertEqual(action["ticker"], "KMAR")
+        self.assertEqual(action["decision"]["ticker"], "KMAR.OL")
 
     def test_multiple_recommendations(self):
         context = _sample_context(
@@ -250,8 +276,12 @@ class BuildRecommendationsTests(unittest.TestCase):
         self.assertLessEqual(len(result["actions"]), MAX_RECOMMENDATIONS)
 
     def test_portfolio_recommendation(self):
+        portfolio_report = pd.DataFrame(
+            [_portfolio_row(ticker="NVDA", trailing_stop_loss=250.0)]
+        )
         result = build_recommendations(
             _sample_context(
+                portfolio_report=portfolio_report,
                 daily_flow={
                     "daily_actions": [
                         _daily_action(
@@ -266,6 +296,7 @@ class BuildRecommendationsTests(unittest.TestCase):
 
         self.assertEqual(result["actions"][0]["category"], CATEGORY_PORTFOLIO)
         self.assertIn("NVDA", result["actions"][0]["action"])
+        self.assertEqual(result["actions"][0]["decision"]["stop_level"], 250.0)
 
     def test_opportunity_recommendation(self):
         result = build_recommendations(
