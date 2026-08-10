@@ -5,7 +5,6 @@ import pandas as pd
 
 from src.alerts import (
     ALERT_NEAR_TRAILING_STOP,
-    ALERT_PENDING_ORDER,
     ALERT_TRAILING_STOP_TRIGGERED,
 )
 from src.daily_briefing import (
@@ -310,22 +309,6 @@ class BuildDailyBriefingTests(unittest.TestCase):
         self.assertNotIn("trailing_stop", critical_categories)
         self.assertIn("trailing_stop_near", important_rules)
 
-    def test_critical_sell_order(self):
-        context = {
-            "alerts": [
-                _alert(
-                    ALERT_PENDING_ORDER,
-                    "NVDA",
-                    message="Salgsordre venter: 10 aksjer @ 120. Utfør, juster limit, eller kanseller.",
-                ),
-            ],
-        }
-
-        briefing = build_daily_briefing(context)
-
-        self.assertEqual(len(briefing["critical_items"]), 1)
-        self.assertEqual(briefing["critical_items"][0]["category"], "sell")
-
     def test_negative_analyst_change_owned_goes_to_critical(self):
         context = {
             "portfolio_report": pd.DataFrame([_portfolio_row(ticker="NVDA")]),
@@ -447,9 +430,9 @@ class BuildDailyBriefingTests(unittest.TestCase):
             ),
             "alerts": [
                 _alert(
-                    ALERT_PENDING_ORDER,
+                    ALERT_TRAILING_STOP_TRIGGERED,
                     "NVDA",
-                    message="Salgsordre venter: 10 aksjer @ 120. Utfør, juster limit, eller kanseller.",
+                    message="Trailing stop er brutt.",
                 ),
             ],
             "watchlist_advisor_output": {
@@ -468,7 +451,10 @@ class BuildDailyBriefingTests(unittest.TestCase):
         tickers = _all_concrete_tickers(briefing)
 
         self.assertEqual(tickers.count("NVDA"), 1)
-        self.assertEqual(briefing["critical_items"][0]["rule"], "sell_order")
+        self.assertEqual(
+            briefing["critical_items"][0]["rule"],
+            "portfolio_reduser",
+        )
 
     def test_watchlist_filters_fjern_vent_folg_med(self):
         context = {

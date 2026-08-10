@@ -53,6 +53,14 @@ def _earnings_summary():
     }
 
 
+class RetiredOrderRoutingTests(unittest.TestCase):
+    def test_pending_order_question_is_not_routed_to_retired_feature(self):
+        answer = ask_agent("Vis pending ordre", _mock_context())
+
+        self.assertIn("Jeg forstod ikke spørsmålet", answer)
+        self.assertNotIn("Pending ordre:", answer)
+
+
 class AgentEarningsTests(unittest.TestCase):
     def test_who_reports_soon_lists_upcoming_14_days(self):
         answer = ask_agent(

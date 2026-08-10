@@ -336,6 +336,73 @@ def load_context_snapshot(
     snapshot_model_version = payload.get("model_version")
     if snapshot_model_version:
         context.setdefault("model_version", snapshot_model_version)
+    return _without_retired_order_data(context)
+
+
+def _without_retired_order_data(context: dict[str, Any]) -> dict[str, Any]:
+    """Ignore order fields that can remain in snapshots created before retirement."""
+    context.pop("pending_orders", None)
+
+    dashboard = context.get("dashboard")
+    if isinstance(dashboard, dict):
+        dashboard.pop("pending_orders", None)
+
+    daily_flow = context.get("daily_flow")
+    if isinstance(daily_flow, dict):
+        daily_flow.pop("pending_orders", None)
+        daily_flow.pop("order_actions", None)
+        actions = daily_flow.get("daily_actions")
+        if isinstance(actions, list):
+            daily_flow["daily_actions"] = [
+                item
+                for item in actions
+                if not (
+                    isinstance(item, dict)
+                    and item.get("action_label") == "Gjennomgå ordre"
+                )
+            ]
+
+    alerts = context.get("alerts")
+    if isinstance(alerts, list):
+        context["alerts"] = [
+            item
+            for item in alerts
+            if not (
+                isinstance(item, dict)
+                and item.get("alert_type") == "PENDING_ORDER"
+            )
+        ]
+
+    recommendations = context.get("recommendations")
+    if isinstance(recommendations, dict):
+        actions = recommendations.get("actions")
+        if isinstance(actions, list):
+            recommendations["actions"] = [
+                item
+                for item in actions
+                if not (
+                    isinstance(item, dict)
+                    and (
+                        item.get("category") == "Ordre"
+                        or item.get("rule") in {"order_review", "sell_order"}
+                    )
+                )
+            ]
+
+    briefing = context.get("daily_briefing")
+    if isinstance(briefing, dict):
+        for key in ("critical_items", "important_items"):
+            items = briefing.get(key)
+            if isinstance(items, list):
+                briefing[key] = [
+                    item
+                    for item in items
+                    if not (
+                        isinstance(item, dict)
+                        and item.get("rule") in {"order_review", "sell_order"}
+                    )
+                ]
+
     return context
 
 
@@ -388,7 +455,6 @@ def reload_context_from_snapshot(
 def load_or_build_agent_context(
     watchlist,
     portfolio=None,
-    pending_orders=None,
     research_ideas=None,
     pause_seconds=1,
     max_age_hours=24,
@@ -401,7 +467,6 @@ def load_or_build_agent_context(
     return build_agent_context(
         watchlist,
         portfolio=portfolio,
-        pending_orders=pending_orders,
         research_ideas=research_ideas,
         pause_seconds=pause_seconds,
     )
@@ -410,7 +475,6 @@ def load_or_build_agent_context(
 def build_agent_context(
     watchlist,
     portfolio=None,
-    pending_orders=None,
     research_ideas=None,
     pause_seconds=1,
 ):
@@ -432,7 +496,6 @@ def build_agent_context(
             pause_seconds=pause_seconds
         )
 
-    orders = pending_orders or []
     earnings_summary = build_earnings_summary(
         portfolio=portfolio,
         watchlist=watchlist,
@@ -450,7 +513,6 @@ def build_agent_context(
     dashboard = build_dashboard(
         watchlist_report=watchlist_report,
         portfolio_report=portfolio_report,
-        pending_orders=orders,
         watchlist_symbols=watchlist,
         research_ideas=research_ideas or [],
     )
@@ -467,7 +529,6 @@ def build_agent_context(
     dashboard["advisor_output"] = advisor_output
     alerts = build_alerts(
         portfolio_report,
-        orders,
         research_ideas or [],
         earnings_summary=earnings_summary,
     )
@@ -483,7 +544,6 @@ def build_agent_context(
         watchlist_report=watchlist_report,
         portfolio_report=portfolio_report,
         dashboard=dashboard,
-        pending_orders=orders,
         alerts=alerts,
         portfolio=portfolio,
     )

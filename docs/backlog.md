@@ -304,16 +304,16 @@ Ordre er ikke en del av målbildet. Kjøp registreres ved å markere en aksje so
 eid og angi GAV. Salg registreres ved å markere den som ikke eid eller fjerne
 den fra listen over eide aksjer.
 
-* [ ] Fjern Ordre- og Historikk-flatene
-* [ ] Fjern pending ordre fra context, Alerts, Daily Flow, Recommendation Engine
+* [x] Fjern Ordre- og Historikk-flatene
+* [x] Fjern pending ordre fra context, Alerts, Daily Flow, Recommendation Engine
   og Agent Chat uten å endre øvrig anbefalings- eller porteføljelogikk
-* [ ] Arkiver eller migrer lokal lagring av pending ordre og ordrehistorikk på
+* [x] Arkiver eller migrer lokal lagring av pending ordre og ordrehistorikk på
   en kontrollert og gjenopprettelig måte
-* [ ] Erstatt ordrebasert oppdatering med direkte vedlikehold av eid-status og
+* [x] Erstatt ordrebasert oppdatering med direkte vedlikehold av eid-status og
   GAV
-* [ ] Legg til regresjonstester som bekrefter at ordrehandlinger og ordrespørsmål
+* [x] Legg til regresjonstester som bekrefter at ordrehandlinger og ordrespørsmål
   er fjernet
-* [ ] Hold Decision Journal adskilt fra tidligere ordrehistorikk; journalen skal
+* [x] Hold Decision Journal adskilt fra tidligere ordrehistorikk; journalen skal
   dokumentere agentens råd og resultater, ikke simulere handler
 
 ---

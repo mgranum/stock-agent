@@ -95,14 +95,12 @@ class RunDailyRefreshTests(unittest.TestCase):
     @patch("src.daily_refresh.add_indicators", side_effect=lambda df: df)
     @patch("src.daily_refresh.get_daily_prices")
     @patch("src.daily_refresh.load_research_ideas", return_value=[])
-    @patch("src.daily_refresh.load_pending_orders", return_value=[])
     @patch("src.daily_refresh.load_portfolio")
     @patch("src.daily_refresh.load_watchlists")
     def test_runs_without_exception(
         self,
         mock_load_watchlists,
         mock_load_portfolio,
-        _mock_pending,
         _mock_research,
         _mock_prices,
         _mock_indicators,
@@ -159,14 +157,12 @@ class RunDailyRefreshTests(unittest.TestCase):
     @patch("src.daily_refresh.add_indicators", side_effect=lambda df: df)
     @patch("src.daily_refresh.get_daily_prices")
     @patch("src.daily_refresh.load_research_ideas", return_value=[])
-    @patch("src.daily_refresh.load_pending_orders", return_value=[])
     @patch("src.daily_refresh.load_portfolio")
     @patch("src.daily_refresh.load_watchlists")
     def test_one_ticker_error_does_not_stop_refresh(
         self,
         mock_load_watchlists,
         mock_load_portfolio,
-        _mock_pending,
         _mock_research,
         mock_get_prices,
         _mock_indicators,
@@ -229,14 +225,12 @@ class RunDailyRefreshTests(unittest.TestCase):
     @patch("src.daily_refresh.add_indicators", side_effect=lambda df: df)
     @patch("src.daily_refresh.get_daily_prices")
     @patch("src.daily_refresh.load_research_ideas", return_value=[])
-    @patch("src.daily_refresh.load_pending_orders", return_value=[])
     @patch("src.daily_refresh.load_portfolio", return_value=[])
     @patch("src.daily_refresh.load_watchlists")
     def test_empty_portfolio_handled(
         self,
         mock_load_watchlists,
         mock_load_portfolio,
-        _mock_pending,
         _mock_research,
         _mock_prices,
         _mock_indicators,
@@ -271,7 +265,6 @@ class RunDailyRefreshTests(unittest.TestCase):
         mock_build_context.assert_called_once_with(
             ["AAPL"],
             portfolio=[],
-            pending_orders=[],
             research_ideas=[],
             pause_seconds=0,
         )

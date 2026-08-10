@@ -15,7 +15,6 @@ from src.daily_flow import (
     build_daily_actions,
     build_daily_agenda_table,
     build_daily_flow,
-    build_order_actions,
     build_portfolio_actions,
     build_whats_new_table,
     daily_agenda_from_alerts,
@@ -99,7 +98,7 @@ class DailyFlowAgendaTests(unittest.TestCase):
                 ),
             ]
         )
-        alerts = build_alerts(portfolio_report, [], [])
+        alerts = build_alerts(portfolio_report, [])
 
         daily_flow = build_daily_flow(
             watchlist_report=pd.DataFrame(),
@@ -147,7 +146,7 @@ class DailyFlowAgendaTests(unittest.TestCase):
                 ),
             ]
         )
-        alerts = build_alerts(portfolio_report, [], [])
+        alerts = build_alerts(portfolio_report, [])
 
         agenda = daily_agenda_from_alerts(alerts)
 
@@ -331,118 +330,6 @@ class DailyFlowWhatsNewTodayTests(unittest.TestCase):
         )
 
 
-class DailyFlowOrderActionsTests(unittest.TestCase):
-    def test_build_order_actions_prioritizes_sell_before_buy(self):
-        pending_orders = [
-            {
-                "ticker": "AAPL",
-                "action": "BUY",
-                "shares": 5,
-                "limit_price": 180.0,
-            },
-            {
-                "ticker": "NVDA",
-                "action": "SELL",
-                "shares": 10,
-                "limit_price": 205.0,
-            },
-        ]
-
-        order_actions = build_order_actions(pending_orders)
-
-        self.assertEqual(len(order_actions), 2)
-        self.assertEqual(order_actions[0]["ticker"], "NVDA")
-        self.assertEqual(order_actions[0]["priority"], 1)
-        self.assertEqual(order_actions[1]["ticker"], "AAPL")
-        self.assertEqual(order_actions[1]["priority"], 2)
-
-    def test_order_action_fields_and_message(self):
-        pending_orders = [
-            {
-                "ticker": "NVDA",
-                "action": "SELL",
-                "shares": 10,
-                "limit_price": 205.0,
-            },
-        ]
-
-        order_actions = build_order_actions(pending_orders)
-        action = order_actions[0]
-
-        self.assertEqual(action["action_label"], "Gjennomgå ordre")
-        self.assertIn("Salgsordre venter: 10 aksjer @ 205.0", action["message"])
-        self.assertIn("Utfør, juster limit, eller kanseller.", action["message"])
-
-    def test_daily_actions_includes_orders_not_covered_by_alerts(self):
-        pending_orders = [
-            {
-                "ticker": "NVDA",
-                "action": "SELL",
-                "shares": 10,
-                "limit_price": 205.0,
-            },
-        ]
-
-        actions = build_daily_actions([], pending_orders)
-
-        self.assertEqual(len(actions), 1)
-        self.assertEqual(actions[0]["ticker"], "NVDA")
-        self.assertEqual(actions[0]["action_label"], "Gjennomgå ordre")
-
-    def test_daily_actions_does_not_duplicate_order_alerts(self):
-        pending_orders = [
-            {
-                "ticker": "NVDA",
-                "action": "SELL",
-                "shares": 10,
-                "limit_price": 205.0,
-            },
-        ]
-        alerts = build_alerts(pd.DataFrame(), pending_orders, [])
-
-        actions = build_daily_actions(alerts, pending_orders)
-        order_actions = [
-            action
-            for action in actions
-            if action["action_label"] == "Gjennomgå ordre"
-            and action["ticker"] == "NVDA"
-        ]
-
-        self.assertEqual(len(order_actions), 1)
-
-    def test_build_daily_flow_exposes_order_actions(self):
-        pending_orders = [
-            {
-                "ticker": "NVDA",
-                "action": "SELL",
-                "shares": 10,
-                "limit_price": 205.0,
-            },
-        ]
-
-        daily_flow = build_daily_flow(
-            watchlist_report=pd.DataFrame(),
-            portfolio_report=pd.DataFrame(),
-            dashboard={
-                "pending_orders": pd.DataFrame(
-                    [
-                        {
-                            "ticker": "NVDA",
-                            "action": "SELL",
-                            "shares": 10,
-                            "limit_price": 205.0,
-                        },
-                    ]
-                ),
-            },
-            pending_orders=pending_orders,
-            alerts=[],
-        )
-
-        self.assertEqual(len(daily_flow["order_actions"]), 1)
-        self.assertEqual(daily_flow["daily_actions"][0]["ticker"], "NVDA")
-
-
 class DailyFlowPortfolioActionsTests(unittest.TestCase):
     def test_vurder_reduksjon_in_agenda(self):
         portfolio_report = pd.DataFrame(
@@ -456,7 +343,7 @@ class DailyFlowPortfolioActionsTests(unittest.TestCase):
             ]
         )
 
-        actions = build_daily_actions([], [], portfolio_report)
+        actions = build_daily_actions([], portfolio_report)
         matches = [
             action
             for action in actions
@@ -478,7 +365,7 @@ class DailyFlowPortfolioActionsTests(unittest.TestCase):
             ]
         )
 
-        actions = build_daily_actions([], [], portfolio_report)
+        actions = build_daily_actions([], portfolio_report)
         matches = [
             action
             for action in actions
@@ -520,9 +407,9 @@ class DailyFlowPortfolioActionsTests(unittest.TestCase):
                 ),
             ]
         )
-        alerts = build_alerts(portfolio_report, [], [])
+        alerts = build_alerts(portfolio_report, [])
 
-        actions = build_daily_actions(alerts, [], portfolio_report)
+        actions = build_daily_actions(alerts, portfolio_report)
         portfolio_matches = [
             action
             for action in actions
@@ -552,9 +439,9 @@ class DailyFlowPortfolioActionsTests(unittest.TestCase):
                 ),
             ]
         )
-        alerts = build_alerts(portfolio_report, [], [])
+        alerts = build_alerts(portfolio_report, [])
 
-        actions = build_daily_actions(alerts, [], portfolio_report)
+        actions = build_daily_actions(alerts, portfolio_report)
         portfolio_matches = [
             action
             for action in actions
@@ -692,7 +579,6 @@ class EarningsDailyActionsTests(unittest.TestCase):
 
         alerts = build_alerts(
             pd.DataFrame(),
-            [],
             [],
             earnings_summary=earnings_summary,
         )

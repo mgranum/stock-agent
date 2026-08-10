@@ -15,7 +15,6 @@ ALERT_PORTFOLIO_SELL = "PORTFOLIO_SELL"
 ALERT_PROFIT_PROTECTION = "PROFIT_PROTECTION"
 ALERT_NEAR_TRAILING_STOP = "NEAR_TRAILING_STOP"
 ALERT_TRAILING_STOP_TRIGGERED = "TRAILING_STOP_TRIGGERED"
-ALERT_PENDING_ORDER = "PENDING_ORDER"
 ALERT_RESEARCH_ADD = "RESEARCH_ADD"
 ALERT_RESEARCH_ARCHIVE = "RESEARCH_ARCHIVE"
 ALERT_EARNINGS_TODAY = "EARNINGS_TODAY"
@@ -25,8 +24,7 @@ ALERT_EARNINGS_WITHIN_14_DAYS = "EARNINGS_WITHIN_14_DAYS"
 
 ACTION_REVIEW_SELL = "REVIEW_SELL"
 ACTION_PROTECT_PROFIT = "PROTECT_PROFIT"
-ACTION_PREPARE_SELL_ORDER = "PREPARE_SELL_ORDER"
-ACTION_REVIEW_ORDER = "REVIEW_ORDER"
+ACTION_FOLLOW_STOP = "FOLLOW_STOP"
 ACTION_ADD_TO_WATCHLIST = "ADD_TO_WATCHLIST"
 ACTION_ARCHIVE_RESEARCH = "ARCHIVE_RESEARCH"
 ACTION_PREPARE_EARNINGS = "PREPARE_EARNINGS"
@@ -55,8 +53,7 @@ _REVIEW_SELL_ALERT_PRIORITY = {
 _ACTION_LABELS = {
     ACTION_REVIEW_SELL: "Vurder salg",
     ACTION_PROTECT_PROFIT: "Sikre gevinst",
-    ACTION_PREPARE_SELL_ORDER: "Følg stop-nivå",
-    ACTION_REVIEW_ORDER: "Gjennomgå ordre",
+    ACTION_FOLLOW_STOP: "Følg stop-nivå",
     ACTION_ADD_TO_WATCHLIST: "Legg til watchlist",
     ACTION_ARCHIVE_RESEARCH: "Arkiver idé",
     ACTION_PREPARE_EARNINGS: "Forbered kvartalsrapport",
@@ -65,9 +62,8 @@ _ACTION_LABELS = {
 _ALERT_ACTIONS = {
     ALERT_PORTFOLIO_SELL: ACTION_REVIEW_SELL,
     ALERT_PROFIT_PROTECTION: ACTION_PROTECT_PROFIT,
-    ALERT_NEAR_TRAILING_STOP: ACTION_PREPARE_SELL_ORDER,
+    ALERT_NEAR_TRAILING_STOP: ACTION_FOLLOW_STOP,
     ALERT_TRAILING_STOP_TRIGGERED: ACTION_REVIEW_SELL,
-    ALERT_PENDING_ORDER: ACTION_REVIEW_ORDER,
     ALERT_RESEARCH_ADD: ACTION_ADD_TO_WATCHLIST,
     ALERT_RESEARCH_ARCHIVE: ACTION_ARCHIVE_RESEARCH,
     ALERT_EARNINGS_TODAY: ACTION_PREPARE_EARNINGS,
@@ -93,7 +89,6 @@ _EARNINGS_ALERT_TITLES = {
 
 def build_alerts(
     portfolio_report,
-    pending_orders,
     research_ideas,
     earnings_summary=None,
 ):
@@ -103,12 +98,11 @@ def build_alerts(
     alerts.extend(_portfolio_alerts(portfolio_report, now))
     alerts.extend(_near_trailing_stop_alerts(portfolio_report, now))
     alerts.extend(_trailing_stop_triggered_alerts(portfolio_report, now))
-    alerts.extend(_pending_order_alerts(pending_orders, now))
     alerts.extend(_research_alerts(research_ideas, now))
     alerts.extend(_earnings_alerts(earnings_summary, now))
 
     alerts = _dedupe_alerts(alerts)
-    alerts = _apply_alert_conflicts(alerts, pending_orders)
+    alerts = _apply_alert_conflicts(alerts)
 
     return sorted(
         alerts,
@@ -165,22 +159,7 @@ def _dedupe_alerts(alerts):
     return list(best_by_key.values())
 
 
-def _pending_sell_tickers(pending_orders):
-    tickers = set()
-
-    for order in pending_orders or []:
-        if str(order.get("action", "")).upper() != "SELL":
-            continue
-
-        ticker = str(order.get("ticker", "")).strip().upper()
-        if ticker:
-            tickers.add(ticker)
-
-    return tickers
-
-
-def _apply_alert_conflicts(alerts, pending_orders):
-    pending_sells = _pending_sell_tickers(pending_orders)
+def _apply_alert_conflicts(alerts):
     profit_protection_tickers = {
         alert["ticker"]
         for alert in alerts
@@ -195,12 +174,6 @@ def _apply_alert_conflicts(alerts, pending_orders):
         if (
             alert_type == ALERT_TRAILING_STOP_TRIGGERED
             and ticker in profit_protection_tickers
-        ):
-            continue
-
-        if (
-            alert_type == ALERT_NEAR_TRAILING_STOP
-            and str(ticker).strip().upper() in pending_sells
         ):
             continue
 
@@ -338,31 +311,6 @@ def _trailing_stop_triggered_message(row):
     return f"{message} Vurder salg eller reduksjon."
 
 
-def _pending_order_message(order):
-    action = str(order.get("action", "")).upper()
-    shares = order.get("shares")
-    limit_price = order.get("limit_price")
-
-    detail_parts = [f"{shares} aksjer"]
-    if limit_price:
-        detail_parts.append(f"@ {limit_price}")
-    detail = " ".join(str(part) for part in detail_parts if part)
-
-    if action == "SELL":
-        return (
-            f"Salgsordre venter: {detail}. "
-            "Utfør, juster limit, eller kanseller."
-        )
-
-    if action == "BUY":
-        return (
-            f"Kjøpsordre venter: {detail}. "
-            "Utfør, juster limit, eller kanseller."
-        )
-
-    return detail
-
-
 def _portfolio_alerts(portfolio_report, created_at):
     alerts = []
 
@@ -448,33 +396,6 @@ def _trailing_stop_triggered_alerts(portfolio_report, created_at):
                 _trailing_stop_triggered_message(row),
                 "PORTFOLIO",
                 created_at,
-            )
-        )
-
-    return alerts
-
-
-def _pending_order_alerts(pending_orders, created_at):
-    alerts = []
-
-    for order in pending_orders or []:
-        ticker = order.get("ticker", "")
-        action = str(order.get("action", "")).upper()
-        shares = order.get("shares")
-        limit_price = order.get("limit_price")
-
-        severity = SEVERITY_HIGH if action == "SELL" else SEVERITY_MEDIUM
-        order_key = order.get("id") or f"{action}:{shares}:{limit_price or ''}"
-        alerts.append(
-            _make_alert(
-                ALERT_PENDING_ORDER,
-                severity,
-                ticker,
-                "Ventende ordre",
-                _pending_order_message(order),
-                "ORDERS",
-                order.get("created_at") or created_at,
-                dedupe_key=f"{ALERT_PENDING_ORDER}:{ticker}:{order_key}",
             )
         )
 

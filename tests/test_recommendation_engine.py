@@ -57,7 +57,6 @@ def _sample_context(**overrides):
         "watchlist": ["AAPL", "SUBC"],
         "watchlist_report": pd.DataFrame(),
         "portfolio_report": None,
-        "pending_orders": [],
         "alerts": [],
         "daily_flow": {"daily_actions": []},
         "watchlist_advisor_output": {"items": []},
@@ -129,8 +128,8 @@ class BuildRecommendationsTests(unittest.TestCase):
                     _daily_action(ticker="AKRBP", priority=2),
                     _daily_action(
                         ticker="SUBC",
-                        action_label="Gjennomgå ordre",
-                        message="Pending buy order.",
+                        action_label="Følg med",
+                        message="Monitor position.",
                     ),
                 ],
             },
@@ -190,7 +189,7 @@ class BuildRecommendationsTests(unittest.TestCase):
                 ),
             ]
         )
-        alerts = build_alerts(portfolio_report, [], [])
+        alerts = build_alerts(portfolio_report, [])
         context = _sample_context(
             portfolio_report=portfolio_report,
             alerts=alerts,

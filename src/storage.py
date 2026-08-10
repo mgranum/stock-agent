@@ -118,19 +118,3 @@ def load_portfolio(default=None):
 
 def save_portfolio(portfolio):
     return save_json("portfolio.json", portfolio)
-
-
-def load_pending_orders(default=None):
-    return load_json("pending_orders.json", default or [])
-
-
-def save_pending_orders(orders):
-    return save_json("pending_orders.json", orders)
-
-
-def load_order_history(default=None):
-    return load_json("order_history.json", default or [])
-
-
-def save_order_history(history):
-    return save_json("order_history.json", history)

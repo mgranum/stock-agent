@@ -5,7 +5,6 @@ import pandas as pd
 from src.data import get_daily_prices
 from src.indicators import add_indicators
 from src.model_backtest import load_snapshots
-from src.orders import analyze_pending_orders
 from src.portfolio import summarize_portfolio, valid_portfolio_rows
 from src.regime import analyze_market_regime
 from src.strategy_classification import add_strategy_types, strategy_type_counts
@@ -20,7 +19,6 @@ from src.technicals import get_benchmark_for_symbol
 def build_dashboard(
     watchlist_report,
     portfolio_report,
-    pending_orders,
     watchlist_symbols=None,
     research_ideas=None,
 ):
@@ -34,10 +32,6 @@ def build_dashboard(
         "strong_winners": _strong_winners(portfolio_report),
         "top_buy_candidates": _top_buy_candidates(watchlist_report),
         "risk_alerts": _risk_alerts(watchlist_report, portfolio_report),
-        "pending_orders": analyze_pending_orders(
-            pending_orders,
-            watchlist_report,
-        ),
         "market_summary": _market_summary(watchlist_report),
         "market_regime": build_market_regime_summary(
             watchlist_symbols or [],

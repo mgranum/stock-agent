@@ -625,39 +625,6 @@ def _answer_watchlist_advisor_question(context, question):
     return _format_watchlist_advisor_grouped_answer(context)
 
 
-def _is_pending_orders_question(question):
-    if any(
-        phrase in question
-        for phrase in [
-            "pending ordre",
-            "ventende ordre",
-            "pending order",
-        ]
-    ):
-        return True
-
-    if "ordrehistorikk" in question or "ordre historikk" in question:
-        return False
-
-    if "ordre" not in question:
-        return False
-
-    if question.strip() in {"ordre", "ordre?"}:
-        return True
-
-    return any(
-        word in question
-        for word in [
-            "pending",
-            "ventende",
-            "vis",
-            "har jeg",
-            "status",
-            "liste",
-        ]
-    )
-
-
 def _is_portfolio_summary_question(question):
     if "portefølje" not in question and "portefolje" not in question:
         return False
@@ -719,31 +686,6 @@ def _is_risk_question(question):
             "varsler",
         ]
     )
-
-
-def _format_pending_orders_answer(context):
-    daily_flow = _get_daily_flow(context)
-    pending = daily_flow.get("pending_orders") or {}
-    summary = pending.get("summary", "Ingen ventende ordre.")
-    orders_df = pending.get("orders")
-
-    if orders_df is None or orders_df.empty:
-        return f"Pending ordre: {summary}"
-
-    lines = ["Pending ordre:", summary, ""]
-
-    for _, row in orders_df.head(5).iterrows():
-        parts = [str(row.get("action", "?")), str(row.get("ticker", "?"))]
-        if row.get("shares") is not None:
-            parts.append(f"{row['shares']} aksjer")
-        if row.get("limit_price") is not None:
-            parts.append(f"limit {row['limit_price']}")
-        lines.append(f"- {' · '.join(parts)}")
-
-    if len(orders_df) > 5:
-        lines.append(f"... og {len(orders_df) - 5} til.")
-
-    return "\n".join(lines)
 
 
 def _format_portfolio_summary_answer(context):
@@ -2009,7 +1951,6 @@ def _format_daily_flow_answer(context):
     signals = regime["signals"]
     opportunities = daily_flow["key_opportunities"]
     risk_alerts = daily_flow["risk_alerts"]
-    pending = daily_flow["pending_orders"]
 
     lines = [
         "Morning Briefing",
@@ -2036,11 +1977,6 @@ def _format_daily_flow_answer(context):
         "Risiko:",
     ])
     lines.extend(_format_risk_lines(risk_alerts))
-
-    lines.extend([
-        "",
-        f"Ordre: {pending.get('summary', 'Ingen ventende ordre.')}",
-    ])
 
     return "\n".join(lines)
 
@@ -2097,9 +2033,6 @@ def ask_agent(question, context):
 
     if _is_risk_question(question):
         return _format_risk_alerts_answer(context)
-
-    if _is_pending_orders_question(question):
-        return _format_pending_orders_answer(context)
 
     if _is_weakest_positions_question(question):
         return _format_weakening_positions_answer(context)
@@ -2356,7 +2289,6 @@ Trailing stop-loss:
         "- Kvalitet men ikke kjøp\n"
         "- Hva bør jeg følge med på i dag?\n"
         "- Oppsummer dashboardet\n"
-        "- Vis pending ordre\n"
         "- Portefølje status\n"
         "- Svakeste posisjoner\n"
         "- Største gevinst\n"

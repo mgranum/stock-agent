@@ -6,9 +6,8 @@ from src.alerts import (
     ACTION_ADD_TO_WATCHLIST,
     ACTION_ARCHIVE_RESEARCH,
     ACTION_PREPARE_EARNINGS,
-    ACTION_PREPARE_SELL_ORDER,
+    ACTION_FOLLOW_STOP,
     ACTION_PROTECT_PROFIT,
-    ACTION_REVIEW_ORDER,
     ACTION_REVIEW_SELL,
     ALERT_EARNINGS_TODAY,
     ALERT_EARNINGS_TOMORROW,
@@ -54,7 +53,7 @@ class BuildAlertsV2Tests(unittest.TestCase):
             ]
         )
 
-        alerts = build_alerts(portfolio_report, [], [])
+        alerts = build_alerts(portfolio_report, [])
 
         self.assertEqual(len(alerts), 1)
         alert = alerts[0]
@@ -80,14 +79,6 @@ class BuildAlertsV2Tests(unittest.TestCase):
                 ),
             ]
         )
-        pending_orders = [
-            {
-                "ticker": "ORD",
-                "action": "BUY",
-                "shares": 10,
-                "limit_price": 50.0,
-            },
-        ]
         research_ideas = [
             {
                 "ticker": "ADD",
@@ -103,16 +94,15 @@ class BuildAlertsV2Tests(unittest.TestCase):
             },
         ]
 
-        alerts = build_alerts(portfolio_report, pending_orders, research_ideas)
+        alerts = build_alerts(portfolio_report, research_ideas)
         actions = {alert["alert_type"]: alert["action"] for alert in alerts}
         action_labels = {
             alert["alert_type"]: alert["action_label"] for alert in alerts
         }
 
         self.assertEqual(actions["PROFIT_PROTECTION"], ACTION_PROTECT_PROFIT)
-        self.assertEqual(actions["NEAR_TRAILING_STOP"], ACTION_PREPARE_SELL_ORDER)
+        self.assertEqual(actions["NEAR_TRAILING_STOP"], ACTION_FOLLOW_STOP)
         self.assertEqual(action_labels["NEAR_TRAILING_STOP"], "Følg stop-nivå")
-        self.assertEqual(actions["PENDING_ORDER"], ACTION_REVIEW_ORDER)
         self.assertEqual(actions["RESEARCH_ADD"], ACTION_ADD_TO_WATCHLIST)
         self.assertEqual(actions["RESEARCH_ARCHIVE"], ACTION_ARCHIVE_RESEARCH)
 
@@ -127,7 +117,7 @@ class BuildAlertsV2Tests(unittest.TestCase):
             ]
         )
 
-        alerts = build_alerts(portfolio_report, [], [])
+        alerts = build_alerts(portfolio_report, [])
 
         triggered = [
             alert
@@ -155,7 +145,7 @@ class BuildAlertsV2Tests(unittest.TestCase):
             },
         ]
 
-        alerts = build_alerts(pd.DataFrame(), [], research_ideas)
+        alerts = build_alerts(pd.DataFrame(), research_ideas)
 
         watchlist_alerts = [
             alert for alert in alerts if alert["alert_type"] == "RESEARCH_ADD"
@@ -179,7 +169,7 @@ class BuildAlertsV3Tests(unittest.TestCase):
             ]
         )
 
-        alerts = build_alerts(portfolio_report, [], [])
+        alerts = build_alerts(portfolio_report, [])
         review_sells = [
             alert for alert in alerts if alert["action"] == ACTION_REVIEW_SELL
         ]
@@ -205,7 +195,7 @@ class BuildAlertsV3Tests(unittest.TestCase):
             ]
         )
 
-        alerts = build_alerts(portfolio_report, [], [])
+        alerts = build_alerts(portfolio_report, [])
 
         triggered = [
             alert
@@ -220,35 +210,6 @@ class BuildAlertsV3Tests(unittest.TestCase):
 
         self.assertEqual(len(triggered), 0)
         self.assertEqual(len(profit), 1)
-
-    def test_near_trailing_stop_suppressed_when_pending_sell_exists(self):
-        portfolio_report = pd.DataFrame(
-            [
-                _portfolio_row(
-                    ticker="AAPL",
-                    current_price=103.0,
-                    trailing_stop_loss=100.0,
-                    trailing_stop_triggered=False,
-                ),
-            ]
-        )
-        pending_orders = [
-            {
-                "ticker": "AAPL",
-                "action": "SELL",
-                "shares": 5,
-                "limit_price": 100.0,
-            },
-        ]
-
-        alerts = build_alerts(portfolio_report, pending_orders, [])
-
-        near_stop = [
-            alert
-            for alert in alerts
-            if alert["alert_type"] == ALERT_NEAR_TRAILING_STOP
-        ]
-        self.assertEqual(len(near_stop), 0)
 
     def test_messages_include_relevant_numbers(self):
         portfolio_report = pd.DataFrame(
@@ -284,16 +245,7 @@ class BuildAlertsV3Tests(unittest.TestCase):
                 ),
             ]
         )
-        pending_orders = [
-            {
-                "ticker": "ORD",
-                "action": "SELL",
-                "shares": 10,
-                "limit_price": 250.0,
-            },
-        ]
-
-        alerts = build_alerts(portfolio_report, pending_orders, [])
+        alerts = build_alerts(portfolio_report, [])
         messages = {alert["alert_type"]: alert["message"] for alert in alerts}
 
         self.assertIn("-8.2 %", messages[ALERT_PORTFOLIO_SELL])
@@ -306,8 +258,6 @@ class BuildAlertsV3Tests(unittest.TestCase):
         self.assertIn("2.9 % under dagens kurs", messages[ALERT_NEAR_TRAILING_STOP])
         self.assertIn("Behold posisjonen", messages[ALERT_NEAR_TRAILING_STOP])
         self.assertIn("+24.0 %", messages[ALERT_PROFIT_PROTECTION])
-        self.assertIn("Salgsordre venter", messages["PENDING_ORDER"])
-        self.assertIn("250.0", messages["PENDING_ORDER"])
 
 
 def _earnings_summary(*items):
@@ -336,7 +286,6 @@ class EarningsAlertsTests(unittest.TestCase):
         alerts = build_alerts(
             pd.DataFrame(),
             [],
-            [],
             earnings_summary=_earnings_summary(
                 _earnings_item("AAPL", 0, in_portfolio=True),
             ),
@@ -355,7 +304,6 @@ class EarningsAlertsTests(unittest.TestCase):
         alerts = build_alerts(
             pd.DataFrame(),
             [],
-            [],
             earnings_summary=_earnings_summary(
                 _earnings_item("MSFT", 0, in_portfolio=False),
             ),
@@ -367,7 +315,6 @@ class EarningsAlertsTests(unittest.TestCase):
     def test_earnings_tomorrow(self):
         alerts = build_alerts(
             pd.DataFrame(),
-            [],
             [],
             earnings_summary=_earnings_summary(
                 _earnings_item("NVDA", 1, in_portfolio=True),
@@ -382,7 +329,6 @@ class EarningsAlertsTests(unittest.TestCase):
     def test_earnings_within_7_days(self):
         alerts = build_alerts(
             pd.DataFrame(),
-            [],
             [],
             earnings_summary=_earnings_summary(
                 _earnings_item("EQNR.OL", 5, in_portfolio=True),
@@ -402,7 +348,6 @@ class EarningsAlertsTests(unittest.TestCase):
     def test_earnings_within_14_days(self):
         alerts = build_alerts(
             pd.DataFrame(),
-            [],
             [],
             earnings_summary=_earnings_summary(
                 _earnings_item("DNB.OL", 12, in_portfolio=False),

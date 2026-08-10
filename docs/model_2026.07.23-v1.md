@@ -170,8 +170,8 @@ compete before Recommendation Engine conflict resolution.
 |---|---|---|
 | Stock model | `scoring.py` | `KJØP / ØK`, `HOLD / OBSERVER`, `UNNGÅ / SELG` |
 | Position model | `portfolio.py` | Position-specific hold/reduce/sell/protect action |
-| Risk alerts | `alerts.py` | Capital protection, orders, research and earnings alerts |
-| Daily orchestration | `daily_flow.py` | Converts alerts, portfolio and orders to daily actions |
+| Risk alerts | `alerts.py` | Capital protection, research and earnings alerts |
+| Daily orchestration | `daily_flow.py` | Converts alerts and portfolio signals to daily actions |
 | Portfolio conflicts | `advisor.py` | Resolves portfolio signals against analyst, sentiment and earnings |
 | Watchlist actions | `watchlist_advisor.py` | Buy/review/wait/remove/research actions |
 | New opportunities | `opportunity_advisor.py` | Relative assessment of screened candidates |

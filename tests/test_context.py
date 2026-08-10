@@ -9,6 +9,7 @@ import pandas as pd
 
 from src.context import (
     CONTEXT_SNAPSHOT_VERSION,
+    _without_retired_order_data,
     get_context_snapshot_metadata,
     load_context_snapshot,
     load_or_build_agent_context,
@@ -17,6 +18,48 @@ from src.context import (
     save_context_snapshot,
 )
 from src.dashboard import _empty_portfolio_risk
+
+
+def test_legacy_snapshot_order_fields_are_removed_in_memory():
+    context = {
+        "pending_orders": [{"ticker": "NVDA"}],
+        "dashboard": {"pending_orders": [{"ticker": "NVDA"}]},
+        "daily_flow": {
+            "pending_orders": {"total": 1},
+            "order_actions": [{"ticker": "NVDA"}],
+            "daily_actions": [
+                {"ticker": "NVDA", "action_label": "Gjennomgå ordre"},
+                {"ticker": "AAPL", "action_label": "Følg stop-nivå"},
+            ],
+        },
+        "alerts": [
+            {"ticker": "NVDA", "alert_type": "PENDING_ORDER"},
+            {"ticker": "AAPL", "alert_type": "NEAR_TRAILING_STOP"},
+        ],
+        "recommendations": {
+            "actions": [
+                {"ticker": "NVDA", "category": "Ordre", "rule": "order_review"},
+                {"ticker": "AAPL", "category": "Portefølje", "rule": "trailing_stop_near"},
+            ]
+        },
+        "daily_briefing": {
+            "critical_items": [
+                {"ticker": "NVDA", "rule": "sell_order"},
+                {"ticker": "AAPL", "rule": "portfolio_reduser"},
+            ],
+            "important_items": [],
+        },
+    }
+
+    cleaned = _without_retired_order_data(context)
+
+    assert "pending_orders" not in cleaned
+    assert "pending_orders" not in cleaned["dashboard"]
+    assert "order_actions" not in cleaned["daily_flow"]
+    assert [item["ticker"] for item in cleaned["daily_flow"]["daily_actions"]] == ["AAPL"]
+    assert [item["ticker"] for item in cleaned["alerts"]] == ["AAPL"]
+    assert [item["ticker"] for item in cleaned["recommendations"]["actions"]] == ["AAPL"]
+    assert [item["ticker"] for item in cleaned["daily_briefing"]["critical_items"]] == ["AAPL"]
 
 
 def _portfolio_row(**overrides):
@@ -387,6 +430,9 @@ class BuildAgentContextDailyBriefingTests(unittest.TestCase):
         passed_context = mock_build_daily_briefing.call_args.args[0]
         self.assertIn("advisor_output", passed_context)
         self.assertIn("daily_flow", passed_context)
+        self.assertNotIn("pending_orders", passed_context["dashboard"])
+        self.assertNotIn("pending_orders", passed_context["daily_flow"])
+        self.assertNotIn("order_actions", passed_context["daily_flow"])
         self.assertIn("daily_briefing", context)
         self.assertIn("screening_results", context)
         self.assertIs(context["discovery_candidates"], discovery_candidates)

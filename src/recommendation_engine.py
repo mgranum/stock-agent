@@ -6,7 +6,6 @@ from src.advisor import (
 )
 from src.alerts import (
     ALERT_NEAR_TRAILING_STOP,
-    ALERT_PENDING_ORDER,
     ALERT_TRAILING_STOP_TRIGGERED,
 )
 from src.company_names import get_company_name
@@ -35,7 +34,6 @@ CATEGORY_PORTFOLIO = "Portefølje"
 CATEGORY_BUYING = "Kjøpsmuligheter"
 CATEGORY_WATCHLIST = "Watchlist"
 CATEGORY_RISK = "Risiko"
-CATEGORY_ORDERS = "Ordre"
 CATEGORY_GENERAL = "Generelt"
 
 BRIEFING_SECTION_CRITICAL = "critical"
@@ -95,15 +93,6 @@ _DAILY_FLOW_ACTION_CONFIG = {
         "rule": "portfolio_monitor",
         "briefing_section": BRIEFING_SECTION_IMPORTANT,
         "briefing_category": "portfolio",
-    },
-    "Gjennomgå ordre": {
-        "action": "Gjennomgå ordre for {ticker}",
-        "category": CATEGORY_ORDERS,
-        "priority": 2,
-        "merge_group": "order_review",
-        "rule": "order_review",
-        "briefing_section": BRIEFING_SECTION_CRITICAL,
-        "briefing_category": "orders",
     },
     "Forbered kvartalsrapport": {
         "action": "Forbered kvartalsrapport for {ticker}",
@@ -300,26 +289,12 @@ def _apply_daily_action_config(item, config, *, ticker, message, dedupe_key=None
     action_label = str(item.get("action_label") or "").strip()
     merged_config = dict(config)
 
-    if action_label == "Gjennomgå ordre" and "salgsordre" in message.lower():
-        merged_config = {
-            **merged_config,
-            "category": CATEGORY_ORDERS,
-            "priority": 1,
-            "merge_group": "order_sell",
-            "rule": "sell_order",
-            "briefing_section": BRIEFING_SECTION_CRITICAL,
-            "briefing_category": "sell",
-            "action": "Gjennomgå salgsordre for {ticker}",
-        }
-
     action_text = merged_config["action"].format(ticker=display)
     if merged_config.get("rule") == "portfolio_reduser":
         if action_label == "Vurder salg":
             briefing_text = f"{display}: Reduser / selg"
         else:
             briefing_text = f"{display}: Vurder reduksjon"
-    elif merged_config.get("rule") == "sell_order":
-        briefing_text = message
     else:
         briefing_text = f"{display}: {message}" if message else action_text
 
@@ -345,7 +320,6 @@ def _collect_from_daily_actions(context) -> list[dict]:
     if actions is None:
         actions = build_daily_actions(
             context.get("alerts"),
-            pending_orders=context.get("pending_orders"),
             portfolio_report=context.get("portfolio_report"),
         )
 
@@ -423,26 +397,6 @@ def _collect_from_alerts(context) -> list[dict]:
                 )
             )
             continue
-
-        if alert_type != ALERT_PENDING_ORDER or "salgsordre" not in message.lower():
-            continue
-
-        recommendations.append(
-            _recommendation(
-                ticker=ticker,
-                action=f"Gjennomgå salgsordre for {display}",
-                reason=message,
-                category=CATEGORY_ORDERS,
-                priority=1,
-                merge_group=f"order_sell:{display}",
-                source="alerts",
-                dedupe_key=alert.get("dedupe_key"),
-                rule="sell_order",
-                briefing_section=BRIEFING_SECTION_CRITICAL,
-                briefing_text=message,
-                briefing_category="sell",
-            )
-        )
 
     return recommendations
 
@@ -817,8 +771,6 @@ def _build_summary(actions) -> str:
         return "Portefølje- og risikotiltak krever oppmerksomhet i dag."
     if CATEGORY_BUYING in categories:
         return "Det finnes kjøpsmuligheter i markedet i dag."
-    if CATEGORY_ORDERS in categories:
-        return "Ventende ordre bør gjennomgås i dag."
     if CATEGORY_WATCHLIST in categories:
         return "Watchlist har kandidater verdt et nærmere blikk i dag."
     return "Noen punkter er verdt oppmerksomhet i dag."

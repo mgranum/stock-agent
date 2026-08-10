@@ -19,7 +19,6 @@ WATCHLIST_ITEM_LIMIT = 2
 CANDIDATE_ITEM_LIMIT = 2
 CHANGE_ITEM_LIMIT = 3
 EARNINGS_AVVENT_DAYS = 3
-_PRIORITY_SELL_ORDER = 1
 _PRIORITY_TRAILING_STOP_TRIGGERED = 2
 _PRIORITY_REDUSER = 3
 _PRIORITY_VURDER_REDUKTION = 4
@@ -86,8 +85,6 @@ def _briefing_item(ticker, text, *, category=None, rule=None, **extra):
 
 def _item_priority(item) -> int:
     rule = item.get("rule")
-    if rule == "sell_order":
-        return _PRIORITY_SELL_ORDER
     if rule == "trailing_stop_triggered":
         return _PRIORITY_TRAILING_STOP_TRIGGERED
     if rule == "portfolio_reduser":

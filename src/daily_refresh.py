@@ -32,7 +32,7 @@ from src.news import build_news_summary, get_news
 from src.network import check_network_ready
 from src.research_ideas import load_research_ideas
 from src.sentiment import build_sentiment_summary
-from src.storage import load_pending_orders, load_portfolio
+from src.storage import load_portfolio
 from src.storage import atomic_write_json
 from src.technicals import analyze_technicals, get_benchmark_for_symbol
 
@@ -401,7 +401,6 @@ def run_daily_refresh(
         context = build_agent_context(
             watchlist_symbols,
             portfolio=portfolio,
-            pending_orders=load_pending_orders([]),
             research_ideas=load_research_ideas(),
             pause_seconds=pause_seconds,
         )

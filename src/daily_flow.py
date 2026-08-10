@@ -6,11 +6,8 @@ from src.alerts import (
     ALERT_EARNINGS_TOMORROW,
     ALERT_EARNINGS_WITHIN_7_DAYS,
     ALERT_EARNINGS_WITHIN_14_DAYS,
-    ALERT_PENDING_ORDER,
     ALERT_PROFIT_PROTECTION,
-    _pending_order_message,
 )
-from src.orders import analyze_pending_orders
 from src.portfolio import valid_portfolio_rows
 from src.strategy_classification import add_strategy_types
 
@@ -50,7 +47,6 @@ def build_daily_flow(
     watchlist_report,
     portfolio_report,
     dashboard,
-    pending_orders=None,
     alerts=None,
     portfolio=None,
 ):
@@ -62,16 +58,9 @@ def build_daily_flow(
         portfolio,
     )
     risk_alerts = _build_risk_alerts(portfolio_report, dashboard)
-    pending_summary = _build_pending_order_summary(
-        pending_orders,
-        watchlist_report,
-        dashboard,
-    )
-    order_actions = build_order_actions(pending_orders)
     portfolio_actions = build_portfolio_actions(portfolio_report)
     daily_actions = build_daily_actions(
         alerts,
-        pending_orders,
         portfolio_report,
     )
     whats_new_today = _build_whats_new_today(dashboard)
@@ -79,7 +68,6 @@ def build_daily_flow(
         market_regime,
         key_opportunities,
         risk_alerts,
-        pending_summary,
         dashboard,
     )
 
@@ -87,18 +75,12 @@ def build_daily_flow(
         "market_regime": market_regime,
         "key_opportunities": key_opportunities,
         "risk_alerts": risk_alerts,
-        "pending_orders": pending_summary,
-        "order_actions": order_actions,
         "portfolio_actions": portfolio_actions,
         "daily_actions": daily_actions,
         "whats_new_today": whats_new_today,
         "summary_bullets": summary_bullets,
     }
 
-
-_ORDER_ACTION_LABEL = "Gjennomgå ordre"
-_ORDER_SELL_PRIORITY = 1
-_ORDER_BUY_PRIORITY = 2
 
 _EARNINGS_ACTION_SORT = {
     ALERT_EARNINGS_TODAY: 0,
@@ -162,13 +144,6 @@ def daily_actions_from_alerts(alerts):
     return sorted(actions, key=_daily_action_sort_key)
 
 
-def build_order_actions(pending_orders):
-    return [
-        _public_order_action(item)
-        for item in _build_order_action_items(pending_orders)
-    ]
-
-
 def build_portfolio_actions(portfolio_report):
     return [
         _public_portfolio_action(item)
@@ -176,13 +151,8 @@ def build_portfolio_actions(portfolio_report):
     ]
 
 
-def build_daily_actions(alerts, pending_orders=None, portfolio_report=None):
+def build_daily_actions(alerts, portfolio_report=None):
     alert_actions = daily_actions_from_alerts(alerts)
-    covered_order_keys = {
-        alert.get("dedupe_key")
-        for alert in (alerts or [])
-        if alert.get("alert_type") == ALERT_PENDING_ORDER
-    }
     review_sell_tickers = {
         alert.get("ticker")
         for alert in (alerts or [])
@@ -195,11 +165,6 @@ def build_daily_actions(alerts, pending_orders=None, portfolio_report=None):
     }
 
     extra_actions = []
-    for item in _build_order_action_items(pending_orders):
-        if item["_dedupe_key"] in covered_order_keys:
-            continue
-        extra_actions.append(_public_order_action(item))
-
     for item in _build_portfolio_action_items(portfolio_report):
         ticker = item["ticker"]
         portefølje_råd = item["_portefølje_råd"]
@@ -221,15 +186,6 @@ def build_daily_actions(alerts, pending_orders=None, portfolio_report=None):
         extra_actions.append(_public_portfolio_action(item))
 
     return sorted(alert_actions + extra_actions, key=_daily_action_sort_key)
-
-
-def _public_order_action(item):
-    return {
-        "priority": item["priority"],
-        "ticker": item["ticker"],
-        "action_label": item["action_label"],
-        "message": item["message"],
-    }
 
 
 def _public_portfolio_action(item):
@@ -307,53 +263,6 @@ def _portfolio_action_message(row):
         return " · ".join(parts)
 
     return str(row.get("portefølje_råd", ""))
-
-
-def _build_order_action_items(pending_orders):
-    sells = []
-    buys = []
-    other = []
-
-    for order in pending_orders or []:
-        item = _order_to_action_item(order)
-        action = str(order.get("action", "")).upper()
-        if action == "SELL":
-            sells.append(item)
-        elif action == "BUY":
-            buys.append(item)
-        else:
-            other.append(item)
-
-    sort_key = lambda item: item.get("ticker", "")
-    return (
-        sorted(sells, key=sort_key)
-        + sorted(buys, key=sort_key)
-        + sorted(other, key=sort_key)
-    )
-
-
-def _order_to_action_item(order):
-    action = str(order.get("action", "")).upper()
-    return {
-        "priority": (
-            _ORDER_SELL_PRIORITY
-            if action == "SELL"
-            else _ORDER_BUY_PRIORITY
-        ),
-        "ticker": order.get("ticker", ""),
-        "action_label": _ORDER_ACTION_LABEL,
-        "message": _pending_order_message(order),
-        "_dedupe_key": _order_action_dedupe_key(order),
-    }
-
-
-def _order_action_dedupe_key(order):
-    action = str(order.get("action", "")).upper()
-    shares = order.get("shares")
-    limit_price = order.get("limit_price")
-    order_key = order.get("id") or f"{action}:{shares}:{limit_price or ''}"
-    ticker = order.get("ticker", "")
-    return f"{ALERT_PENDING_ORDER}:{ticker}:{order_key}"
 
 
 def daily_agenda_items(daily_flow, limit=DAILY_AGENDA_DISPLAY_LIMIT):
@@ -938,51 +847,10 @@ def _has_any_alerts(near_stop, weakening, drawdowns, concentration, other):
     return concentration.get("has_risk", False)
 
 
-def _build_pending_order_summary(pending_orders, watchlist_report, dashboard):
-    orders_df = dashboard.get("pending_orders")
-
-    if orders_df is None or orders_df.empty:
-        if pending_orders:
-            orders_df = analyze_pending_orders(
-                pending_orders,
-                watchlist_report,
-            )
-        else:
-            orders_df = pd.DataFrame()
-
-    if orders_df is None or orders_df.empty:
-        return {
-            "total": 0,
-            "buy_count": 0,
-            "sell_count": 0,
-            "orders": pd.DataFrame(),
-            "summary": "Ingen ventende ordre.",
-        }
-
-    buy_count = int((orders_df["action"] == "BUY").sum())
-    sell_count = int((orders_df["action"] == "SELL").sum())
-    total = len(orders_df)
-
-    parts = [f"{total} ventende ordre"]
-    if buy_count:
-        parts.append(f"{buy_count} kjøp")
-    if sell_count:
-        parts.append(f"{sell_count} salg")
-
-    return {
-        "total": total,
-        "buy_count": buy_count,
-        "sell_count": sell_count,
-        "orders": orders_df,
-        "summary": " · ".join(parts),
-    }
-
-
 def _build_summary_bullets(
     market_regime,
     key_opportunities,
     risk_alerts,
-    pending_summary,
     dashboard,
 ):
     bullets = []
@@ -1011,9 +879,6 @@ def _build_summary_bullets(
         bullets.append(f"{alert_count} risikovarsler krever oppmerksomhet.")
     else:
         bullets.append("Ingen kritiske risikovarsler i porteføljen.")
-
-    if pending_summary["total"] > 0:
-        bullets.append(pending_summary["summary"] + ".")
 
     research_summary = dashboard.get("research_ideas") or {}
     bullets.extend(_research_idea_bullets(research_summary))
