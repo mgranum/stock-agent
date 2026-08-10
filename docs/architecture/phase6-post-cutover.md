@@ -4,7 +4,7 @@ Dato: 2026-08-09
 
 Miljø: PROD
 
-Resultat: React/FastAPI godkjent som standard, Streamlit beholdes som fallback
+Resultat: React/FastAPI godkjent som standard
 
 ## Brukerakseptanse
 
@@ -21,10 +21,8 @@ samme snapshot. Ingen score, anbefaling eller risiko beregnes på nytt.
 
 Ny read-only PROD-kontroll bestod 75 av 75 kontroller.
 
-## Kortvarig fallback
+## Avsluttet fallbackperiode
 
-Streamlit og `app.py` beholdes uten videre funksjonsutvikling. Før de fjernes
-skal minst én ordinær planlagt PROD Daily Refresh og én omstart av
-standardstarteren være verifisert etter cutover. Ved feil kan Streamlit lese
-PROD-data, men React forblir eneste writer så lenge writer-eierskapet ikke er
-kontrollert tilbakeført.
+En ordinær planlagt PROD Daily Refresh og en omstart av standardstarteren er
+verifisert etter cutover. Streamlit-fallbacken kan derfor fjernes. Git og de
+tidsstemplede brukerdata-backupene er fortsatt rollback-mekanismene.

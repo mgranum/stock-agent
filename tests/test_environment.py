@@ -10,12 +10,9 @@ from src.environment import (
     context_snapshot_filename,
     daily_refresh_lock_filename,
     daily_refresh_state_filename,
-    environment_caption,
-    environment_label,
     get_environment,
     is_prod,
     is_test,
-    should_show_test_banner,
 )
 
 
@@ -137,24 +134,6 @@ class EnvironmentPathIsolationTests(unittest.TestCase):
         self.assertEqual(test_state.name, "daily_refresh_state_test.json")
         self.assertEqual(prod_lock.name, "daily_refresh_lock_prod")
         self.assertEqual(test_lock.name, "daily_refresh_lock_test")
-
-
-class EnvironmentBannerTests(unittest.TestCase):
-    def test_test_banner_only_in_test(self):
-        with patch.dict(os.environ, {}, clear=True):
-            self.assertFalse(should_show_test_banner())
-
-        with patch.dict(os.environ, {"STOCK_AGENT_ENV": "test"}, clear=True):
-            self.assertTrue(should_show_test_banner())
-
-    def test_environment_labels(self):
-        with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(environment_label(), "PROD – faktisk portefølje")
-            self.assertEqual(environment_caption(), "Miljø: PROD")
-
-        with patch.dict(os.environ, {"STOCK_AGENT_ENV": "test"}, clear=True):
-            self.assertEqual(environment_label(), "TEST – utviklingsmiljø")
-            self.assertEqual(environment_caption(), "Miljø: TEST")
 
 
 class SharedMarketDataCacheTests(unittest.TestCase):

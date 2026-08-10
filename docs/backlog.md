@@ -255,10 +255,13 @@ den godkjente skissen.
   * [x] Gjennomfør siste brukerakseptanse mot ordinære PROD-data
   * [x] Verifiser reell watchlist-/porteføljemutasjon og post-cutover-paritet
 * [x] Behold Streamlit som kortvarig fallback etter første cutover
-* [ ] Fjern Streamlit og tilhørende presentasjonskode først når paritet og
+* [x] Fjern Streamlit og tilhørende presentasjonskode først når paritet og
   datatrygghet er dokumentert
-  * [ ] Verifiser første ordinære planlagte PROD Daily Refresh etter cutover
-  * [ ] Verifiser omstart av standardstarteren etter denne refreshen
+  * [x] Verifiser første ordinære planlagte PROD Daily Refresh etter cutover
+  * [x] Verifiser omstart av standardstarteren etter denne refreshen
+  * [x] Kartlegg Streamlit-avhengigheter og lag en konkret sletteliste
+  * [x] Fjern `app.py`, Streamlit-avhengigheten og gamle fallbackkommandoer
+  * [x] Kjør full regresjon og read-only PROD-paritet uten Streamlit
 
 ---
 

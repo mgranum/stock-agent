@@ -12,9 +12,7 @@ from src.analyst import (
     _apply_change_detection,
     _collect_item_material_changes,
     _write_analyst_cache,
-    build_analyst_changes_table,
     build_analyst_summary,
-    build_analyst_table,
     build_material_changes,
     compute_upside_pct,
     format_recommendation_label,
@@ -437,69 +435,6 @@ class BuildAnalystSummaryTests(unittest.TestCase):
         self.assertEqual(summary["missing_data"], ["EMPTY"])
         self.assertEqual(summary["last_updated"], "2026-06-12T08:00:00+00:00")
 
-    def test_build_analyst_table_columns(self):
-        summary = {
-            "items": [
-                {
-                    "ticker": "NVDA",
-                    "recommendation_key": "strong_buy",
-                    "analyst_count": 59,
-                    "target_mean": 298.93,
-                    "upside_pct": 45.9,
-                }
-            ]
-        }
-
-        table = build_analyst_table(summary)
-
-        self.assertEqual(
-            list(table.columns),
-            ["Ticker", "Konsensus", "Analytikere", "Kursmål", "Oppside %"],
-        )
-        self.assertEqual(table.iloc[0]["Ticker"], "NVDA")
-        self.assertEqual(table.iloc[0]["Konsensus"], "Sterk kjøp")
-        self.assertEqual(table.iloc[0]["Analytikere"], "59")
-        self.assertEqual(table.iloc[0]["Kursmål"], "298.93")
-        self.assertEqual(table.iloc[0]["Oppside %"], "45.9")
-
-    def test_build_analyst_table_arrow_compatible_with_missing_values(self):
-        import pyarrow as pa
-
-        summary = {
-            "items": [
-                {
-                    "ticker": "NVDA",
-                    "recommendation_key": "strong_buy",
-                    "analyst_count": 42,
-                    "target_mean": 298.93,
-                    "upside_pct": 45.9,
-                },
-                {
-                    "ticker": "EMPTY",
-                    "recommendation_key": None,
-                    "analyst_count": None,
-                    "target_mean": None,
-                    "upside_pct": None,
-                },
-            ]
-        }
-
-        table = build_analyst_table(summary)
-
-        for column in ("Analytikere", "Kursmål", "Oppside %"):
-            self.assertTrue(
-                all(isinstance(value, str) for value in table[column]),
-                msg=f"{column} should contain only strings",
-            )
-
-        self.assertEqual(table.iloc[0]["Analytikere"], "42")
-        self.assertEqual(table.iloc[1]["Analytikere"], "—")
-        self.assertEqual(table.iloc[1]["Kursmål"], "—")
-        self.assertEqual(table.iloc[1]["Oppside %"], "—")
-
-        pa.Table.from_pandas(table)
-
-
 class SortAnalystItemsTests(unittest.TestCase):
     def test_sorts_portfolio_first_then_highest_analyst_count(self):
         items = [
@@ -676,28 +611,6 @@ class AnalystChangeDetectionTests(unittest.TestCase):
             change_types,
             {"target_mean", "recommendation_mean", "recommendation_key"},
         )
-
-    def test_build_analyst_changes_table_columns(self):
-        summary = {
-            "material_changes": [
-                {
-                    "ticker": "AAPL",
-                    "Endring": "Kursmål opp (+10.0%)",
-                    "Fra": 100.0,
-                    "Til": 110.0,
-                }
-            ]
-        }
-
-        table = build_analyst_changes_table(summary)
-
-        self.assertEqual(
-            list(table.columns),
-            ["Ticker", "Endring", "Fra", "Til"],
-        )
-        self.assertEqual(table.iloc[0]["Ticker"], "AAPL")
-        self.assertEqual(table.iloc[0]["Fra"], "100")
-        self.assertEqual(table.iloc[0]["Til"], "110")
 
     @patch("src.analyst.get_analyst")
     def test_build_analyst_summary_includes_material_changes(self, mock_get_analyst):

@@ -1,8 +1,6 @@
 # Stock Agent
 
-Lokal beslutningsstøtte for manuell aksjeinvestering. React og FastAPI er
-standardgrensesnittet. Den eksisterende Streamlit-appen beholdes midlertidig
-som fallback.
+Lokal beslutningsstøtte for manuell aksjeinvestering med React og FastAPI.
 
 ## Start Stock Agent
 
@@ -33,14 +31,5 @@ Utvikling og TEST-bruk kjøres fortsatt med Vite:
 Dette åpnes på `http://127.0.0.1:5173`. API-dokumentasjonen ligger på
 `http://127.0.0.1:8000/docs`.
 
-Midlertidig Streamlit-fallback:
-
-```sh
-STOCK_AGENT_ENV=prod uv run streamlit run app.py
-```
-
-Fallbacken kan lese PROD-data. Etter at React har tatt writer-eierskap, skal
-endringer i eide aksjer og watchlists gjøres i React.
-
 Se [lokal drifts- og migrasjonsveiledning](docs/operations/react-fastapi-local.md)
-for Daily Refresh, paritetskontroller, backup, rollback og cutover-kriterier.
+for Daily Refresh, paritetskontroller, backup og rollback.

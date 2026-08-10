@@ -6,7 +6,6 @@ import pandas as pd
 import yfinance as yf
 
 from src.cache_preserve import annotate_fetch_attempt
-from src.table_display import display_table_cell, ensure_string_columns
 
 SOURCE_YFINANCE = "yfinance"
 
@@ -321,20 +320,3 @@ def build_earnings_summary(portfolio=None, watchlist=None, use_cache=True, today
         "unknown": unknown,
         "last_updated": last_updated,
     }
-
-
-def build_earnings_table(earnings_summary):
-    rows = []
-    for item in earnings_summary.get("items") or []:
-        days_until = item.get("days_until")
-        rows.append(
-            {
-                "Ticker": item.get("ticker", ""),
-                "Dato": item.get("earnings_date") or "—",
-                "Dager": display_table_cell(days_until),
-                "Status": item.get("status", STATUS_UNKNOWN),
-                "Kilde": item.get("source", SOURCE_YFINANCE),
-            }
-        )
-
-    return ensure_string_columns(pd.DataFrame(rows), ["Dager"])

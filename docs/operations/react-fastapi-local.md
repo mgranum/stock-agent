@@ -110,7 +110,7 @@ watchlist-medlemskap, ruller umiddelbart tilbake og sammenligner alle tre
 datatilstandene med originalen. Bryteren skal ikke settes permanent før den nye
 løsningen faktisk gjøres til standard.
 
-## Cutover og tilbakeføring
+## Cutover og gjenoppretting
 
 Cutover-portene er oppfylt:
 
@@ -119,13 +119,7 @@ Cutover-portene er oppfylt:
 3. PROD-skriving og rollback er eksplisitt godkjent og verifisert
 4. brukeren har godkjent grensesnittet i TEST før første ordinære PROD-start
 
-Ved avvik skal React-serveren stoppes og Streamlit startes midlertidig:
-
-```bash
-STOCK_AGENT_ENV=prod uv run streamlit run app.py
-```
-
-Streamlit kan lese PROD-data. Når React har tatt writer-eierskap skal
-portefølje- og watchlist-endringer fortsatt gjøres i React, med mindre en egen
-kontrollert tilbakeføring av writer-eierskap gjennomføres. Ikke fjern `app.py`
-eller Streamlit-avhengigheter før fallbackperioden er avsluttet.
+Ved avvik skal React-serveren stoppes. Bruk siste fungerende Git-commit for
+kode-rollback og gjenopprett brukerdata fra den tidsstemplede backupen dersom
+feilen gjelder en skriveoperasjon. React forblir eneste writer så lenge
+writer-eierskapet ikke er kontrollert tilbakeført.

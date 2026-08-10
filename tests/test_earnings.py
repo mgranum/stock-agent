@@ -11,7 +11,6 @@ from src.earnings import (
     STATUS_UNKNOWN,
     _write_earnings_cache,
     build_earnings_summary,
-    build_earnings_table,
     compute_days_until,
     determine_status,
     get_earnings,
@@ -319,38 +318,6 @@ class SortEarningsItemsTests(unittest.TestCase):
         sorted_items = sort_earnings_items(items, portfolio_tickers={"AAA"})
 
         self.assertEqual([item["ticker"] for item in sorted_items], ["AAA", "ZZZ"])
-
-
-class BuildEarningsTableTests(unittest.TestCase):
-    def test_build_earnings_table_arrow_compatible_with_missing_days(self):
-        import pyarrow as pa
-
-        summary = {
-            "items": [
-                {
-                    "ticker": "AAPL",
-                    "earnings_date": "2026-06-15",
-                    "days_until": 3,
-                    "status": STATUS_CONFIRMED,
-                    "source": "yfinance",
-                },
-                {
-                    "ticker": "UNKNOWN",
-                    "earnings_date": None,
-                    "days_until": None,
-                    "status": STATUS_UNKNOWN,
-                    "source": "yfinance",
-                },
-            ],
-        }
-
-        table = build_earnings_table(summary)
-
-        self.assertTrue(all(isinstance(value, str) for value in table["Dager"]))
-        self.assertEqual(table.iloc[0]["Dager"], "3")
-        self.assertEqual(table.iloc[1]["Dager"], "—")
-
-        pa.Table.from_pandas(table)
 
 
 if __name__ == "__main__":

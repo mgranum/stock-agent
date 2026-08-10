@@ -2,11 +2,9 @@ import json
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-import pandas as pd
 import yfinance as yf
 
 from src.cache_preserve import annotate_fetch_attempt
-from src.table_display import display_table_cell, ensure_string_columns
 
 SOURCE_YFINANCE = "yfinance"
 
@@ -428,56 +426,6 @@ def build_analyst_summary(portfolio=None, watchlist=None, use_cache=True, today=
         "material_changes": material_changes,
         "last_updated": last_updated,
     }
-
-
-def build_analyst_table(analyst_summary):
-    rows = []
-    for item in analyst_summary.get("items") or []:
-        upside_pct = item.get("upside_pct")
-        target_mean = item.get("target_mean")
-        analyst_count = item.get("analyst_count")
-
-        rows.append(
-            {
-                "Ticker": item.get("ticker", ""),
-                "Konsensus": format_recommendation_label(
-                    item.get("recommendation_key"),
-                ),
-                "Analytikere": display_table_cell(analyst_count),
-                "Kursmål": display_table_cell(
-                    round(target_mean, 2) if target_mean is not None else None
-                ),
-                "Oppside %": display_table_cell(upside_pct),
-            }
-        )
-
-    return ensure_string_columns(
-        pd.DataFrame(rows),
-        ["Analytikere", "Kursmål", "Oppside %"],
-    )
-
-
-def build_analyst_changes_table(analyst_summary):
-    changes = analyst_summary.get("material_changes") or []
-    if not changes:
-        return pd.DataFrame()
-
-    rows = []
-    for change in changes:
-        rows.append(
-            {
-                "Ticker": change.get("ticker", ""),
-                "Endring": change.get("Endring", ""),
-                "Fra": display_table_cell(
-                    _format_change_value(change.get("Fra")),
-                ),
-                "Til": display_table_cell(
-                    _format_change_value(change.get("Til")),
-                ),
-            }
-        )
-
-    return ensure_string_columns(pd.DataFrame(rows), ["Fra", "Til"])
 
 
 def find_analyst_item(analyst_summary, ticker):

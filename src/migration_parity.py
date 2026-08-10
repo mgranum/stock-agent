@@ -59,7 +59,7 @@ def build_migration_parity_report(
     portfolio: list[dict[str, Any]],
     watchlists: dict[str, list[str]],
 ) -> dict[str, Any]:
-    """Compare the new presentation layer with Streamlit's existing sources."""
+    """Compare the presentation layer with the established domain sources."""
     today = presentation.today()
     explore = presentation.explore()
     positions = presentation.positions()
