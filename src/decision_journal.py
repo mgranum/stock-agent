@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.model_version import MODEL_VERSION
+from src.environment import get_environment
 from src.recommendation_contract import StructuredRecommendation
 from src.storage import atomic_write_json
 
@@ -36,7 +37,7 @@ def _project_root() -> Path:
 
 
 def decision_journal_dir() -> Path:
-    return _project_root() / "snapshots" / "decision_journal"
+    return _project_root() / "snapshots" / "decision_journal" / get_environment()
 
 
 def decision_journal_path(signal_date: date | None = None) -> Path:

@@ -159,6 +159,10 @@ def _queries(context_result=None):
             {"signal_date": "2026-08-08", "entry_id": "one"},
             {"signal_date": "2026-08-08", "entry_id": "two"},
         ],
+        decision_outcomes_loader=lambda: [
+            {"entry_id": "one", "status": "partial"},
+            {"entry_id": "two", "status": "pending"},
+        ],
     )
 
 
@@ -338,6 +342,22 @@ def test_explore_groups_existing_classifications():
     assert next(profile for profile in result["profiles"] if profile["key"] == "UNKNOWN")["label"] == "Øvrige"
 
 
+def test_current_candidates_exclude_owned_and_watchlist_without_stale_fallback():
+    result = _context_result()
+    result["context"]["opportunity_advisor"] = {
+        "items": [
+            {"ticker": "NVDA", "score": 90},
+            {"ticker": "MSFT", "score": 85},
+        ]
+    }
+    queries = _queries(result)
+
+    assert queries.today()["candidates"] == []
+    explore = queries.explore()
+    assert explore["candidates"] == []
+    assert explore["candidate_source"]["kind"] == "current_snapshot"
+
+
 def test_model_data_reports_observed_status_without_alpha_claim():
     result = _queries().model_data()
 
@@ -351,6 +371,9 @@ def test_model_data_reports_observed_status_without_alpha_claim():
     assert result["decision_journal"]["entries"] == 2
     assert result["decision_journal"]["days"] == 1
     assert result["decision_journal"]["latest_signal_date"] == "2026-08-08"
+    assert result["decision_journal"]["outcomes"] == 2
+    assert result["decision_journal"]["partial"] == 1
+    assert result["decision_journal"]["pending"] == 1
     assert result["backtest_validation"]["status"] == "BLOCKED"
     assert any(
         check["check_id"] == "rolling_walk_forward"

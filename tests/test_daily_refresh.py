@@ -75,6 +75,13 @@ class BuildRefreshSummaryTests(unittest.TestCase):
 
         self.assertIn("- Beslutningsjournal oppdatert", summary)
 
+    def test_includes_decision_outcome_status(self):
+        summary = build_refresh_summary(
+            _success_result(decision_outcomes_updated=True)
+        )
+
+        self.assertIn("- Resultater for journalførte råd oppdatert", summary)
+
     def test_includes_error_count(self):
         summary = build_refresh_summary(
             _success_result(

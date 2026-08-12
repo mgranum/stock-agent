@@ -20,3 +20,4 @@ frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
 snapshots/decision_journal/
+snapshots/decision_journal_outcomes/

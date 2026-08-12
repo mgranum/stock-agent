@@ -12,11 +12,11 @@ ingen handler og antar ikke at brukeren fulgte rådet.
 
 Daily Refresh lagrer ett atomisk JSON-dokument per signaldato i:
 
-`snapshots/decision_journal/decisions_YYYY-MM-DD.json`
+`snapshots/decision_journal/<miljø>/decisions_YYYY-MM-DD.json`
 
 En ny kjøring samme dag erstatter dagens fil. Stabil `entry_id` og eksisterende
 `dedupe_key` hindrer at samme slutt-råd telles flere ganger. Filene er lokale
-runtime-data og ignoreres av Git.
+runtime-data, er separert mellom TEST og PROD, og ignoreres av Git.
 
 Hver post inneholder:
 
@@ -36,6 +36,21 @@ oppretter ikke en kunstig ny journalhendelse hver dag.
 ## Avgrensning
 
 Denne versjonen registrerer rådet. Den registrerer foreløpig ikke om brukeren
-fulgte det, fremtidige kurser, maksimal positiv/negativ utvikling eller om mål
-eller stop ble truffet først. Disse feltene bygges på journalpostene senere og
-holdes adskilt fra modellens opprinnelige beslutning.
+fulgte det. Dette skal eventuelt registreres eksplisitt og holdes adskilt fra
+modellens opprinnelige beslutning.
+
+## Resultatevaluering
+
+Daily Refresh evaluerer journalpostene mot justerte kursdata fra første
+børsåpning etter signaldatoen. Resultatene lagres separat i:
+
+`snapshots/decision_journal_outcomes/<miljø>/outcomes.json`
+
+For 5, 10, 20 og 40 handelsdager lagres avkastning samt maksimal positiv og
+negativ kursutvikling. Absolutte kursmål og stop-nivåer kontrolleres mot
+ujustert high/low, mens avkastningen bruker justerte priser for å unngå at
+splitt og tilsvarende hendelser fremstår som modellresultat.
+
+Manglende fremtidige dager markeres `pending`; delvis modne råd markeres
+`partial`; manglende eller ugyldige prisdata markeres eksplisitt som `error`
+eller `insufficient`. Originaljournalen endres aldri av evalueringen.

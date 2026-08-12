@@ -16,6 +16,7 @@ from src.context import reload_context_from_snapshot
 from src.daily_refresh import format_refresh_panel_status, load_refresh_state
 from src.discovery_validation import load_discovery_journal
 from src.decision_journal import load_decision_journal
+from src.decision_outcomes import load_decision_outcomes
 from src.environment import get_environment
 from src.model_version import MODEL_VERSION
 from src.model_backtest import load_snapshots
@@ -114,6 +115,7 @@ class PresentationQueries:
         snapshots_loader: Callable = load_snapshots,
         discovery_journal_loader: Callable = load_discovery_journal,
         decision_journal_loader: Callable = load_decision_journal,
+        decision_outcomes_loader: Callable = load_decision_outcomes,
         backtest_validation_builder: Callable = build_backtest_validation_report,
     ):
         self._context_loader = context_loader
@@ -126,6 +128,7 @@ class PresentationQueries:
         self._snapshots_loader = snapshots_loader
         self._discovery_journal_loader = discovery_journal_loader
         self._decision_journal_loader = decision_journal_loader
+        self._decision_outcomes_loader = decision_outcomes_loader
         self._backtest_validation_builder = backtest_validation_builder
 
     def _state(self) -> ContextState:
@@ -396,6 +399,12 @@ class PresentationQueries:
         portfolio_by_ticker = {_ticker(row): row for row in portfolio_rows if _ticker(row)}
         watch_by_ticker = {_ticker(row): row for row in watch_rows if _ticker(row)}
         raw_positions = {_ticker(row): row for row in portfolio if _ticker(row)}
+        watchlist_members = {
+            str(ticker).strip().upper()
+            for tickers in watchlists.values()
+            for ticker in (tickers or [])
+            if str(ticker).strip()
+        }
         names = self._identity_names(
             portfolio, watch_rows, portfolio_rows, candidates
         )
@@ -462,9 +471,15 @@ class PresentationQueries:
             if card:
                 watchlist.append(card)
 
+        new_candidates = [
+            row
+            for row in candidates
+            if (_ticker(row) or "") not in raw_positions
+            and (_ticker(row) or "") not in watchlist_members
+        ]
         candidate_cards = [
             card
-            for row in candidates[:3]
+            for row in new_candidates[:3]
             if (
                 card := self._stock_card(
                     row,
@@ -528,8 +543,14 @@ class PresentationQueries:
 
     def explore(self) -> dict[str, Any]:
         state = self._state()
-        portfolio, _watchlists, watch_rows, portfolio_rows, candidates = self._sources(state)
+        portfolio, watchlists, watch_rows, portfolio_rows, candidates = self._sources(state)
         owned = {_ticker(row) for row in portfolio if _ticker(row)}
+        watchlist_members = {
+            str(ticker).strip().upper()
+            for tickers in watchlists.values()
+            for ticker in (tickers or [])
+            if str(ticker).strip()
+        }
         watchlist_rows = [row for row in watch_rows if _ticker(row) not in owned]
         names = self._identity_names(portfolio, watch_rows, portfolio_rows, candidates)
         decisions = _decisions_by_ticker(state.context)
@@ -554,21 +575,30 @@ class PresentationQueries:
             ) is not None
         ]
         discovery_rows = _records(state.context.get("discovery_candidates"))
+        has_current_candidates = bool(candidates or discovery_rows)
         candidate_rows = candidates or [
             row for row in discovery_rows if not bool(row.get("in_watchlist"))
         ]
+        candidate_rows = [
+            row
+            for row in candidate_rows
+            if (_ticker(row) or "") not in owned
+            and (_ticker(row) or "") not in watchlist_members
+        ]
         candidate_source = {
-            "kind": "current_snapshot" if candidate_rows else "none",
+            "kind": "current_snapshot" if has_current_candidates else "none",
             "label": "Siste screening-snapshot",
             "date": (state.context.get("screening_results") or {}).get("generated_at"),
         }
-        if not candidate_rows:
+        if not candidate_rows and not has_current_candidates:
             journal = self._discovery_journal_loader()
             if isinstance(journal, pd.DataFrame) and not journal.empty and "signal_date" in journal:
                 latest_date = sorted(str(value) for value in journal["signal_date"].dropna().unique())[-1]
                 candidate_rows = [
                     row for row in _records(journal[journal["signal_date"].astype(str) == latest_date])
                     if not bool(row.get("in_watchlist"))
+                    and (_ticker(row) or "") not in owned
+                    and (_ticker(row) or "") not in watchlist_members
                 ]
                 candidate_source = {
                     "kind": "discovery_journal",
@@ -750,6 +780,7 @@ class PresentationQueries:
         snapshots = self._snapshots_loader()
         journal = self._discovery_journal_loader()
         decision_entries = self._decision_journal_loader()
+        decision_outcomes = self._decision_outcomes_loader()
         backtest_validation = self._backtest_validation_builder()
         snapshot_dates = (
             sorted(str(value) for value in snapshots["date"].dropna().unique())
@@ -768,6 +799,10 @@ class PresentationQueries:
                 if isinstance(item, dict) and item.get("signal_date")
             }
         )
+        outcome_statuses = {
+            status: sum(1 for item in decision_outcomes if item.get("status") == status)
+            for status in ("complete", "partial", "pending", "error")
+        }
         return {
             "meta": self._meta(state),
             "refresh": self.refresh_status(),
@@ -790,6 +825,11 @@ class PresentationQueries:
                 "days": len(decision_dates),
                 "latest_signal_date": decision_dates[-1] if decision_dates else None,
                 "status": "Råd logges" if decision_dates else "Ingen journaldata",
+                "outcomes": len(decision_outcomes),
+                "complete": outcome_statuses["complete"],
+                "partial": outcome_statuses["partial"],
+                "pending": outcome_statuses["pending"],
+                "errors": outcome_statuses["error"],
             },
             "backtest_validation": backtest_validation,
         }

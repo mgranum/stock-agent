@@ -92,8 +92,8 @@ før målegrunnlaget er troverdig.
   invalidasjonsgrunn
 * [ ] Registrer om brukeren fulgte rådet, uten å blande dette med
   modellresultatet
-* [ ] Mål maksimal positiv og negativ kursutvikling etter rådet
-* [ ] Registrer om kursmål eller stop ble truffet først
+* [x] Mål maksimal positiv og negativ kursutvikling etter rådet
+* [x] Registrer om kursmål eller stop ble truffet først
 * [ ] Lag en aggregert rapport for faktisk fremoverskuende presisjon og
   avkastning
 * [ ] Vis datadekning og marker råd som ikke kan evalueres pålitelig

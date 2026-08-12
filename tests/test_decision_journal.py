@@ -5,6 +5,7 @@ from src.decision_journal import (
     build_decision_journal_entries,
     load_decision_journal,
     save_decision_journal,
+    decision_journal_dir,
 )
 from src.recommendation_contract import build_contract_fields
 
@@ -122,3 +123,8 @@ def test_empty_and_invalid_journals_are_safe(tmp_path):
     invalid.write_text(json.dumps({"version": 999, "entries": [{}]}), encoding="utf-8")
 
     assert load_decision_journal(tmp_path) == []
+
+
+def test_journal_directory_is_environment_separated(monkeypatch):
+    monkeypatch.setenv("STOCK_AGENT_ENV", "test")
+    assert decision_journal_dir().parts[-2:] == ("decision_journal", "test")

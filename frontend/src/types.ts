@@ -201,7 +201,7 @@ export type ModelDataResponse = {
   research_ideas: Record<string, unknown>;
   snapshots: { rows?: number; dates?: number; latest_date?: string | null };
   discovery_journal: { rows?: number; cohorts?: number; latest_signal_date?: string | null; status?: string };
-  decision_journal: { entries?: number; days?: number; latest_signal_date?: string | null; status?: string };
+  decision_journal: { entries?: number; days?: number; latest_signal_date?: string | null; status?: string; outcomes?: number; complete?: number; partial?: number; pending?: number; errors?: number };
   backtest_validation: { status?: string; approved?: boolean; blocked_count?: number; warning_count?: number; checks?: Record<string, unknown>[] };
 };
 
