@@ -94,9 +94,11 @@ før målegrunnlaget er troverdig.
   modellresultatet
 * [x] Mål maksimal positiv og negativ kursutvikling etter rådet
 * [x] Registrer om kursmål eller stop ble truffet først
-* [ ] Lag en aggregert rapport for faktisk fremoverskuende presisjon og
+* [x] Lag en aggregert rapport for faktisk fremoverskuende presisjon og
   avkastning
-* [ ] Vis datadekning og marker råd som ikke kan evalueres pålitelig
+* [x] Vis datadekning og marker råd som ikke kan evalueres pålitelig
+  * Vis beskrivende statistikk per horisont først ved minst 30 modne råd
+  * Vent med samlet vurdering til minst 60 råd har fullført 40 handelsdager
 
 ### Beslutningsport
 

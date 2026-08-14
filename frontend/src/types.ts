@@ -201,7 +201,41 @@ export type ModelDataResponse = {
   research_ideas: Record<string, unknown>;
   snapshots: { rows?: number; dates?: number; latest_date?: string | null };
   discovery_journal: { rows?: number; cohorts?: number; latest_signal_date?: string | null; status?: string };
-  decision_journal: { entries?: number; days?: number; latest_signal_date?: string | null; status?: string; outcomes?: number; complete?: number; partial?: number; pending?: number; errors?: number };
+  decision_journal: {
+    entries?: number;
+    days?: number;
+    latest_signal_date?: string | null;
+    status?: string;
+    outcomes?: number;
+    complete?: number;
+    partial?: number;
+    pending?: number;
+    errors?: number;
+    report?: {
+      status?: "collecting" | "ready";
+      status_label?: string;
+      message?: string;
+      overall_ready?: boolean;
+      complete_40d?: number;
+      minimum_complete_40d?: number;
+      horizons?: Array<{
+        days: number;
+        complete: number;
+        total: number;
+        coverage_pct: number;
+        minimum_required: number;
+        sufficient: boolean;
+        statistics: null | {
+          average_return_pct: number;
+          median_return_pct: number;
+          positive_return_pct: number;
+          average_max_favorable_pct: number;
+          average_max_adverse_pct: number;
+        };
+      }>;
+      actions?: Array<{ action_code: string; total: number; complete_40d: number }>;
+    };
+  };
   backtest_validation: { status?: string; approved?: boolean; blocked_count?: number; warning_count?: number; checks?: Record<string, unknown>[] };
 };
 

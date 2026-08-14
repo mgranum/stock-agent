@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+from statistics import median
 from typing import Any, Callable
 
 import pandas as pd
@@ -16,6 +17,8 @@ from src.technical_baseline import _adjust_ohlc_prices
 
 DECISION_OUTCOME_VERSION = 1
 DECISION_HORIZONS = (5, 10, 20, 40)
+MIN_MATURE_OUTCOMES_PER_HORIZON = 30
+MIN_COMPLETE_40D_OUTCOMES = 60
 
 
 def _project_root() -> Path:
@@ -202,3 +205,87 @@ def load_decision_outcomes(path: Path | None = None) -> list[dict[str, Any]]:
     if payload.get("version") != DECISION_OUTCOME_VERSION:
         return []
     return [item for item in payload.get("outcomes") or [] if isinstance(item, dict)]
+
+
+def _horizon_statistics(observations: list[dict[str, Any]]) -> dict[str, float]:
+    returns = [float(item["return_pct"]) for item in observations]
+    favorable = [float(item["max_favorable_pct"]) for item in observations]
+    adverse = [float(item["max_adverse_pct"]) for item in observations]
+    return {
+        "average_return_pct": round(sum(returns) / len(returns), 2),
+        "median_return_pct": round(median(returns), 2),
+        "positive_return_pct": round(
+            sum(value > 0 for value in returns) / len(returns) * 100,
+            1,
+        ),
+        "average_max_favorable_pct": round(sum(favorable) / len(favorable), 2),
+        "average_max_adverse_pct": round(sum(adverse) / len(adverse), 2),
+    }
+
+
+def build_decision_outcome_report(
+    outcomes: list[dict[str, Any]],
+    *,
+    min_mature_per_horizon: int = MIN_MATURE_OUTCOMES_PER_HORIZON,
+    min_complete_40d: int = MIN_COMPLETE_40D_OUTCOMES,
+) -> dict[str, Any]:
+    """Build a descriptive report without drawing conclusions from thin data."""
+    total = len(outcomes)
+    horizon_reports = []
+    for horizon in DECISION_HORIZONS:
+        key = str(horizon)
+        observations = []
+        for outcome in outcomes:
+            result = (outcome.get("horizons") or {}).get(key)
+            if not isinstance(result, dict) or result.get("status") != "complete":
+                continue
+            required = ("return_pct", "max_favorable_pct", "max_adverse_pct")
+            if all(_finite(result.get(field)) is not None for field in required):
+                observations.append(result)
+
+        complete = len(observations)
+        sufficient = complete >= min_mature_per_horizon
+        horizon_reports.append(
+            {
+                "days": horizon,
+                "complete": complete,
+                "total": total,
+                "coverage_pct": round(complete / total * 100, 1) if total else 0.0,
+                "minimum_required": min_mature_per_horizon,
+                "sufficient": sufficient,
+                "statistics": _horizon_statistics(observations) if sufficient else None,
+            }
+        )
+
+    complete_40d = next(
+        item["complete"] for item in horizon_reports if item["days"] == 40
+    )
+    overall_ready = complete_40d >= min_complete_40d
+    action_counts: dict[str, dict[str, int]] = {}
+    for outcome in outcomes:
+        action = str(outcome.get("action_code") or "unknown")
+        counts = action_counts.setdefault(action, {"total": 0, "complete_40d": 0})
+        counts["total"] += 1
+        horizon_40 = (outcome.get("horizons") or {}).get("40") or {}
+        if horizon_40.get("status") == "complete":
+            counts["complete_40d"] += 1
+
+    return {
+        "status": "ready" if overall_ready else "collecting",
+        "status_label": (
+            "Datagrunnlag klart for vurdering" if overall_ready else "For lite data"
+        ),
+        "message": (
+            "40-dagersgrunnlaget kan nå vurderes sammen med referansene."
+            if overall_ready
+            else "Resultater vises først når nok råd har nådd valgt horisont."
+        ),
+        "overall_ready": overall_ready,
+        "complete_40d": complete_40d,
+        "minimum_complete_40d": min_complete_40d,
+        "horizons": horizon_reports,
+        "actions": [
+            {"action_code": action, **counts}
+            for action, counts in sorted(action_counts.items())
+        ],
+    }

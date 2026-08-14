@@ -374,6 +374,10 @@ def test_model_data_reports_observed_status_without_alpha_claim():
     assert result["decision_journal"]["outcomes"] == 2
     assert result["decision_journal"]["partial"] == 1
     assert result["decision_journal"]["pending"] == 1
+    assert result["decision_journal"]["report"]["status"] == "collecting"
+    assert result["decision_journal"]["report"]["complete_40d"] == 0
+    assert result["decision_journal"]["report"]["horizons"][0]["days"] == 5
+    assert result["decision_journal"]["report"]["horizons"][0]["statistics"] is None
     assert result["backtest_validation"]["status"] == "BLOCKED"
     assert any(
         check["check_id"] == "rolling_walk_forward"

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from src.decision_outcomes import (
+    build_decision_outcome_report,
     decision_outcome_path,
     evaluate_decision_journal,
     load_decision_outcomes,
@@ -125,3 +126,59 @@ def test_outcome_path_is_environment_separated(monkeypatch):
         "test",
         "outcomes.json",
     )
+
+
+def _complete_outcome(action="consider_buy", return_pct=5.0):
+    return {
+        "action_code": action,
+        "status": "complete",
+        "horizons": {
+            str(days): {
+                "status": "complete",
+                "return_pct": return_pct,
+                "max_favorable_pct": return_pct + 2,
+                "max_adverse_pct": -2.0,
+            }
+            for days in (5, 10, 20, 40)
+        },
+    }
+
+
+def test_report_hides_statistics_when_coverage_is_too_low():
+    report = build_decision_outcome_report([_complete_outcome()] * 2)
+
+    assert report["status"] == "collecting"
+    assert report["status_label"] == "For lite data"
+    assert report["complete_40d"] == 2
+    assert report["minimum_complete_40d"] == 60
+    assert all(item["statistics"] is None for item in report["horizons"])
+
+
+def test_report_exposes_descriptive_statistics_at_horizon_threshold():
+    outcomes = [
+        _complete_outcome(return_pct=5.0),
+        *[_complete_outcome(return_pct=-1.0) for _ in range(29)],
+    ]
+
+    report = build_decision_outcome_report(outcomes)
+    horizon_5 = next(item for item in report["horizons"] if item["days"] == 5)
+
+    assert horizon_5["sufficient"] is True
+    assert horizon_5["statistics"] == {
+        "average_return_pct": -0.8,
+        "median_return_pct": -1.0,
+        "positive_return_pct": 3.3,
+        "average_max_favorable_pct": 1.2,
+        "average_max_adverse_pct": -2.0,
+    }
+    assert report["overall_ready"] is False
+
+
+def test_report_requires_60_complete_40_day_outcomes_for_overall_readiness():
+    report = build_decision_outcome_report([_complete_outcome()] * 60)
+
+    assert report["status"] == "ready"
+    assert report["overall_ready"] is True
+    assert report["actions"] == [
+        {"action_code": "consider_buy", "total": 60, "complete_40d": 60}
+    ]

@@ -16,7 +16,7 @@ from src.context import reload_context_from_snapshot
 from src.daily_refresh import format_refresh_panel_status, load_refresh_state
 from src.discovery_validation import load_discovery_journal
 from src.decision_journal import load_decision_journal
-from src.decision_outcomes import load_decision_outcomes
+from src.decision_outcomes import build_decision_outcome_report, load_decision_outcomes
 from src.environment import get_environment
 from src.model_version import MODEL_VERSION
 from src.model_backtest import load_snapshots
@@ -803,6 +803,7 @@ class PresentationQueries:
             status: sum(1 for item in decision_outcomes if item.get("status") == status)
             for status in ("complete", "partial", "pending", "error")
         }
+        decision_report = build_decision_outcome_report(decision_outcomes)
         return {
             "meta": self._meta(state),
             "refresh": self.refresh_status(),
@@ -830,6 +831,7 @@ class PresentationQueries:
                 "partial": outcome_statuses["partial"],
                 "pending": outcome_statuses["pending"],
                 "errors": outcome_statuses["error"],
+                "report": decision_report,
             },
             "backtest_validation": backtest_validation,
         }
