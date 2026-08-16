@@ -9,6 +9,9 @@ from src.technical_baseline import (
     _adjust_ohlc_prices,
     _execution,
     backtest_technical_baseline,
+    build_trend_momentum_reference_snapshot,
+    technical_baseline_buy_signal,
+    trend_momentum_reference_signal,
     validate_chronological_datasets,
 )
 
@@ -35,6 +38,56 @@ def _technical_result(*args, **kwargs):
         "trend_regime": "STERK OPPTREND",
         "relative_strength_20d": 5,
     }
+
+
+def test_frozen_technical_reference_uses_same_entry_rule_as_baseline():
+    config = deepcopy(DEFAULT_BACKTEST_VALIDATION_CONFIG)
+
+    assert technical_baseline_buy_signal(
+        _technical_result(),
+        "RISK_ON",
+        config["strategy"],
+    ) is True
+    assert technical_baseline_buy_signal(
+        {**_technical_result(), "relative_strength_20d": -0.01},
+        "RISK_ON",
+        config["strategy"],
+    ) is False
+
+
+def test_trend_momentum_reference_is_deliberately_simpler_than_baseline():
+    assert trend_momentum_reference_signal(
+        {"trend_regime": "STERK OPPTREND", "relative_strength_20d": 1.0}
+    ) is True
+    assert trend_momentum_reference_signal(
+        {"trend_regime": "MODERAT OPPTREND", "relative_strength_20d": 1.0}
+    ) is False
+
+
+def test_technical_reference_snapshot_freezes_rule_and_signal_inputs():
+    config = deepcopy(DEFAULT_BACKTEST_VALIDATION_CONFIG)
+
+    snapshot = build_trend_momentum_reference_snapshot(
+        _technical_result(),
+        config=config,
+    )
+
+    assert snapshot["version"] == "trend_momentum_v1"
+    assert snapshot["status"] == "complete"
+    assert snapshot["action"] == "buy"
+    assert snapshot["inputs"]["relative_strength_20d"] == 5.0
+    assert snapshot["rule"]["min_relative_strength_20d"] == 0.0
+    assert len(snapshot["rule_fingerprint"]) == 16
+
+
+def test_technical_reference_snapshot_marks_missing_inputs_unavailable():
+    snapshot = build_trend_momentum_reference_snapshot(
+        {"technical_score": 80},
+        config=deepcopy(DEFAULT_BACKTEST_VALIDATION_CONFIG),
+    )
+
+    assert snapshot["status"] == "unavailable"
+    assert "action" not in snapshot
 
 
 def test_dataset_ranges_must_be_strictly_chronological():

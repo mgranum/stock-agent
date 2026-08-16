@@ -1,13 +1,8 @@
+from src.benchmarks import local_benchmark_for_symbol
+
+
 def get_benchmark_for_symbol(symbol):
-    if symbol.endswith(".OL"):
-        return "OSEBX.OL"
-    if symbol.endswith(".ST"):
-        return "^OMX"
-    if symbol.endswith(".CO"):
-        return "^OMXC25"
-    if symbol.endswith(".HE"):
-        return "^OMXH25"
-    return "SPY"
+    return local_benchmark_for_symbol(symbol)
 
 
 def relative_strength(df_stock, df_benchmark, days=20):

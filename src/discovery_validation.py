@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.config import load_backtest_validation_config
+from src.benchmarks import GLOBAL_EQUITY_BENCHMARK
 from src.model_version import MODEL_VERSION
 from src.signal_backtest import _get_price_data
 from src.technical_baseline import (
@@ -17,7 +18,7 @@ from src.technicals import get_benchmark_for_symbol
 
 
 DISCOVERY_HORIZONS = (5, 10, 20, 40)
-GLOBAL_BENCHMARK = "ACWI"
+GLOBAL_BENCHMARK = GLOBAL_EQUITY_BENCHMARK
 JOURNAL_COLUMNS = [
     "signal_date",
     "model_version",
@@ -157,16 +158,35 @@ def _net_return(
     costs,
     cost_symbol=None,
 ):
+    return _net_returns(
+        symbol,
+        prices,
+        signal_date,
+        (horizon_days,),
+        capital,
+        costs,
+        cost_symbol=cost_symbol,
+    ).get(int(horizon_days))
+
+
+def _net_returns(
+    symbol,
+    prices,
+    signal_date,
+    horizons,
+    capital,
+    costs,
+    cost_symbol=None,
+):
     prepared = _prepare_prices(
         prices,
         use_adjusted_prices=True,
     )
     future = prepared[prepared.index > pd.Timestamp(signal_date)]
-    if len(future) < horizon_days:
-        return None
+    if future.empty:
+        return {}
 
     entry = future.iloc[0]
-    exit_row = future.iloc[horizon_days - 1]
     execution_symbol = cost_symbol or symbol
     shares = _affordable_shares(
         execution_symbol,
@@ -175,7 +195,7 @@ def _net_return(
         costs,
     )
     if shares <= 0:
-        return None
+        return {}
 
     buy = _execution(
         execution_symbol,
@@ -185,19 +205,26 @@ def _net_return(
         costs,
     )
     cash = capital + buy["cash_change"]
-    sell = _execution(
-        execution_symbol,
-        "SELL",
-        float(exit_row["close"]),
-        shares,
-        costs,
-    )
-    final_value = cash + sell["cash_change"]
-    return {
-        "entry_date": future.index[0].date().isoformat(),
-        "exit_date": future.index[horizon_days - 1].date().isoformat(),
-        "return_pct": (final_value / capital - 1) * 100,
-    }
+    results = {}
+    for horizon_days in horizons:
+        horizon_days = int(horizon_days)
+        if len(future) < horizon_days:
+            continue
+        exit_row = future.iloc[horizon_days - 1]
+        sell = _execution(
+            execution_symbol,
+            "SELL",
+            float(exit_row["close"]),
+            shares,
+            costs,
+        )
+        final_value = cash + sell["cash_change"]
+        results[horizon_days] = {
+            "entry_date": future.index[0].date().isoformat(),
+            "exit_date": future.index[horizon_days - 1].date().isoformat(),
+            "return_pct": (final_value / capital - 1) * 100,
+        }
+    return results
 
 
 def evaluate_discovery_journal(

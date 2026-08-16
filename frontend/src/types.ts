@@ -234,6 +234,120 @@ export type ModelDataResponse = {
         };
       }>;
       actions?: Array<{ action_code: string; total: number; complete_40d: number }>;
+      benchmark?: {
+        symbol: string;
+        eligible_action_codes: string[];
+        eligible_outcomes: number;
+        status: "collecting" | "ready";
+        status_label: string;
+        message: string;
+        ready: boolean;
+        complete_40d: number;
+        minimum_complete_40d: number;
+        errors: number;
+        cost_errors: number;
+        cost_model: null | {
+          initial_capital: number;
+          fingerprint: string;
+          consistent: boolean;
+        };
+        horizons: Array<{
+          days: number;
+          complete: number;
+          eligible: number;
+          coverage_pct: number;
+          minimum_required: number;
+          sufficient: boolean;
+          statistics: null | {
+            average_stock_return_pct: number;
+            average_benchmark_return_pct: number;
+            average_relative_return_pct: number;
+            median_relative_return_pct: number;
+            trimmed_average_relative_return_pct: number;
+            benchmark_win_pct: number;
+            average_net_return_pct: number;
+            average_benchmark_net_return_pct: number;
+            average_net_relative_return_pct: number;
+            median_net_relative_return_pct: number;
+            trimmed_average_net_relative_return_pct: number;
+            net_benchmark_win_pct: number;
+          };
+        }>;
+        segments: Record<string, {
+          metadata_coverage_pct: number;
+          largest_share_pct: number;
+          positive_segments: number;
+          minimum_segment_observations: number;
+          segments: Array<Record<string, unknown>>;
+        }>;
+        decision_gate: {
+          version: string;
+          status: "collecting" | "passed" | "failed";
+          status_label: string;
+          evaluated: boolean;
+          message: string;
+          checks: Array<{
+            check_id: string;
+            label: string;
+            status: "pending" | "passed" | "failed";
+            actual: number | null;
+            operator: "gt" | "gte" | "lte";
+            threshold: number;
+          }>;
+        };
+      };
+      local_benchmarks?: {
+        status: "collecting" | "ready";
+        status_label: string;
+        message: string;
+        benchmarks: Array<{
+          symbol: string;
+          label: string;
+          eligible_outcomes: number;
+          errors: number;
+          cost_errors: number;
+          horizons: Array<{
+            days: number;
+            complete: number;
+            eligible: number;
+            minimum_required: number;
+            sufficient: boolean;
+            statistics: null | {
+              average_net_relative_return_pct: number;
+              net_benchmark_win_pct: number;
+            };
+          }>;
+        }>;
+      };
+      technical_reference?: {
+        version: string;
+        status: "collecting" | "ready";
+        status_label: string;
+        message: string;
+        eligible_outcomes: number;
+        classified_outcomes: number;
+        unavailable_outcomes: number;
+        buy_signals: number;
+        cash_signals: number;
+        rule_fingerprints: string[];
+        rule_consistent: boolean;
+        errors: number;
+        horizons: Array<{
+          days: number;
+          complete: number;
+          classified: number;
+          minimum_required: number;
+          sufficient: boolean;
+          statistics: null | {
+            average_model_net_return_pct: number;
+            average_reference_net_return_pct: number;
+            average_net_difference_pct: number;
+            median_net_difference_pct: number;
+            trimmed_average_net_difference_pct: number;
+            model_win_pct: number;
+          };
+        }>;
+      };
     };
   };
   backtest_validation: { status?: string; approved?: boolean; blocked_count?: number; warning_count?: number; checks?: Record<string, unknown>[] };

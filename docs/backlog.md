@@ -76,12 +76,12 @@ før målegrunnlaget er troverdig.
 * [ ] Verifiser at historiske fundamentaler bare bruker informasjon som var
   kjent på analysetidspunktet
 * [ ] Dokumenter og implementer håndtering av avnoterte selskaper
-* [ ] Sammenlign mot relevante lokale markedsindekser per region
-* [ ] Implementer en enkel trend-/momentumreferanse
-* [ ] Sammenlign dagens komplette modell mot referansene på identiske perioder
+* [x] Sammenlign mot relevante lokale markedsindekser per region
+* [x] Implementer en enkel trend-/momentumreferanse
+* [x] Sammenlign dagens komplette modell mot referansene på identiske perioder
   og kostnadsantakelser
 * [ ] Rapporter resultat separat per strategiprofil
-* [ ] Definer skriftlige godkjenningskriterier før modellen kan sies å skape
+* [x] Definer skriftlige godkjenningskriterier før modellen kan sies å skape
   merverdi
 
 ### Decision Journal
@@ -98,7 +98,15 @@ før målegrunnlaget er troverdig.
   avkastning
 * [x] Vis datadekning og marker råd som ikke kan evalueres pålitelig
   * Vis beskrivende statistikk per horisont først ved minst 30 modne råd
+* [x] Sammenlign kjøpsråd med ACWI på 5, 10, 20 og 40 handelsdager uten å
+  blande inn råd med en annen eller uklar avkastningsretning
   * Vent med samlet vurdering til minst 60 råd har fullført 40 handelsdager
+* [x] Lagre region og strategiprofil prospektivt for nye råd; ikke etterfyll
+  historiske journalposter med dagens klassifisering
+* [x] Behold bruttoresultater, men bruk kostnadsjustert meravkastning mot ACWI i
+  den versjonerte beslutningsporten
+* [x] Rapporter lokale markedsreferanser separat med minst 30 modne råd per
+  referanse og uten å endre ACWI-porten
 
 ### Beslutningsport
 

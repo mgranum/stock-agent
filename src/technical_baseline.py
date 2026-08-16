@@ -1,4 +1,6 @@
 import math
+from hashlib import sha256
+import json
 
 import pandas as pd
 
@@ -15,6 +17,9 @@ from src.technicals import get_benchmark_for_symbol
 
 
 NORDIC_SUFFIXES = (".OL", ".ST", ".CO", ".HE")
+TECHNICAL_BASELINE_VERSION = "technical_only_v1"
+TECHNICAL_REFERENCE_VERSION = "trend_momentum_v1"
+TECHNICAL_BASELINE_REQUIRED_TREND = "STERK OPPTREND"
 REQUIRED_PRICE_COLUMNS = {
     "open",
     "high",
@@ -23,6 +28,112 @@ REQUIRED_PRICE_COLUMNS = {
     "adjusted_close",
     "volume",
 }
+
+
+def _finite_number(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def technical_baseline_buy_signal(technical, market_regime, strategy_config):
+    """Apply the frozen technical-only entry rule to signal-time inputs."""
+    technical_score = _finite_number(technical.get("technical_score"))
+    relative_strength = _finite_number(technical.get("relative_strength_20d"))
+    trend_regime = str(technical.get("trend_regime") or "").strip()
+    if technical_score is None or relative_strength is None or not trend_regime:
+        raise ValueError("Teknisk referanse mangler signaldata.")
+
+    risk_on_ok = (
+        market_regime == "RISK_ON"
+        or not bool(strategy_config["require_risk_on"])
+    )
+    return (
+        risk_on_ok
+        and technical_score >= float(strategy_config["min_technical_score"])
+        and trend_regime == TECHNICAL_BASELINE_REQUIRED_TREND
+        and relative_strength
+        >= float(strategy_config["min_buy_relative_strength"])
+    )
+
+
+def trend_momentum_reference_signal(technical, min_relative_strength=0.0):
+    """Apply the deliberately simple prospective trend/momentum rule."""
+    relative_strength = _finite_number(technical.get("relative_strength_20d"))
+    trend_regime = str(technical.get("trend_regime") or "").strip()
+    if relative_strength is None or not trend_regime:
+        raise ValueError("Trend-/momentumreferansen mangler signaldata.")
+    return (
+        trend_regime == TECHNICAL_BASELINE_REQUIRED_TREND
+        and relative_strength >= float(min_relative_strength)
+    )
+
+
+def build_trend_momentum_reference_snapshot(
+    technical,
+    *,
+    config=None,
+):
+    """Freeze the simple technical reference decision at signal time."""
+    config = config or load_backtest_validation_config()
+    strategy_config = config.get("strategy") or {}
+    try:
+        rule = {
+            "required_trend_regime": TECHNICAL_BASELINE_REQUIRED_TREND,
+            "min_relative_strength_20d": float(
+                strategy_config["min_buy_relative_strength"]
+            ),
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        return {
+            "version": TECHNICAL_REFERENCE_VERSION,
+            "status": "unavailable",
+            "reason": f"Ugyldig teknisk referansekonfigurasjon: {exc}",
+        }
+
+    encoded_rule = json.dumps(
+        rule,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    technical = technical if hasattr(technical, "get") else {}
+    inputs = {
+        "trend_regime": str(technical.get("trend_regime") or "").strip() or None,
+        "relative_strength_20d": _finite_number(
+            technical.get("relative_strength_20d")
+        ),
+    }
+    if any(
+        inputs[key] is None
+        for key in (
+            "trend_regime",
+            "relative_strength_20d",
+        )
+    ):
+        return {
+            "version": TECHNICAL_REFERENCE_VERSION,
+            "status": "unavailable",
+            "reason": "Signalgrunnlaget mangler tekniske referanseverdier.",
+            "rule_fingerprint": sha256(encoded_rule).hexdigest()[:16],
+            "rule": rule,
+            "inputs": inputs,
+        }
+
+    buy = trend_momentum_reference_signal(
+        inputs,
+        rule["min_relative_strength_20d"],
+    )
+    return {
+        "version": TECHNICAL_REFERENCE_VERSION,
+        "status": "complete",
+        "action": "buy" if buy else "cash",
+        "rule_fingerprint": sha256(encoded_rule).hexdigest()[:16],
+        "rule": rule,
+        "inputs": inputs,
+    }
 
 
 def validate_chronological_datasets(datasets):
@@ -342,19 +453,13 @@ def backtest_technical_baseline(
             benchmark,
             signal_date,
         )["market_regime"]
-        risk_on_ok = (
-            market_regime == "RISK_ON"
-            or not strategy_config["require_risk_on"]
-        )
-
         buy_signal = (
             shares == 0
-            and risk_on_ok
-            and technical["technical_score"]
-            >= strategy_config["min_technical_score"]
-            and technical["trend_regime"] == "STERK OPPTREND"
-            and technical["relative_strength_20d"]
-            >= strategy_config["min_buy_relative_strength"]
+            and technical_baseline_buy_signal(
+                technical,
+                market_regime,
+                strategy_config,
+            )
         )
 
         if shares > 0:
@@ -508,7 +613,7 @@ def backtest_technical_baseline(
 
     summary = {
         "ticker": symbol,
-        "baseline": "technical_only_v1",
+        "baseline": TECHNICAL_BASELINE_VERSION,
         "start_date": prices.index[first_i].date().isoformat(),
         "end_date": prices.index[last_i].date().isoformat(),
         "signal_timing": "close_t",

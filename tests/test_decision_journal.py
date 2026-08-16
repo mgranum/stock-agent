@@ -1,6 +1,8 @@
 from datetime import date, datetime, timezone
 import json
 
+import pandas as pd
+
 from src.decision_journal import (
     build_decision_journal_entries,
     load_decision_journal,
@@ -54,6 +56,44 @@ def test_builds_traceable_entry_from_structured_recommendation():
     assert entry["decision"]["action_code"] == "consider_buy"
     assert entry["decision"]["target_price"] is None
     assert entry["evidence"]["reason"] == "Sterk kandidat."
+    assert entry["evidence"]["region"] == "norway"
+    assert entry["evidence"]["primary_profile"] == "unknown"
+    assert entry["evidence"]["local_benchmark"] == "OSEBX.OL"
+
+
+def test_captures_region_and_profile_from_signal_time_context():
+    context = _context()
+    context["discovery_candidates"] = pd.DataFrame(
+        [
+            {
+                "ticker": "KMAR.OL",
+                "primary_profile": "quality",
+                "source_universe": "OBX",
+                "technical_score": 82,
+                "trend_regime": "STERK OPPTREND",
+                "relative_strength_20d": 4.2,
+            }
+        ]
+    )
+
+    entry = build_decision_journal_entries(context)[0]
+
+    assert entry["evidence"]["region"] == "norway"
+    assert entry["evidence"]["primary_profile"] == "quality"
+    assert entry["evidence"]["local_benchmark"] == "OSEBX.OL"
+    reference = entry["evidence"]["technical_reference"]
+    assert reference["version"] == "trend_momentum_v1"
+    assert reference["status"] == "complete"
+    assert reference["action"] == "buy"
+    assert reference["inputs"]["relative_strength_20d"] == 4.2
+
+
+def test_marks_technical_reference_unavailable_without_signal_time_inputs():
+    entry = build_decision_journal_entries(_context())[0]
+
+    reference = entry["evidence"]["technical_reference"]
+    assert reference["status"] == "unavailable"
+    assert "mangler" in reference["reason"].lower()
 
 
 def test_deduplicates_same_material_advice():

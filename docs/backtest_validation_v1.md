@@ -177,3 +177,12 @@ Hver testfold rapporteres separat for:
 
 Regionsresultatene er gjennomsnitt av tickerresultater i regionen. De er ikke
 egne kapitalvektede regionale porteføljer i v1.
+
+## Fremoverskuende trend-/momentumreferanse
+
+Decision Journal bruker `trend_momentum_v1` for sammenligning på modellens
+faktiske kjøpsråd. Referansen krever bare `STERK OPPTREND` og ikke-negativ
+20-dagers relativ styrke. Den bruker faste 5/10/20/40-dagershorisonter og står i
+kontanter når regelen ikke er oppfylt. Den skal derfor ikke forveksles med den
+historiske `technical_only_v1`-testen, som også bruker teknisk totalscore,
+markedsregime, stop- og trend-exit.
