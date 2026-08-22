@@ -1,7 +1,13 @@
 import pandas as pd
 import pytest
 
-from src.company_detail_query import CompanyDetailQuery, PERIODS, normalize_ticker
+from src.company_detail_query import (
+    CompanyDetailQuery,
+    PERIODS,
+    _load_chart_prices,
+    _load_long_chart_prices,
+    normalize_ticker,
+)
 
 
 def _prices(rows=90):
@@ -69,6 +75,46 @@ def test_bypasses_short_daily_cache_for_long_chart_periods():
     query.get("NVDA", "maks")
 
     assert calls == [("NVDA", "5y", False), ("NVDA", "max", False)]
+
+
+def test_reloads_short_chart_prices_from_daily_cache(monkeypatch):
+    calls = []
+
+    def loader(symbol, period, use_cache):
+        calls.append((symbol, period, use_cache))
+        prices = _prices()
+        prices.loc[prices.index[-1], "close"] = 100.0 + len(calls)
+        return prices
+
+    monkeypatch.setattr("src.company_detail_query.get_daily_prices", loader)
+
+    first = _load_chart_prices("BOUV.OL", "1y", use_cache=True)
+    second = _load_chart_prices("BOUV.OL", "1y", use_cache=True)
+
+    assert calls == [("BOUV.OL", "1y", True), ("BOUV.OL", "1y", True)]
+    assert first.iloc[-1]["close"] == 101.0
+    assert second.iloc[-1]["close"] == 102.0
+
+
+def test_keeps_long_chart_history_in_memory(monkeypatch):
+    calls = []
+
+    def loader(symbol, period, use_cache):
+        calls.append((symbol, period, use_cache))
+        return _prices(900)
+
+    monkeypatch.setattr("src.company_detail_query.get_daily_prices", loader)
+    _load_long_chart_prices.cache_clear()
+    try:
+        first = _load_chart_prices("NVDA", "5y", use_cache=False)
+        second = _load_chart_prices("NVDA", "5y", use_cache=False)
+    finally:
+        _load_long_chart_prices.cache_clear()
+
+    assert calls == [("NVDA", "5y", False)]
+    assert first is second
+
+
 @pytest.mark.parametrize("ticker", ["", "NVDA/../../", "NVDA $", "A" * 21])
 def test_rejects_invalid_ticker(ticker):
     with pytest.raises(ValueError, match="Ugyldig ticker"):

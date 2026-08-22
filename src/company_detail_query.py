@@ -24,9 +24,15 @@ _DOWNLOAD_PERIOD = {
 _TICKER_PATTERN = re.compile(r"^[A-Z0-9^][A-Z0-9.^-]{0,19}$")
 
 
-@lru_cache(maxsize=128)
+@lru_cache(maxsize=32)
+def _load_long_chart_prices(symbol: str, period: str):
+    return get_daily_prices(symbol, period=period, use_cache=False)
+
+
 def _load_chart_prices(symbol: str, period: str, use_cache: bool = True):
-    return get_daily_prices(symbol, period=period, use_cache=use_cache)
+    if use_cache:
+        return get_daily_prices(symbol, period=period, use_cache=True)
+    return _load_long_chart_prices(symbol, period)
 
 
 @dataclass(frozen=True)
